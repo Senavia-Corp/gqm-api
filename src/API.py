@@ -1,7 +1,6 @@
 
 #--------------------- CÓDIGO ORIENTADO A PODIO---------------------
-# Paso 1: Crea una API en Python (Usando Flask)
-"""
+
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -12,15 +11,13 @@ def hello():
 
 if __name__ == '__main__':
     app.run(debug=True)
-"""
 
 
-#Paso 3
-"""
+
 import requests
 
-CLIENT_ID = 'TU_CLIENT_ID'
-CLIENT_SECRET = 'TU_CLIENT_SECRET'
+CLIENT_ID = 'gqm-admin-panel'
+CLIENT_SECRET = '7F788pt1ai4W1bWw4K43MSC0JZp8xdwR7uoNFRho2ahvBhEivSvv67z7bdqP4kce'
 
 auth_url = "https://podio.com/oauth/token"
 auth_data = {
@@ -32,6 +29,3 @@ auth_data = {
 response = requests.post(auth_url, data=auth_data)
 token = response.json()['access_token']
 print("Access Token:", token)
-"""
-
-
