@@ -1,4 +1,4 @@
-# ---------------------- EJEMPLO DE API ----------------------
+
 import os
 import json
 import datetime as dt
