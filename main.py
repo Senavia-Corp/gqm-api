@@ -1,4 +1,3 @@
-
 import os
 import json
 import datetime as dt
@@ -30,44 +29,36 @@ if _missing:
 
 app = Flask(__name__)
 
+# ----------------- UTILIDAD: eliminar nulls recursivamente -----------------
+def prune_nulls(obj, drop_empty=False):
+    """
+    Elimina recursivamente:
+      - claves con valor None en dicts
+      - elementos None en listas
+    Si drop_empty=True, también elimina dicts/listas que queden vacíos.
+    Mantiene 0/False/'': no se consideran null.
+    """
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if v is None:
+                continue
+            v2 = prune_nulls(v, drop_empty=drop_empty)
+            if drop_empty and (v2 == {} or v2 == []):
+                continue
+            out[k] = v2
+        return out
+    if isinstance(obj, list):
+        out = [prune_nulls(v, drop_empty=drop_empty) for v in obj if v is not None]
+        if drop_empty:
+            out = [v for v in out if not (v == {} or v == [])]
+        return obj
+    return obj
+
 # ----------------- TUS RUTAS ORIGINALES -----------------
 @app.route('/')
 def root():
     return "Home"
-
-@app.route("/jobs/<job_id>")
-def get_user(job_id):
-    jobs = {
-        "id": job_id,
-        "Job_type": "Construction",
-        "Project_Name": "Miami Residential Tower",
-        "Project_Location": "1234 Biscayne Blvd, Miami, FL 33132, USA",
-        "Job_Status": "In Progress",
-        "PO_WTN_WO_QID": "PO-98321",
-        "Service_Type": "Structural Engineering",
-        "Date_Assigned": "2025-08-15",
-        "Estimated_Start_Date": "2025-09-01",
-        "Estimated_Project_Duration": "180 days",
-        "GQM_Formula_Pricing": 1250000.00,
-        "GQM_Adj_Formula_Pricing": 1285000.00,
-        "GQM_Target_Sold_Pricing": 1350000.00,
-        "GQM_Premium_in_$": 50000.00,
-        "GQM_Final_Sold_Pricing": 1400000.00,
-        "GQM_Final_%": 12.5,
-        "GQM_Total_Change_Orders_QID": 3,
-        "ID_Member": "MBR1022",
-        "ID_Cliente": "CLI2099"
-    }
-    query = request.args.get("query")
-    if query:
-        jobs["query"] = query
-    return jsonify(jobs), 200
-
-@app.route('/users', methods=['POST'])
-def create_user():
-    data = request.get_json()
-    data["status"] = "user created"
-    return jsonify(data), 201
 
 # ----------------- UTILIDADES PODIO -----------------
 class PodioError(Exception):
@@ -144,10 +135,6 @@ def get_app_fields(access_token):
 def build_demo_fields_payload(meta_by_ext):
     """
     Arma un payload de ejemplo en base a los PRIMEROS campos disponibles por tipo.
-    - text      -> "Hola desde API (App Auth)"
-    - number    -> "123.45"
-    - date      -> start_date = hoy (YYYY-MM-DD)
-    - category  -> primera opción disponible (option_id)
     """
     payload_fields = {}
 
@@ -183,7 +170,6 @@ def build_demo_fields_payload(meta_by_ext):
 def create_item(access_token, fields_payload, external_id=None, hook=True, silent=False):
     """
     Crea un ítem en el App con los campos proporcionados.
-    fields_payload: dict con keys = external_id de campos del App.
     """
     try:
         url = f"{BASE_URL}/item/app/{PODIO_APP_ID}/"
@@ -211,9 +197,6 @@ def create_item(access_token, fields_payload, external_id=None, hook=True, silen
 def _fetch_items_page(access_token, limit=100, offset=0, view_id=None):
     """
     Trae una página de ítems del App usando el endpoint de filtros.
-    - Si pasas view_id, aplica esa vista guardada.
-    - limit máx. efectivo: 500
-    Retorna: lista de items (cada item trae fields, item_id, title, etc.)
     """
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
@@ -225,16 +208,13 @@ def _fetch_items_page(access_token, limit=100, offset=0, view_id=None):
         body = {"limit": limit, "offset": offset}
     else:
         url = f"{BASE_URL}/item/app/{PODIO_APP_ID}/filter/"
-        # body vacío = todos los ítems del app
         body = {"limit": limit, "offset": offset, "filters": {}}
 
     r = requests.post(url, json=body, headers=headers, timeout=40)
     r.raise_for_status()
     data = r.json()
-    # El endpoint suele responder {"items": [...], ...}
     if isinstance(data, dict) and "items" in data:
         return data["items"]
-    # fallback por si alguna versión responde lista
     if isinstance(data, list):
         return data
     return []
@@ -242,15 +222,16 @@ def _fetch_items_page(access_token, limit=100, offset=0, view_id=None):
 def _normalize_item(item, meta_by_ext, id_to_ext, category_mode="both"):
     """
     Convierte item["fields"] (lista) en dict por external_id con valores amigables.
-    Usa id_to_ext cuando el external_id no viene en la respuesta.
     """
     out = {
         "item_id": item.get("item_id"),
         "title": item.get("title"),
     }
+    # Solo copiar claves presentes y no-None
     for k in ("created_on", "last_event_on", "link", "app_item_id_formatted"):
-        if k in item:
-            out[k] = item[k]
+        v = item.get(k, None)
+        if v is not None:
+            out[k] = v
 
     fields_out = {}
 
@@ -262,12 +243,10 @@ def _normalize_item(item, meta_by_ext, id_to_ext, category_mode="both"):
         return None
 
     def resolve_external_id(field_obj):
-        # 1) Si viene bien formado como string, úsalo
         ext = field_obj.get("external_id")
         if isinstance(ext, str):
             return ext
 
-        # 2) A veces viene anidado como dict o lista: intenta extraer string
         if isinstance(ext, dict):
             for k in ("external_id", "value", "id"):
                 v = ext.get(k)
@@ -283,10 +262,8 @@ def _normalize_item(item, meta_by_ext, id_to_ext, category_mode="both"):
                         if isinstance(v, str):
                             return v
 
-        # 3) Fallback por field_id -> external_id usando id_to_ext
         fid = field_obj.get("field_id")
         if isinstance(fid, dict):
-            # ejemplos: {"id": 123}, {"field_id": 123}, {"value": 123}
             for k in ("field_id", "id", "value"):
                 v = fid.get(k)
                 fid_int = _coerce_int(v)
@@ -298,24 +275,19 @@ def _normalize_item(item, meta_by_ext, id_to_ext, category_mode="both"):
         if fid_int is not None:
             return id_to_ext.get(fid_int)
 
-        # 4) No se pudo resolver
         return None
 
     for f in item.get("fields", []):
         ext = resolve_external_id(f)
         if not isinstance(ext, str) or not ext:
-            # No pudimos mapear el campo -> lo saltamos
             continue
 
         ftype = f.get("type")
         values = f.get("values") or []
         meta = meta_by_ext.get(ext, {})
-        result = None
 
         def one(v):
-            if ftype in ("text", "location", "calculation"):
-                return v.get("value")
-            if ftype == "number":
+            if ftype in ("text", "location", "calculation", "number"):
                 return v.get("value")
             if ftype == "date":
                 return {
@@ -346,17 +318,21 @@ def _normalize_item(item, meta_by_ext, id_to_ext, category_mode="both"):
         else:
             result = [one(v) for v in values]
 
-        fields_out[ext] = result
+        # Si el resultado es None o queda vacío al podar, no se agrega
+        cleaned = prune_nulls(result)
+        if cleaned is not None and cleaned != {} and cleaned != []:
+            fields_out[ext] = cleaned
 
     out["fields"] = fields_out
-    return out
+    # Podamos nulos de todo el objeto normalizado
+    return prune_nulls(out)
 
 def list_items(access_token, meta_by_ext, limit=200, offset=0, fetch_all=False, view_id=None):
     """
     Orquesta la paginación. Si fetch_all=True, recorre todas las páginas en bloques de 500.
     """
-    items = []
     if fetch_all:
+        items = []
         page = 0
         while True:
             page_items = _fetch_items_page(access_token, limit=500, offset=page*500, view_id=view_id)
@@ -368,11 +344,9 @@ def list_items(access_token, meta_by_ext, limit=200, offset=0, fetch_all=False, 
             page += 1
         return items
 
-    # modo paginado simple
     return _fetch_items_page(access_token, limit=limit, offset=offset, view_id=view_id)
 
-
-# ----------------- RUTAS PODIO (para probar fácil) -----------------
+# ----------------- RUTAS PODIO -----------------
 @app.route("/podio/fields", methods=["GET"])
 def podio_fields():
     """
@@ -381,10 +355,11 @@ def podio_fields():
     try:
         token = get_app_token()
         _, maps = get_app_fields(token)
-        return jsonify(maps), 200
+        # (Meta no suele traer nulls relevantes, pero por consistencia:)
+        return jsonify(prune_nulls(maps)), 200
     except PodioError as e:
         return jsonify({"error": str(e)}), 502
-    
+
 @app.route("/podio/items", methods=["GET"])
 def podio_list_items():
     try:
@@ -407,9 +382,143 @@ def podio_list_items():
             view_id=view_id
         )
 
+        # --- formato raw (igual que antes) ---
         if fmt == "raw":
-            return jsonify({"count": len(raw_items), "items": raw_items}), 200
+            cleaned_raw = [prune_nulls(it) for it in raw_items]
+            return jsonify({"count": len(cleaned_raw), "items": cleaned_raw}), 200
 
+        # --- formato normalized (igual que antes) ---
+        if fmt == "normalized":
+            normalized = [
+                _normalize_item(it, maps["meta_by_ext"], maps["id_to_ext"], category_mode=category_mode)
+                for it in raw_items
+            ]
+            return jsonify({
+                "count": len(normalized),
+                "items": normalized,
+                "view_id": view_id,
+                "fetch_all": fetch_all
+            }), 200
+
+        # --- nuevo formato: extracted ---
+        if fmt in ("extracted", "extract", "raw-extracted"):
+            def find_field(item, *, label=None, external_id=None):
+                for f in item.get("fields", []):
+                    if label is not None and f.get("label") == label:
+                        return f
+                    if external_id is not None and f.get("external_id") == external_id:
+                        return f
+                return None
+
+            def value_from_field(field):
+                """Valor 'humano' según tipo."""
+                if not field or not field.get("values"):
+                    return None
+
+                vals = field["values"]
+
+                def one(v, ftype):
+                    if ftype in ("text", "location", "calculation", "number"):
+                        return v.get("value")
+                    if ftype == "category":
+                        vv = v.get("value")
+                        if isinstance(vv, dict):
+                            return vv.get("text")
+                        return vv
+                    if ftype == "date":
+                        return v.get("start_date") or v.get("start")
+                    if ftype in ("app", "contact"):
+                        return v.get("value")
+                    return v.get("value", v)
+
+                ftype = field.get("type")
+                if len(vals) == 1:
+                    return one(vals[0], ftype)
+                return [one(v, ftype) for v in vals]
+
+            extracted_items = []
+            for item in raw_items:
+                # Helper con fallback por label/external_id
+                get = lambda lbl=None, ext=None: value_from_field(
+                    find_field(item, label=lbl, external_id=ext)
+                )
+
+                # ------- Client: (app_item_id, title) -------
+                client_val = get(lbl="Client", ext="relationship")
+                def client_tuple(val):
+                    if isinstance(val, dict):
+                        return (val.get("app_item_id"), val.get("title"))
+                    if isinstance(val, list):
+                        t = []
+                        for obj in val:
+                            if isinstance(obj, dict):
+                                t.append((obj.get("app_item_id"), obj.get("title")))
+                        return t or None
+                    return None
+                client_pair = client_tuple(client_val)
+                # Por compatibilidad, ID_Cliente sigue siendo solo el id (si es único)
+                if isinstance(client_pair, tuple):
+                    id_cliente = client_pair[0]
+                elif isinstance(client_pair, list) and client_pair:
+                    id_cliente = client_pair[0][0]
+                else:
+                    id_cliente = None
+
+                # ------- Acc Rep Selling: (app_item_id, created_by.name) -------
+                acc_val = get(lbl="Acc Rep Selling", ext="relation-rep")
+                def acc_rep_pairs(val):
+                    if isinstance(val, dict):
+                        name = (val.get("created_by") or {}).get("name")
+                        return (val.get("app_item_id"), name)
+                    if isinstance(val, list):
+                        pairs = []
+                        for obj in val:
+                            if isinstance(obj, dict):
+                                name = (obj.get("created_by") or {}).get("name")
+                                pairs.append((obj.get("app_item_id"), name))
+                        return pairs or None
+                    return None
+                acc_pairs = acc_rep_pairs(acc_val)
+
+                # Construcción del extract
+                res = {
+                    "app_item_id_formatted": item.get("app_item_id_formatted"),
+                    "Project Name": get(lbl="Project Name", ext="project-name-2"),
+                    "Project Location": get(lbl="Project Location", ext="project-location"),
+                    "Job Status": get(lbl="Job Status", ext="job-status"),
+                    "PO/WTN/WO# (QID)": (
+                        get(lbl="Segment QID", ext="segment-id") or item.get("app_item_id_formatted")
+                    ),
+                    "Service Type": get(lbl="Service Type", ext="service-type"),
+                    "Date Assigned": get(lbl="Date Assigned", ext="date-received"),
+                    "Estimated Start Date": get(lbl="Estimated Start Date"),
+                    "Estimated project duration": get(lbl="Estimated project duration"),
+                    "GQM (Formula) Pricing": get(lbl="GQM (Formula) Pricing", ext="gqm-formula-total-cost"),
+                    "GQM (Adj Formula) Pricing": get(lbl="GQM (Adj Formula) Pricing", ext="gqm-adj-formula-pricing"),
+                    "GQM (Target) Sold Pricing": get(lbl="GQM (Target) Sold Pricing"),
+                    "GQM (Premium in $)": get(lbl="2025 GQM (Premium in $)", ext="gqm-pricing-return-premium-in"),
+                    "GQM (Final Sold) Pricing": get(lbl="GQM (Final Sold) Pricing", ext="gqm-final-pricing"),
+                    "GQM (Final) %": get(lbl="GQM (Final) %"),  # si existe en el App
+                    "GQM Total Change Orders": get(lbl="GQM Total Change Orders ", ext="total-change-orders"),
+                    "initial_revision.created_by.user_id": (
+                        item.get("initial_revision", {}).get("created_by", {}).get("user_id")
+                    ),
+                    "ID_Cliente": id_cliente,
+                    "Client (app_item_id, title)": client_pair,
+                    "Acc Rep Selling (app_item_id, name)": acc_pairs,
+                }
+
+                extracted_items.append(prune_nulls(res))
+
+            return jsonify({
+                "count": len(extracted_items),
+                "items": extracted_items,
+                "view_id": view_id,
+                "fetch_all": fetch_all,
+                "format": "extracted"
+            }), 200
+
+        # fallback: normalized
         normalized = [
             _normalize_item(it, maps["meta_by_ext"], maps["id_to_ext"], category_mode=category_mode)
             for it in raw_items
@@ -430,11 +539,7 @@ def podio_list_items():
 @app.route("/podio/items/demo", methods=["POST"])
 def podio_create_demo_item():
     """
-    Crea un ítem de prueba:
-    - Si el body trae "fields", se usa tal cual.
-    - Si no, se arma un payload demo automáticamente.
-    Body opcional:
-      { "fields": {...}, "external_id": "mi-id-externo", "hook": true, "silent": false }
+    Crea un ítem de prueba.
     """
     try:
         body = request.get_json(silent=True) or {}
@@ -447,7 +552,7 @@ def podio_create_demo_item():
         silent = bool(body.get("silent", False))
 
         created = create_item(token, fields_payload, external_id=external_id, hook=hook, silent=silent)
-        return jsonify(created), 201
+        return jsonify(prune_nulls(created)), 201
     except PodioError as e:
         return jsonify({"error": str(e)}), 502
 
@@ -455,8 +560,6 @@ def podio_create_demo_item():
 def podio_create_item_custom():
     """
     Crea un ítem con los "fields" EXACTOS que envíes.
-    Body requerido:
-      { "fields": { "<external_id>": {...}, ... }, "external_id": "opcional" }
     """
     try:
         body = request.get_json(force=True)
@@ -467,7 +570,7 @@ def podio_create_item_custom():
         token = get_app_token()
         external_id = body.get("external_id")
         created = create_item(token, fields_payload, external_id=external_id)
-        return jsonify(created), 201
+        return jsonify(prune_nulls(created)), 201
     except PodioError as e:
         return jsonify({"error": str(e)}), 502
     except Exception as e:
@@ -476,3 +579,4 @@ def podio_create_item_custom():
 # ----------------- MAIN -----------------
 if __name__=='__main__':
     app.run(debug=True)
+

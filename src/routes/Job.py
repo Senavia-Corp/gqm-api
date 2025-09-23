@@ -20,6 +20,7 @@ def get_jobs():
 @main.route('/<id_job>')
 def get_job(id_job):
     try:
+        #xxxxx 
         job=JobModel.get_job(id_job)
         if job != None:
             return jsonify(job)
@@ -42,7 +43,7 @@ def add_job():
         affected_rows=JobModel.add_job(job)
 
         if affected_rows==1:
-            return jsonify(job.id_job)
+            return jsonify({'message':f"Project added: {job.id_job}"})
         else:
             return jsonify({'message':"Error on insert"}),500
 
@@ -62,7 +63,7 @@ def update_job(id_job):
         affected_rows=JobModel.update_job(job)
 
         if affected_rows==1:
-            return jsonify(job)
+            return jsonify(job.to_JSON())
         else:
             return jsonify({'message':"No job updated"}),404
 
@@ -79,7 +80,7 @@ def delete_job(id_job):
         affected_rows=JobModel.delete_job(job)
 
         if affected_rows==1:
-            return jsonify(job.id_job)
+            return jsonify({'message':f"Project deleted: {job.id_job}"})
         else:
             return jsonify({'message':"No job deleted"}),404
 
