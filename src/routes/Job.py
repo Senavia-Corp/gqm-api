@@ -37,8 +37,22 @@ def add_job():
         project_name = request.json['project_name']
         project_location = request.json['project_location']
         job_status = request.json['job_status']
+        po_wtn_wo = request.json['po_wtn_wo']
+        service_type = request.json['service_type']
+        date_assigned = request.json['date_assigned']
+        gqm_formula_pricing = request.json['gqm_formula_pricing']
+        gqm_adj_formula_pricing = request.json['gqm_adj_formula_pricing']
+        gqm_target_sold_pricing = request.json['gqm_target_sold_pricing']
+        gqm_premium_in_money = request.json['gqm_premium_in_money']
+        gqm_final_sold_pricing = request.json['gqm_final_sold_pricing']
+        gqm_final_percentage = request.json['gqm_final_percentage']
+        gqm_total_change_orders = request.json['gqm_total_change_orders']
+        id_member = request.json['id_member']
+        id_client = request.json['id_client']
 
-        job=Job(id_job, project_name, project_location, job_status)
+        job=Job(id_job, project_name, project_location, job_status, po_wtn_wo, service_type, date_assigned,gqm_formula_pricing,
+                gqm_adj_formula_pricing, gqm_target_sold_pricing, gqm_premium_in_money, gqm_final_sold_pricing, 
+                gqm_final_percentage, gqm_total_change_orders, id_member,id_client)
 
         affected_rows=JobModel.add_job(job)
 
@@ -51,6 +65,7 @@ def add_job():
         return jsonify({'message':str(ex)}),500
 
 #To Update a Job
+#TAREA: Completar el update para todos los campos de job 
 @main.route('/update/<id_job>',methods=['PUT'])
 def update_job(id_job):
     try:
