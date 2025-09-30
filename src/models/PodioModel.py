@@ -3,7 +3,7 @@ import requests
 from typing import Tuple, Dict, Any, List, Optional
 
 from src.config import BASE_URL, TOKEN_URL, PODIO_APP_ID, PODIO_APP_TOKEN, PODIO_CLIENT_ID, PODIO_CLIENT_SECRET
-from ..utils.common import PodioError, prune_nulls
+from ..utils.common import PodioError#, prune_nulls
 
 
 class PodioModel:
@@ -184,19 +184,15 @@ class PodioModel:
 
     # ========= NORMALIZACIÓN =========
     @staticmethod
-    def _normalize_item(item: Dict[str, Any], meta_by_ext: Dict[str, Any], id_to_ext: Dict[int, str],
-                        category_mode: str = "both") -> Dict[str, Any]:
-        """
-        Convierte item["fields"] (lista) en dict por external_id con valores amigables.
-        """
+    def _normalize_item(item: dict, meta_by_ext: dict, id_to_ext: dict, category_mode: str = "both") -> dict:
         out = {
             "item_id": item.get("item_id"),
             "title": item.get("title"),
+            "created_on": item.get("created_on"),
+            "last_event_on": item.get("last_event_on"),
+            "link": item.get("link"),
+            "app_item_id_formatted": item.get("app_item_id_formatted"),
         }
-        for k in ("created_on", "last_event_on", "link", "app_item_id_formatted"):
-            v = item.get(k, None)
-            if v is not None:
-                out[k] = v
 
         fields_out = {}
 
@@ -211,7 +207,6 @@ class PodioModel:
             ext = field_obj.get("external_id")
             if isinstance(ext, str):
                 return ext
-
             if isinstance(ext, dict):
                 for k in ("external_id", "value", "id"):
                     v = ext.get(k)
@@ -226,7 +221,6 @@ class PodioModel:
                             v = el.get(k)
                             if isinstance(v, str):
                                 return v
-
             fid = field_obj.get("field_id")
             if isinstance(fid, dict):
                 for k in ("field_id", "id", "value"):
@@ -235,11 +229,9 @@ class PodioModel:
                     if fid_int is not None:
                         return id_to_ext.get(fid_int)
                 return None
-
             fid_int = _coerce_int(fid)
             if fid_int is not None:
                 return id_to_ext.get(fid_int)
-
             return None
 
         for f in item.get("fields", []):
@@ -283,10 +275,10 @@ class PodioModel:
             else:
                 result = [one(v) for v in values]
 
-            cleaned = prune_nulls(result)
-            if cleaned is not None and cleaned != {} and cleaned != []:
-                fields_out[ext] = cleaned
+            # 👉 ahora SIEMPRE incluimos la clave, aunque result sea None
+            fields_out[ext] = result
 
         out["fields"] = fields_out
-        return prune_nulls(out)
+        return out
+
     

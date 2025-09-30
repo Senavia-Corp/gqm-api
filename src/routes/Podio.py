@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from ..utils.common import prune_nulls, PodioError
+from ..utils.common import PodioError#, prune_nulls
 from ..models.PodioModel import PodioModel
 
 podio_bp = Blueprint("podio_blueprint", __name__, url_prefix="/podio")
@@ -11,7 +11,7 @@ def podio_fields():
     try:
         token = PodioModel.get_app_token()
         _, maps = PodioModel.get_app_fields(token)
-        return jsonify(prune_nulls(maps)), 200
+        return jsonify(maps), 200
     except PodioError as e:
         return jsonify({"error": str(e)}), 502
 
@@ -39,8 +39,10 @@ def podio_list_items():
         )
 
         if fmt == "raw":
-            cleaned_raw = [prune_nulls(it) for it in raw_items]
-            return jsonify({"count": len(cleaned_raw), "items": cleaned_raw}), 200
+            #Antes cuando omitia los valores nulos:
+            #cleaned_raw = [prune_nulls(it) for it in raw_items]
+            #return jsonify({"count": len(cleaned_raw), "items": cleaned_raw}), 200
+            return jsonify({"count": len(raw_items), "items": raw_items}), 200
 
         if fmt == "normalized":
             normalized = [
@@ -161,8 +163,9 @@ def podio_list_items():
                     "Client (app_item_id, title)": client_pair,
                     "Acc Rep Selling (app_item_id, name)": acc_pairs,
                 }
-
-                extracted_items.append(prune_nulls(res))
+                #Antes cuando omitia los valores nulos:
+                #extracted_items.append(prune_nulls(res))
+                extracted_items.append(res)
 
             return jsonify({
                 "count": len(extracted_items),
@@ -184,7 +187,7 @@ def podio_list_items():
             "fetch_all": fetch_all
         }), 200
 
-    except requests.HTTPError as e:
+    except request.HTTPError as e:
         return jsonify({"error": f"Podio API: {e.response.text}"}), 502
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -204,7 +207,7 @@ def podio_create_demo_item():
         silent = bool(body.get("silent", False))
 
         created = PodioModel.create_item(token, fields_payload, external_id=external_id, hook=hook, silent=silent)
-        return jsonify(prune_nulls(created)), 201
+        return jsonify(created), 201 #jsonify(prune_nulls(created)), 201 ##Antes cuando omitia los valores nulos
     except PodioError as e:
         return jsonify({"error": str(e)}), 502
 
@@ -221,7 +224,7 @@ def podio_create_item_custom():
         token = PodioModel.get_app_token()
         external_id = body.get("external_id")
         created = PodioModel.create_item(token, fields_payload, external_id=external_id)
-        return jsonify(prune_nulls(created)), 201
+        return jsonify(created), 201 #jsonify(prune_nulls(created)), 201 ##Antes cuando omitia los valores nulos
     except PodioError as e:
         return jsonify({"error": str(e)}), 502
     except Exception as e:

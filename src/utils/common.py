@@ -2,7 +2,8 @@ class PodioError(Exception):
     """Error de integración con Podio."""
     pass
 
-
+##Antes cuando omitia los valores nulos:
+'''
 def prune_nulls(obj, drop_empty=False):
     """
     Elimina recursivamente:
@@ -27,3 +28,5 @@ def prune_nulls(obj, drop_empty=False):
             out = [v for v in out if not (v == {} or v == [])]
         return out
     return obj
+    
+'''
