@@ -1,23 +1,32 @@
 from flask import Flask
-
 # Blueprints
-from src.routes.Podio import podio_bp
-# OJO: tu routes/Job.py ya define 'main' como blueprint; puedes importarlo y registrarlo si quieres:
-# from routes.Job import main as job_bp
-
+from src.database.db import init_db, db #Importados para ORM
+from src.routes.Job import job_bp
+from src.routes.Client import client_bp #Importados para ORM
+from src.routes.Subcontractor import subcontractor_bp
 
 def create_app():
     app = Flask(__name__)
+    
+    # Inicializa ORM
+    init_db(app)
+    
+    #  Crea tablas que no existan (NO borra nada). 
+    #   Es seguro dejarlo en dev; en prod se recomienda Alembic.
+    with app.app_context():
+        db.create_all()
+        
+    # Registrar blueprints
+    app.register_blueprint(job_bp)
+    app.register_blueprint(client_bp)
+    app.register_blueprint(subcontractor_bp)
+
 
     # Ruta simple de home
-    @app.route("/")
+    @app.get("/")
     def root():
         return "Home"
-
-    # Registrar blueprints
-    app.register_blueprint(podio_bp)
-    # app.register_blueprint(job_bp, url_prefix="/jobs")   # opcional, si quieres prefijo
-
+    
     return app
 
 

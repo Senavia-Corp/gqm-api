@@ -23,8 +23,20 @@ TOKEN_URL = "https://api.podio.com/oauth/token/v2"
 # Credenciales (desde .env)
 PODIO_CLIENT_ID = os.getenv("PODIO_CLIENT_ID")
 PODIO_CLIENT_SECRET = os.getenv("PODIO_CLIENT_SECRET")
+
+#Credenciales del App Test Admin Panel
+PODIO_TEST_ADMIN_PANEL_APP_ID = os.getenv("PODIO_TEST_ADMIN_PANEL_APP_ID")
+PODIO_TEST_ADMIN_PANEL_APP_TOKEN = os.getenv("PODIO_TEST_ADMIN_PANEL_APP_TOKEN")
+#Credenciales del App QID2025
 PODIO_APP_ID = os.getenv("PODIO_APP_ID")
 PODIO_APP_TOKEN = os.getenv("PODIO_APP_TOKEN")
+#Credenciales del App Clients
+PODIO_CLIENTS_APP_ID = os.getenv("PODIO_CLIENTS_APP_ID")
+PODIO_CLIENTS_APP_TOKEN = os.getenv("PODIO_CLIENTS_APP_TOKEN")
+#Credenciales del App Subcontractors
+PODIO_SUBCONTRACTORS_APP_ID = os.getenv("PODIO_SUBCONTRACTORS_APP_ID")
+PODIO_SUBCONTRACTORS_APP_TOKEN = os.getenv("PODIO_SUBCONTRACTORS_APP_TOKEN")
+
 
 _missing = [k for k, v in {
     "PODIO_CLIENT_ID": PODIO_CLIENT_ID,
@@ -35,3 +47,6 @@ _missing = [k for k, v in {
 
 if _missing:
     print(f"[WARN] Faltan variables en .env: {', '.join(_missing)}")
+    
+# URL de Postgres para SQLAlchemy-Hace parte de la DB
+DATABASE_URL = os.getenv("DATABASE_URL") 
