@@ -172,7 +172,7 @@ def _jobs_list_items(access_token: str, meta_by_ext: dict, *, limit=200, offset=
         return items
     return _jobs_fetch_items_page(access_token, limit=limit, offset=offset, view_id=view_id)
 
-# ============ NORMALIZACIÓN (copia local, sin prune) ============
+# ============ NORMALIZACIÓN (copia local, sin prune) ============ PROBABLEMENTE NO MIRAR ESTO :D
 def _jobs_normalize_item(item: dict, meta_by_ext: dict, id_to_ext: dict, *, category_mode="both") -> dict:
     """
     Convierte item["fields"] (lista) en dict por external_id con valores amigables.
