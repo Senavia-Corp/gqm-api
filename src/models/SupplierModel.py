@@ -12,7 +12,7 @@ class SupplierBase(SQLModel):
     Speciality: Optional[str] = Field(default=None)
     Email_Address: Optional[str] = Field(default=None)
     Coverage_Area: Optional[str] = Field(default=None)
-    Phone_Number: Optional[int] = Field(default=None)
+    Phone_Number: Optional[str] = Field(default=None)
     Address: Optional[str] = Field(default=None)
 
 
@@ -21,6 +21,7 @@ class Supplier(SupplierBase, table=True):
     # ID opcional porque Postgre le puede dar un id si la persona no lo digita.
     ID_Supplier: Optional[int] = Field(default=None, primary_key=True)
     # AQUI VAN LAS RELACIONES----------
+    # Crear funcion que autogenere un str dependiendo del trabajo (con un formato en especifico. ej: QID122025)
 
 
 class SupplierCreate(SupplierBase):
@@ -36,5 +37,5 @@ class SupplierUpdate(SQLModel):
     Speciality: Optional[str] = Field(default=None)
     Email_Address: Optional[str] = Field(default=None)
     Coverage_Area: Optional[str] = Field(default=None)
-    Phone_Number: Optional[int] = Field(default=None)
+    Phone_Number: Optional[str] = Field(default=None)
     Address: Optional[str] = Field(default=None)
