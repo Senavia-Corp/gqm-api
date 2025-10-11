@@ -1,4 +1,5 @@
 from flask import Flask
+import sys
 # Blueprints
 from src.database.db import init_db, db  # Importados para ORM
 from src.routes.Job import job_bp
@@ -37,5 +38,15 @@ def create_app():
 
 
 if __name__ == "__main__":
-    app = create_app()
-    app.run(debug=True)
+    try:
+        app = create_app()
+        app.run(debug=True)
+
+    except RuntimeError as e:
+        print(f"\n[ERROR CRÍTICO] La aplicación no pudo iniciar: {e}")
+        # Para terminar la ejecución de un programa inmediatamente, indicando que fue por un error
+        sys.exit(1)
+
+    except Exception as e:
+        print(f"\n[ERROR FATAL] Fallo inesperado al iniciar: {e}")
+        sys.exit(1)
