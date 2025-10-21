@@ -19,7 +19,7 @@ class SupplierBase(SQLModel):
 class Supplier(SupplierBase, table=True):
     __tablename__ = "supplier"
     # ID opcional porque Postgre le puede dar un id si la persona no lo digita.
-    ID_Supplier: Optional[int] = Field(default=None, primary_key=True)
+    ID_Supplier: Optional[str] = Field(default=None, primary_key=True)
     # AQUI VAN LAS RELACIONES----------
     # Crear funcion que autogenere un str dependiendo del trabajo (con un formato en especifico. ej: QID122025)
 

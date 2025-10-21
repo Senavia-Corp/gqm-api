@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.SupplierModel import Supplier, SupplierCreate, SupplierUpdate
+from ..utils.id_generator import generate_custom_id
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 
@@ -76,6 +77,10 @@ def create_supplier():
 
     try:
         with get_session() as session:
+            new_id = generate_custom_id(
+                session, Supplier, "ID_Supplier", "SUP")
+            obj.ID_Supplier = new_id
+
             session.add(obj)
             session.commit()
             session.refresh(obj)
