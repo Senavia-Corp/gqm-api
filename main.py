@@ -1,49 +1,52 @@
-# ---------------------- EJEMPLO DE API ----------------------
-from flask import Flask, jsonify, request
+from flask import Flask
+import sys
+# Blueprints
+from src.database.db import init_db, db  # Importados para ORM
+from src.routes.Job import job_bp
+from src.routes.Client import client_bp
+from src.routes.Subcontractor import subcontractor_bp
+# Intento con SQLModel:
+from src.database.db_sqlmodel import init_sqlmodel_db
+from src.routes.Supplier import supplier_bp
 
-app = Flask(__name__)
 
-@app.route('/')
-def root():
-    return "Home"
+def create_app():
+    app = Flask(__name__)
 
-@app.route("/jobs/<job_id>")
-def get_user(job_id):
-    #jobs = {"id":user_id,"name":"test","telefono":"999-666-333"}
-    jobs = {
-        "id": job_id,
-        "Job_type": "Construction",
-        "Project_Name": "Miami Residential Tower",
-        "Project_Location": "1234 Biscayne Blvd, Miami, FL 33132, USA",
-        "Job_Status": "In Progress",
-        "PO_WTN_WO_QID": "PO-98321",
-        "Service_Type": "Structural Engineering",
-        "Date_Assigned": "2025-08-15",
-        "Estimated_Start_Date": "2025-09-01",
-        "Estimated_Project_Duration": "180 days",
-        "GQM_Formula_Pricing": 1250000.00,
-        "GQM_Adj_Formula_Pricing": 1285000.00,
-        "GQM_Target_Sold_Pricing": 1350000.00,
-        "GQM_Premium_in_$": 50000.00,
-        "GQM_Final_Sold_Pricing": 1400000.00,
-        "GQM_Final_%": 12.5,
-        "GQM_Total_Change_Orders_QID": 3,
-        "ID_Member": "MBR1022",
-        "ID_Cliente": "CLI2099"
-        }
+    # Inicializa ORM
+    init_db(app)
 
-    # /users/2654?query=query_test
-    # /jobs/QID51253?query=query_test
-    query = request.args.get("query")
-    if query:
-        jobs["query"] = query
-    return jsonify(jobs), 200
+    #  Crea tablas que no existan (NO borra nada).
+    #   Es seguro dejarlo en dev; en prod se recomienda Alembic.
+    with app.app_context():
+        # db.create_all()
+        init_sqlmodel_db()
 
-@app.route('/users', methods=['POST'])
-def create_user():
-    data = request.get_json()
-    data["status"]="user created"
-    return jsonify(data), 201
+    # Registrar blueprints
+    app.register_blueprint(job_bp)
+    app.register_blueprint(client_bp)
+    app.register_blueprint(subcontractor_bp)
+    app.register_blueprint(supplier_bp)
 
-if __name__=='__main__':
-    app.run(debug=True)
+    # Ruta simple de home
+
+    @app.get("/")
+    def root():
+        return "Home"
+
+    return app
+
+
+if __name__ == "__main__":
+    try:
+        app = create_app()
+        app.run(debug=True)
+
+    except RuntimeError as e:
+        print(f"\n[ERROR CRÍTICO] La aplicación no pudo iniciar: {e}")
+        # Para terminar la ejecución de un programa inmediatamente, indicando que fue por un error
+        sys.exit(1)
+
+    except Exception as e:
+        print(f"\n[ERROR FATAL] Fallo inesperado al iniciar: {e}")
+        sys.exit(1)
