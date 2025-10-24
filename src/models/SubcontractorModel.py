@@ -1,52 +1,44 @@
 import requests
-from sqlalchemy.dialects.postgresql import INTEGER
-from ..database.db import db
-from src.config import (                 # ← recuerda: config.py está dentro de src/
+from src.config import (                 # Para Podio
     BASE_URL, TOKEN_URL,
     PODIO_CLIENT_ID, PODIO_CLIENT_SECRET,
     PODIO_SUBCONTRACTORS_APP_ID, PODIO_SUBCONTRACTORS_APP_TOKEN
 )
 
-# =========================
-#   MODELO ORM (Postgres)
-# =========================
-class SubcontractorORM(db.Model):
-    """
-    Mapea la tabla 'subcontractor'.
-    Nota: Algunas columnas en BD tienen espacios; en Python usamos
-    nombres 'limpios' y mapeamos al nombre real con el primer argumento de Column.
-    """
+# ==================================== Modelos para PostgreSQL ====================================#
+
+from sqlmodel import SQLModel, Field
+from typing import Optional
+
+
+class SubcontractorBase(SQLModel):  # REVISAR LAS OBLIGATORIAS ###
+    Organization: str
+    Name: str
+    Email_Address: Optional[str] = Field(default=None)
+    Phone_Number: Optional[str] = Field(default=None)
+    Organization_Website: Optional[str] = Field(default=None)
+    Address: Optional[str] = Field(default=None)
+    State: Optional[str] = Field(default=None)
+    Score: Optional[float] = Field(default=None)
+    Gqm_compliance: Optional[str] = Field(default=None)
+    Gqm_best_service_training: Optional[str] = Field(default=None)
+
+
+class Subcontractor(SubcontractorBase, table=True):
     __tablename__ = "subcontractor"
 
-    id_subcontractor = db.Column("ID_Subcontractor", db.String(64), primary_key=True)
-    organization = db.Column("Organization", db.String(255), nullable=True)
-    name = db.Column("Name", db.String(255), nullable=True)
-    email = db.Column("Email", db.String(255), nullable=True)
-    phone = db.Column("Phone", INTEGER, nullable=True)  # si necesitas strings con ceros a la izquierda, cámbialo a String
-    organization_web_site = db.Column("Organization Web Site", db.String(255), nullable=True)
-    address = db.Column("Address", db.String(255), nullable=True)
-    state = db.Column("State", db.String(100), nullable=True)
-    score = db.Column("Score", db.Float, nullable=True)
-    gqm_compliancegqm = db.Column("GQM ComplianceGQM", db.String(255), nullable=True)
-    best_service_training = db.Column("Best Service Training", db.String(255), nullable=True)
-    id_rol = db.Column("ID_Rol", db.String(64), nullable=True)  # por ahora no FK
+    ID_Subcontractor: Optional[str] = Field(default=None, primary_key=True)
 
-    def to_dict(self):
-        """Serialización amigable para la API (usamos nombres limpios)."""
-        return {
-            "id_subcontractor": self.id_subcontractor,
-            "organization": self.organization,
-            "name": self.name,
-            "email": self.email,
-            "phone": self.phone,
-            "organization_web_site": self.organization_web_site,
-            "address": self.address,
-            "state": self.state,
-            "score": self.score,
-            "gqm_compliancegqm": self.gqm_compliancegqm,
-            "best_service_training": self.best_service_training,
-            "id_rol": self.id_rol,
-        }
+    # ID_Rol: Optional[str] = Field(default=None, foreign_key="rol.ID_Rol")
+
+
+class SubcontractorCreate(SubcontractorBase):
+    pass
+
+
+class SubcontractorUpdate(SubcontractorBase):
+    Organization: Optional[str] = Field(default=None)
+    Name: Optional[str] = Field(default=None)
 
 
 # =========================
@@ -56,7 +48,8 @@ class SubcontractorORM(db.Model):
 def _subc_get_app_token() -> str:
     """App Auth para el App 'Subcontractors' en Podio (usa .env)."""
     if not PODIO_SUBCONTRACTORS_APP_ID or not PODIO_SUBCONTRACTORS_APP_TOKEN:
-        raise RuntimeError("Faltan PODIO_SUBCONTRACTORS_APP_ID / PODIO_SUBCONTRACTORS_APP_TOKEN en .env")
+        raise RuntimeError(
+            "Faltan PODIO_SUBCONTRACTORS_APP_ID / PODIO_SUBCONTRACTORS_APP_TOKEN en .env")
 
     payload = {
         "grant_type": "app",
@@ -74,7 +67,8 @@ def _subc_get_app_token() -> str:
 def _subc_get_app_fields(access_token: str):
     """Lee definición del App 'Subcontractors' y arma mapas de campos."""
     url = f"{BASE_URL}/app/{int(PODIO_SUBCONTRACTORS_APP_ID)}"
-    r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=20)
+    r = requests.get(
+        url, headers={"Authorization": f"Bearer {access_token}"}, timeout=20)
     r.raise_for_status()
     app_json = r.json()
 
@@ -116,7 +110,8 @@ def _subc_fetch_items_page(access_token: str, *, limit=100, offset=0, view_id=No
     """Trae una página de ítems del App 'Subcontractors'."""
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Content-Type": "application/json"}
 
     if view_id:
         url = f"{BASE_URL}/item/app/{int(PODIO_SUBCONTRACTORS_APP_ID)}/filter/{int(view_id)}/"
@@ -140,7 +135,8 @@ def _subc_list_items(access_token: str, meta_by_ext: dict, *, limit=200, offset=
     if fetch_all:
         items, page = [], 0
         while True:
-            pg = _subc_fetch_items_page(access_token, limit=500, offset=page * 500, view_id=view_id)
+            pg = _subc_fetch_items_page(
+                access_token, limit=500, offset=page * 500, view_id=view_id)
             if not pg:
                 break
             items.extend(pg)
@@ -165,8 +161,10 @@ def _subc_normalize_item(item: dict, meta_by_ext: dict, id_to_ext: dict, *, cate
     fields_out = {}
 
     def _coerce_int(x):
-        if isinstance(x, int): return x
-        if isinstance(x, str) and x.isdigit(): return int(x)
+        if isinstance(x, int):
+            return x
+        if isinstance(x, str) and x.isdigit():
+            return int(x)
         return None
 
     def resolve_external_id(field_obj):
@@ -223,7 +221,8 @@ def _subc_normalize_item(item: dict, meta_by_ext: dict, id_to_ext: dict, *, cate
                 opt_id = v.get("value")
                 opt_text = v.get("text")
                 if not opt_text and isinstance(meta.get("category_options"), dict):
-                    inv = {oid: t for t, oid in meta["category_options"].items()}
+                    inv = {oid: t for t,
+                           oid in meta["category_options"].items()}
                     opt_text = inv.get(opt_id)
                 if category_mode == "text":
                     return opt_text
@@ -270,7 +269,8 @@ def podio_list_subcontractors(*, limit=200, offset=0, fetch_all=False, view_id=N
 
     if fmt == "normalized":
         normalized = [
-            _subc_normalize_item(it, maps["meta_by_ext"], maps["id_to_ext"], category_mode=category_mode)
+            _subc_normalize_item(
+                it, maps["meta_by_ext"], maps["id_to_ext"], category_mode=category_mode)
             for it in raw_items
         ]
         return {
@@ -291,8 +291,10 @@ def podio_list_subcontractors(*, limit=200, offset=0, fetch_all=False, view_id=N
         return None
 
     def value_from_field(field):
-        if not field or not field.get("values"): return None
+        if not field or not field.get("values"):
+            return None
         vals, ftype = field["values"], field.get("type")
+
         def one(v):
             if ftype in ("text", "location", "calculation", "number"):
                 return v.get("value")

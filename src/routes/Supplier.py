@@ -6,8 +6,11 @@ from ..utils.id_generator import generate_custom_id
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 
+# Blueprint de Supplier:
 supplier_bp = Blueprint("supplier_blueprint", __name__,
                         url_prefix="/suppliers")
+
+# -------------------RUTAS CRUD-------------------#
 
 # Ruta para conseguir la lista de todos los distribuidores
 
@@ -119,7 +122,7 @@ def create_supplier():
 # Ruta para actualizar un distruibidor
 
 
-@supplier_bp.put("/<id_supplier>")
+@supplier_bp.patch("/<id_supplier>")
 def update_supplier(id_supplier):
     session = None  # Para que funcione except
     try:
@@ -152,7 +155,7 @@ def update_supplier(id_supplier):
         if session:
             session.rollback()
         detail = "Error de integridad: Ya existe un proveedor con estos valores únicos o faltan datos requeridos."
-        print(f"Error de integridad (PUT): {e}")
+        print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:

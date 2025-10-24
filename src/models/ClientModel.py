@@ -1,48 +1,68 @@
-#========================== Código para la Base de Datos en Postgresql =================================
-from ..database.db import db
-
-class ClientORM(db.Model):
-    """
-    Modelo ORM para la tabla Client.
-    - __tablename__: nombre de la tabla en Postgres. 
-    """
-    __tablename__ = "client" 
-
-    # Atributo Python -> Columna real en Postgres
-    id_client = db.Column("ID_Client", db.String(64), primary_key=True)  # PK texto
-
-    # Columna real con espacio y slash. SQLAlchemy la citará; 
-    # en el código accedes como .client_community
-    client_community = db.Column("Client/Comunity", db.String(255), nullable=True)
-
-    parent_mgmt_company = db.Column("Parent Mgmt Company", db.String(255), nullable=True)
-
-    def to_dict(self):
-        """
-        Serializa con los nombres de ATRIBUTOS Python (limpios).
-        Si prefieres los nombres EXACTOS de las columnas, cámbialo.
-        """
-        return {
-            "id_client": self.id_client,
-            "client_community": self.client_community,
-            "parent_mgmt_company": self.parent_mgmt_company,
-        }
-
-#========================== Código de para la conexión y manejo de Podio =================================
-import requests
 from src.config import (
     BASE_URL, TOKEN_URL, PODIO_CLIENT_ID, PODIO_CLIENT_SECRET,
     PODIO_CLIENTS_APP_ID, PODIO_CLIENTS_APP_TOKEN
 )
+import requests
+from sqlmodel import SQLModel, Field
+from typing import Optional
+
+# ==================================== Modelos para PostgreSQL ====================================#
+
+
+class ClientBase(SQLModel):
+    Client_Community: str
+    Parent_Mgmt_Company: str
+    Parent_Company: str
+    Address: str
+    Website: Optional[str] = Field(default=None)
+    Invoice_Collection: Optional[str] = Field(default=None)
+    Compliance_Partner: Optional[str] = Field(default=None)
+    Risk_Value: Optional[str] = Field(default=None)
+    Prop_Manager: str
+    Email_Address: str
+    Phone_Number: str
+    Client_Status: str
+    Services_interested_in: Optional[str] = Field(default=None)
+
+
+class Client(ClientBase, table=True):
+    __tablename__ = "client"
+
+    ID_Client: Optional[str] = Field(default=None, primary_key=True)
+
+    # ID_Community_Tracking: Optional[str] = Field(default=None, foreign_key="property_mgmt_co.ID_Community_Tracking")
+    # ID_PropertyManager: Optional[str] = Field(default=None, foreign_key="property_manager.ID_PropertyManager")
+
+
+class ClientCreate(ClientBase):
+    pass
+
+
+class ClientUpdate(ClientBase):
+    Client_Community: Optional[str] = Field(default=None)
+    Parent_Mgmt_Company: Optional[str] = Field(default=None)
+    Parent_Company: Optional[str] = Field(default=None)
+    Address: Optional[str] = Field(default=None)
+    Prop_Manager: Optional[str] = Field(default=None)
+    Email_Address: Optional[str] = Field(default=None)
+    Phone_Number: Optional[str] = Field(default=None)
+    Client_Status: Optional[str] = Field(default=None)
+
+
+# ========================== Código de para la conexión y manejo de Podio =================================
+
 
 # ============ HELPER: token App 'Clients' ============
+
+
 def _clients_get_app_token() -> str:
     """
     Autenticación App para el App 'Clients' en Podio.
     Usa PODIO_CLIENTS_APP_ID + PODIO_CLIENTS_APP_TOKEN del .env.
     """
     if not PODIO_CLIENTS_APP_ID or not PODIO_CLIENTS_APP_TOKEN:
-        raise RuntimeError("Faltan PODIO_CLIENTS_APP_ID / PODIO_CLIENTS_APP_TOKEN en .env")
+        raise RuntimeError(
+            "Faltan PODIO_CLIENTS_APP_ID / PODIO_CLIENTS_APP_TOKEN en .env")
 
     payload = {
         "grant_type": "app",
@@ -57,13 +77,16 @@ def _clients_get_app_token() -> str:
     return r.json()["access_token"]
 
 # ============ HELPER: metadatos de campos ============
+
+
 def _clients_get_app_fields(access_token: str):
     """
     Devuelve (fields, maps) para el App 'Clients'.
     maps: { ext_by_label, meta_by_ext, id_to_ext }
     """
     url = f"{BASE_URL}/app/{int(PODIO_CLIENTS_APP_ID)}"
-    r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=20)
+    r = requests.get(
+        url, headers={"Authorization": f"Bearer {access_token}"}, timeout=20)
     r.raise_for_status()
     app_json = r.json()
 
@@ -100,10 +123,13 @@ def _clients_get_app_fields(access_token: str):
     }
 
 # ============ HELPER: fetch items (paginado) ============
+
+
 def _clients_fetch_items_page(access_token: str, *, limit=100, offset=0, view_id=None):
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {access_token}",
+               "Content-Type": "application/json"}
 
     if view_id:
         url = f"{BASE_URL}/item/app/{int(PODIO_CLIENTS_APP_ID)}/filter/{int(view_id)}/"
@@ -121,11 +147,13 @@ def _clients_fetch_items_page(access_token: str, *, limit=100, offset=0, view_id
         return data
     return []
 
+
 def _clients_list_items(access_token: str, meta_by_ext: dict, *, limit=200, offset=0, fetch_all=False, view_id=None):
     if fetch_all:
         items, page = [], 0
         while True:
-            pg = _clients_fetch_items_page(access_token, limit=500, offset=page*500, view_id=view_id)
+            pg = _clients_fetch_items_page(
+                access_token, limit=500, offset=page*500, view_id=view_id)
             if not pg:
                 break
             items.extend(pg)
@@ -136,6 +164,8 @@ def _clients_list_items(access_token: str, meta_by_ext: dict, *, limit=200, offs
     return _clients_fetch_items_page(access_token, limit=limit, offset=offset, view_id=view_id)
 
 # ============ NORMALIZACIÓN (copia local, sin prune) ============
+
+
 def _clients_normalize_item(item: dict, meta_by_ext: dict, id_to_ext: dict, *, category_mode="both") -> dict:
     out = {
         "item_id": item.get("item_id"),
@@ -149,8 +179,10 @@ def _clients_normalize_item(item: dict, meta_by_ext: dict, id_to_ext: dict, *, c
     fields_out = {}
 
     def _coerce_int(x):
-        if isinstance(x, int): return x
-        if isinstance(x, str) and x.isdigit(): return int(x)
+        if isinstance(x, int):
+            return x
+        if isinstance(x, str) and x.isdigit():
+            return int(x)
         return None
 
     def resolve_external_id(field_obj):
@@ -207,7 +239,8 @@ def _clients_normalize_item(item: dict, meta_by_ext: dict, id_to_ext: dict, *, c
                 opt_id = v.get("value")
                 opt_text = v.get("text")
                 if not opt_text and isinstance(meta.get("category_options"), dict):
-                    inv = {oid: t for t, oid in meta["category_options"].items()}
+                    inv = {oid: t for t,
+                           oid in meta["category_options"].items()}
                     opt_text = inv.get(opt_id)
                 if category_mode == "text":
                     return opt_text
@@ -231,6 +264,8 @@ def _clients_normalize_item(item: dict, meta_by_ext: dict, id_to_ext: dict, *, c
     return out
 
 # ============ API pública para routes/Client.py ============
+
+
 def podio_list_clients(*, limit=200, offset=0, fetch_all=False, view_id=None, fmt="normalized", category_mode="both"):
     """
     Devuelve items del App 'Clients' de Podio:
@@ -253,7 +288,8 @@ def podio_list_clients(*, limit=200, offset=0, fetch_all=False, view_id=None, fm
 
     if fmt == "normalized":
         normalized = [
-            _clients_normalize_item(it, maps["meta_by_ext"], maps["id_to_ext"], category_mode=category_mode)
+            _clients_normalize_item(
+                it, maps["meta_by_ext"], maps["id_to_ext"], category_mode=category_mode)
             for it in raw_items
         ]
         return {
@@ -274,8 +310,10 @@ def podio_list_clients(*, limit=200, offset=0, fetch_all=False, view_id=None, fm
         return None
 
     def value_from_field(field):
-        if not field or not field.get("values"): return None
+        if not field or not field.get("values"):
+            return None
         vals, ftype = field["values"], field.get("type")
+
         def one(v):
             if ftype in ("text", "location", "calculation", "number"):
                 return v.get("value")
@@ -291,7 +329,8 @@ def podio_list_clients(*, limit=200, offset=0, fetch_all=False, view_id=None, fm
 
     extracted = []
     for item in raw_items:
-        get = lambda lbl=None, ext=None: value_from_field(find_field(item, label=lbl, external_id=ext))
+        def get(lbl=None, ext=None): return value_from_field(
+            find_field(item, label=lbl, external_id=ext))
         extracted.append({
             "app_item_id_formatted": item.get("app_item_id_formatted"),
             "id_client": get(lbl="ID_Client"),

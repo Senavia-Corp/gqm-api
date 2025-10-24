@@ -1,116 +1,239 @@
-#======================================== Código para la Base de Datos en Postgresql =================================
+# ======================================== Código para la Base de Datos en Postgresql =================================
+from ..models.ClientModel import podio_list_clients
 from flask import Blueprint, jsonify, request
-from sqlalchemy import select
-from ..database.db import db, get_connection
-from ..models.ClientModel import ClientORM
+from sqlmodel import select
+from ..database.db_sqlmodel import get_session
+from ..models.ClientModel import Client, ClientCreate, ClientUpdate
+from ..utils.id_generator import generate_custom_id
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from pydantic import ValidationError
 
+# Blueprint de Client:
 client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")
 
+# -------------------RUTAS CRUD-------------------#
+
+# Ruta para conseguir la lista de todos los clientes
+
+
 @client_bp.get("/")
-def list_clients():
-    """
-    GET /clients
-    Devuelve todos los clientes (simple). 
-    Puedes agregar paginación luego con ?limit=&offset=
-    """
-    s = get_connection()
-    rows = s.execute(select(ClientORM)).scalars().all()
-    return jsonify([r.to_dict() for r in rows]), 200
+def list_suppliers():
+    try:
+        with get_session() as session:
+            results = session.exec(select(Client)).all()
+            return jsonify([obj.model_dump() for obj in results]), 200
+
+    except SQLAlchemyError as db_error:  # Para un fallo de db
+        print(f"Error de base de datos al listar proveedores: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:  # Para un fallo general inesperado
+        print(f"Error inesperado al listar proveedores: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
 
 
+# Ruta para conseguir un cliente por ID
 @client_bp.get("/<id_client>")
 def get_client(id_client):
-    """
-    GET /clients/<id_client>
-    Devuelve un cliente por ID o 404 si no existe.
-    """
-    s = get_connection()
-    obj = s.get(ClientORM, id_client)
-    if not obj:
-        return jsonify({"message": "Client not found"}), 404
-    return jsonify(obj.to_dict()), 200
+    try:
+        with get_session() as session:
+            obj = session.get(Client, id_client)
+            if not obj:
+                return jsonify({"error": "Client not found"}), 404
+            return jsonify(obj.model_dump()), 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar proveedor {id_client}: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar proveedores: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para crear un cliente
 
 
 @client_bp.post("/")
 def create_client():
-    """
-    POST /clients
-    Body JSON mínimo esperado:
-    {
-      "id_client": "C-001",
-      "client_community": "Client or Community name",
-      "parent_mgmt_company": "Parent Mgmt Company name"
-    }
-    """
-    data = request.get_json(force=True, silent=False)
-    missing = [k for k in ("id_client",) if k not in data or data[k] in (None, "")]
-    if missing:
-        return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+    try:
+        data = request.get_json()
+        create_client = ClientCreate.model_validate(data)
+        obj = Client.model_validate(create_client)
 
-    s = get_connection()
-    # Validar duplicado (PK)
-    if s.get(ClientORM, data["id_client"]):
-        return jsonify({"error": "Client with that id_client already exists"}), 409
+    except ValidationError as e:
+        if 'JSON' in str(e):
+            return jsonify({"detail": "La solicitud debe contener un JSON válido."}), 400
+        print(f"Error inesperado en preparación de datos: {e}")
+        return jsonify({"detail": "Error inesperado del servidor."}), 500
 
-    obj = ClientORM(
-        id_client=data["id_client"],
-        client_community=data.get("client_community"),
-        parent_mgmt_company=data.get("parent_mgmt_company"),
-    )
-    s.add(obj)
-    s.commit()  # importante: persiste
-    return jsonify(obj.to_dict()), 201
+    try:
+        with get_session() as session:
+            new_id = generate_custom_id(
+                session, Client, "ID_Client", "CLI")
+            obj.ID_Client = new_id
+
+            session.add(obj)
+            session.commit()
+            session.refresh(obj)
+            return jsonify(obj.model_dump()), 201
+
+    except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
+        session.rollback()  # Deshace los cambios realizados
+        error_message = str(e)
+        if "UNIQUE constraint failed" in error_message:
+            detail = "Ya existe un proveedor con este valor único."
+        else:
+            detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
+        print(f"Error de integridad: {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
+        session.rollback()
+        print(f"Error de base de datos al crear proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+
+        print(f"Error inesperado durante la creación de proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para actualizar un cliente
 
 
-@client_bp.put("/<id_client>")
+@client_bp.patch("/<id_client>")
 def update_client(id_client):
-    """
-    PUT /clients/<id_client>
-    Actualiza campos existentes. No cambia el ID.
-    Body JSON puede incluir cualquiera de:
-      client_community, parent_mgmt_company
-    """
-    data = request.get_json(force=True, silent=False)
-    s = get_connection()
-    obj = s.get(ClientORM, id_client)
-    if not obj:
-        return jsonify({"message": "Client not found"}), 404
+    session = None  # Para que funcione except
+    try:
+        data = request.get_json()
+        with get_session() as session:
+            obj = session.get(Client, id_client)
+            if not obj:
+                return jsonify({"error": "Client not found"}), 404
 
-    # Aplica cambios si vienen en el body
-    if "client_community" in data:
-        obj.client_community = data["client_community"]
-    if "parent_mgmt_company" in data:
-        obj.parent_mgmt_company = data["parent_mgmt_company"]
+            update_client = ClientUpdate.model_validate(data)
+            update_data_dict = update_client.model_dump(
+                exclude_unset=True)  # Crea dict limpio
 
-    s.commit()
-    return jsonify(obj.to_dict()), 200
+            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+                setattr(obj, key, value)
+
+            session.add(obj)
+            session.commit()
+            session.refresh(obj)
+            return jsonify(obj.model_dump()), 200
+
+    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
+    except ValidationError as e:
+        return jsonify({
+            "detail": "Error de validación: Datos de proveedor inválidos para la actualización.",
+            "errors": e.errors()
+        }), 400
+
+    except IntegrityError as e:
+        if session:
+            session.rollback()
+        detail = "Error de integridad: Ya existe un proveedor con estos valores únicos o faltan datos requeridos."
+        print(f"Error de integridad (PATCH): {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:
+        if session:
+            session.rollback()
+        print(f"Error de base de datos al actualizar proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"Error inesperado al actualizar proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para eliminar un cliente
 
 
 @client_bp.delete("/<id_client>")
 def delete_client(id_client):
-    """
-    DELETE /clients/<id_client>
-    Elimina por ID si existe.
-    """
-    s = get_connection()
-    obj = s.get(ClientORM, id_client)
-    if not obj:
-        return jsonify({"message": "Client not found"}), 404
-    s.delete(obj)
-    s.commit()
-    return jsonify({"message": f"Client deleted: {id_client}"}), 200
+    session = None
+    try:
+        with get_session() as session:
+            obj = session.get(Client, id_client)
+            if not obj:
+                return jsonify({"error": "Client not found"}), 404
+            session.delete(obj)
+            session.commit()
+            return jsonify({"message": f"Deleted Client {id_client}"}), 200
+
+    # Exceptions de integridad, infraestructura e inesperado del servidor
+    except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
+        if session:
+            session.rollback()
+        detail = "Error de integridad: No se puede eliminar el proveedor porque tiene registros relacionados."
+        print(f"Error de integridad (DELETE): {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:
+        if session:
+            session.rollback()
+        print(f"Error de base de datos al eliminar proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"Error inesperado al eliminar proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
 
 
-#=============================================== Código de para la conexión y manejo de Podio =================================
-from ..models.ClientModel import ClientORM, podio_list_clients
+# =============================================== Código de para la conexión y manejo de Podio =================================
 
-from ..models.ClientModel import ClientORM, podio_list_clients
 
 @client_bp.get("/podio/items")
 def clients_from_podio():
     limit = int(request.args.get("limit", 200))
     offset = int(request.args.get("offset", 0))
-    fetch_all = str(request.args.get("all", "false")).lower() in ("1", "true", "yes")
+    fetch_all = str(request.args.get("all", "false")
+                    ).lower() in ("1", "true", "yes")
     view_id = request.args.get("view_id")
     fmt = (request.args.get("format") or "normalized").lower()
     category_mode = (request.args.get("category_mode") or "both").lower()
