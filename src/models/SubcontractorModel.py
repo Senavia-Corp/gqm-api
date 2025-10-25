@@ -11,14 +11,14 @@ from sqlmodel import SQLModel, Field
 from typing import Optional
 
 
-class SubcontractorBase(SQLModel):  # REVISAR LAS OBLIGATORIAS ###
+class SubcontractorBase(SQLModel):
     Organization: str
-    Name: str
-    Email_Address: Optional[str] = Field(default=None)
+    Name: Optional[str] = Field(default=None)
+    Email_Address: str
     Phone_Number: Optional[str] = Field(default=None)
     Organization_Website: Optional[str] = Field(default=None)
     Address: Optional[str] = Field(default=None)
-    State: Optional[str] = Field(default=None)
+    State: str
     Score: Optional[float] = Field(default=None)
     Gqm_compliance: Optional[str] = Field(default=None)
     Gqm_best_service_training: Optional[str] = Field(default=None)
@@ -38,7 +38,8 @@ class SubcontractorCreate(SubcontractorBase):
 
 class SubcontractorUpdate(SubcontractorBase):
     Organization: Optional[str] = Field(default=None)
-    Name: Optional[str] = Field(default=None)
+    Email_Address: Optional[str] = Field(default=None)
+    State: Optional[str] = Field(default=None)
 
 
 # =========================
