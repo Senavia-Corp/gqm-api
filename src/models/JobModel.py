@@ -1,76 +1,85 @@
 
-# TIPOS DE TRABAJO: QID, PTL y PAR
-
-# ======================================================= Código para la Base de Datos en Postgresql =================================
+# Credenciales para Podio
 from src.config import (
     BASE_URL, TOKEN_URL, PODIO_CLIENT_ID, PODIO_CLIENT_SECRET,
     PODIO_APP_ID, PODIO_APP_TOKEN
 )
 import requests
-from sqlalchemy.dialects.postgresql import NUMERIC
-from ..database.db import db
+
+# ==================================== Modelos para PostgreSQL ====================================#
+
+from sqlmodel import SQLModel, Field
+from typing import Optional
+from datetime import date
+from enum import Enum
 
 
-class JobORM(db.Model):
-    """
-    Modelo ORM para la tabla 'job' en Postgres.
-    Ajusta tipos/longitudes si tu DDL real difiere.
-    """
-    __tablename__ = "job"
+class JobType(str, Enum):
+    QID = "QID"
+    PTL = "PTL"
+    PAR = "PAR"
 
-    id_job = db.Column(db.String(64), primary_key=True)
 
-    project_name = db.Column(db.String(255), nullable=True)
-    project_location = db.Column(db.String(255), nullable=True)
-    job_status = db.Column(db.String(100), nullable=True)
-    po_wtn_wo = db.Column(db.String(100), nullable=True)
-    service_type = db.Column(db.String(100), nullable=True)
+class JobBase(SQLModel):
 
-    # Si en tu BD es DATE/ TIMESTAMP, puedes cambiar este String por Date / DateTime.
-    # Lo dejo String para evitar incompatibilidades si hoy lo guardas como texto.
-    date_assigned = db.Column(db.String(50), nullable=True)
+    Job_type: JobType
+    Project_name: str
+    Project_location: str
+    Job_status: str
+    Po_wtn_wo: Optional[str] = Field(default=None)
+    Service_type: Optional[str] = Field(default=None)
+    Date_assigned: Optional[str] = Field(default=None)
+    Estimated_start_date: Optional[date] = Field(default=None)
+    Estimated_project_duration: Optional[str] = Field(default=None)
 
-    # Campos numéricos de costos/porcentajes
-    gqm_formula_pricing = db.Column(NUMERIC(18, 2), nullable=True)
-    gqm_adj_formula_pricing = db.Column(NUMERIC(18, 2), nullable=True)
-    gqm_target_sold_pricing = db.Column(NUMERIC(18, 2), nullable=True)
-    gqm_premium_in_money = db.Column(NUMERIC(18, 2), nullable=True)
-    gqm_final_sold_pricing = db.Column(NUMERIC(18, 2), nullable=True)
-    # ajusta si quieres 5,2 u otro
-    gqm_final_percentage = db.Column(NUMERIC(7, 4),  nullable=True)
-    gqm_total_change_orders = db.Column(NUMERIC(18, 2), nullable=True)
+    Gqm_formula_pricing: Optional[float] = Field(default=None)
+    Gqm_adj_formula_pricing: Optional[float] = Field(default=None)
+    Gqm_target_sold_pricing: Optional[float] = Field(default=None)
+    Gqm_premium_in_money: Optional[float] = Field(default=None)
+    Gqm_final_sold_pricing: float
+    Gqm_final_percentage: Optional[float] = Field(default=None)
+    Gqm_total_change_orders: Optional[float] = Field(default=None)
 
-    id_member = db.Column(db.String(64), nullable=True)
-    id_client = db.Column(db.String(64), nullable=True)
 
-    def to_dict(self):
-        """
-        Serializa con nombres "limpios" (coinciden con tus JSON actuales).
-        Convierte Decimal a float para campos NUMERIC.
-        """
-        return {
-            "id_job": self.id_job,
-            "project_name": self.project_name,
-            "project_location": self.project_location,
-            "job_status": self.job_status,
-            "po_wtn_wo": self.po_wtn_wo,
-            "service_type": self.service_type,
-            "date_assigned": self.date_assigned,
-            "gqm_formula_pricing": float(self.gqm_formula_pricing) if self.gqm_formula_pricing is not None else None,
-            "gqm_adj_formula_pricing": float(self.gqm_adj_formula_pricing) if self.gqm_adj_formula_pricing is not None else None,
-            "gqm_target_sold_pricing": float(self.gqm_target_sold_pricing) if self.gqm_target_sold_pricing is not None else None,
-            "gqm_premium_in_money": float(self.gqm_premium_in_money) if self.gqm_premium_in_money is not None else None,
-            "gqm_final_sold_pricing": float(self.gqm_final_sold_pricing) if self.gqm_final_sold_pricing is not None else None,
-            "gqm_final_percentage": float(self.gqm_final_percentage) if self.gqm_final_percentage is not None else None,
-            "gqm_total_change_orders": float(self.gqm_total_change_orders) if self.gqm_total_change_orders is not None else None,
-            "id_member": self.id_member,
-            "id_client": self.id_client,
-        }
+class Job(JobBase, table=True):
+    __tablename__ = "jobs"
+
+    ID_Jobs: Optional[str] = Field(default=None, primary_key=True)
+
+    # ID_Member: Optional[str] = Field(default=None, foreign_key="member.ID_Member")
+    ID_Client: Optional[str] = Field(
+        default=None, foreign_key="client.ID_Client")
+
+
+class JobCreate(JobBase):
+    pass
+
+
+class JobUpdate(SQLModel):
+
+    Project_name: Optional[str] = Field(default=None)
+    Project_location: Optional[str] = Field(default=None)
+    Job_status: Optional[str] = Field(default=None)
+    Po_wtn_wo: Optional[str] = Field(default=None)
+    Service_type: Optional[str] = Field(default=None)
+    Date_assigned: Optional[str] = Field(default=None)
+    Estimated_start_date: Optional[date] = Field(default=None)
+    Estimated_project_duration: Optional[str] = Field(default=None)
+
+    Gqm_formula_pricing: Optional[float] = Field(default=None)
+    Gqm_adj_formula_pricing: Optional[float] = Field(default=None)
+    Gqm_target_sold_pricing: Optional[float] = Field(default=None)
+    Gqm_premium_in_money: Optional[float] = Field(default=None)
+    Gqm_final_sold_pricing: Optional[float] = Field(default=None)
+    Gqm_final_percentage: Optional[float] = Field(default=None)
+    Gqm_total_change_orders: Optional[float] = Field(default=None)
 
 
 # ====================================================== Código de para la conexión y manejo de Podio =================================
 
+
 # ============ HELPER: token App 'Jobs' ============
+
 
 def _jobs_get_app_token() -> str:
     """

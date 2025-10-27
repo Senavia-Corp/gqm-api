@@ -1,91 +1,228 @@
 from flask import Blueprint, jsonify, request
-from sqlalchemy import select
-from ..database.db import get_connection
-from ..models.SubcontractorModel import (
-    SubcontractorORM,
-    podio_list_subcontractors,
-)
+from sqlmodel import select
+from ..database.db_sqlmodel import get_session
+from ..models.SubcontractorModel import Subcontractor, SubcontractorCreate, SubcontractorUpdate
+from ..utils.id_generator import generate_custom_id
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from pydantic import ValidationError
+from ..models.SubcontractorModel import podio_list_subcontractors
 
-subcontractor_bp = Blueprint("subcontractor_blueprint", __name__, url_prefix="/subcontractors")
+# Blueprint de Subcontractor
+subcontractor_bp = Blueprint(
+    "subcontractor_blueprint", __name__, url_prefix="/subcontractors")
 
-# ---------- CRUD LOCAL (Postgres) ----------
+# -------------------RUTAS CRUD-------------------#
+
+# Ruta para conseguir la lista de todos los subcontratistas
+
 
 @subcontractor_bp.get("/")
 def list_subcontractors():
-    s = get_connection()
-    rows = s.execute(select(SubcontractorORM)).scalars().all()
-    return jsonify([r.to_dict() for r in rows]), 200
+    try:
+        with get_session() as session:
+            results = session.exec(select(Subcontractor)).all()
+            return jsonify([obj.model_dump() for obj in results]), 200
+
+    except SQLAlchemyError as db_error:  # Para un fallo de db
+        print(f"Error de base de datos al listar proveedores: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:  # Para un fallo general inesperado
+        print(f"Error inesperado al listar proveedores: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
 
 
+# Ruta para conseguir un subcontratista por ID
 @subcontractor_bp.get("/<id_subcontractor>")
 def get_subcontractor(id_subcontractor):
-    s = get_connection()
-    obj = s.get(SubcontractorORM, id_subcontractor)
-    if not obj:
-        return jsonify({"message": "Subcontractor not found"}), 404
-    return jsonify(obj.to_dict()), 200
+    try:
+        with get_session() as session:
+            obj = session.get(Subcontractor, id_subcontractor)
+            if not obj:
+                return jsonify({"error": "Subcontractor not found"}), 404
+            return jsonify(obj.model_dump()), 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar proveedor {id_subcontractor}: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar proveedores: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para crear un subcontratista
 
 
 @subcontractor_bp.post("/")
 def create_subcontractor():
-    data = request.get_json(force=True, silent=False)
+    try:
+        data = request.get_json()
+        create_subcontractor = SubcontractorCreate.model_validate(data)
+        obj = Subcontractor.model_validate(create_subcontractor)
 
-    missing = [k for k in ("id_subcontractor",) if k not in data or data[k] in (None, "")]
-    if missing:
-        return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+    except ValidationError as e:
+        if 'JSON' in str(e):
+            return jsonify({"detail": "La solicitud debe contener un JSON válido."}), 400
+        print(f"Error inesperado en preparación de datos: {e}")
+        return jsonify({"detail": "Error inesperado del servidor."}), 500
 
-    s = get_connection()
-    if s.get(SubcontractorORM, data["id_subcontractor"]):
-        return jsonify({"error": "Subcontractor with that id_subcontractor already exists"}), 409
+    try:
+        with get_session() as session:
+            new_id = generate_custom_id(
+                session, Subcontractor, "ID_Subcontractor", "SUBC")
+            obj.ID_Subcontractor = new_id
 
-    obj = SubcontractorORM(
-        id_subcontractor=data["id_subcontractor"],
-        organization=data.get("organization"),
-        name=data.get("name"),
-        email=data.get("email"),
-        phone=data.get("phone"),
-        organization_web_site=data.get("organization_web_site"),
-        address=data.get("address"),
-        state=data.get("state"),
-        score=data.get("score"),
-        gqm_compliancegqm=data.get("gqm_compliancegqm"),
-        best_service_training=data.get("best_service_training"),
-        id_rol=data.get("id_rol"),
-    )
-    s.add(obj)
-    s.commit()
-    return jsonify(obj.to_dict()), 201
+            session.add(obj)
+            session.commit()
+            session.refresh(obj)
+            return jsonify(obj.model_dump()), 201
+
+    except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
+        session.rollback()  # Deshace los cambios realizados
+        error_message = str(e)
+        if "UNIQUE constraint failed" in error_message:
+            detail = "Ya existe un proveedor con este valor único."
+        else:
+            detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
+        print(f"Error de integridad: {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
+        session.rollback()
+        print(f"Error de base de datos al crear proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+
+        print(f"Error inesperado durante la creación de proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para actualizar un subcontratista
 
 
-@subcontractor_bp.put("/<id_subcontractor>")
+@subcontractor_bp.patch("/<id_subcontractor>")
 def update_subcontractor(id_subcontractor):
-    data = request.get_json(force=True, silent=False)
-    s = get_connection()
-    obj = s.get(SubcontractorORM, id_subcontractor)
-    if not obj:
-        return jsonify({"message": "Subcontractor not found"}), 404
+    session = None  # Para que funcione except
+    try:
+        data = request.get_json()
+        with get_session() as session:
+            obj = session.get(Subcontractor, id_subcontractor)
+            if not obj:
+                return jsonify({"error": "Subcontractor not found"}), 404
 
-    # Aplica solo campos presentes
-    for key in (
-        "organization","name","email","phone","organization_web_site","address",
-        "state","score","gqm_compliancegqm","best_service_training","id_rol"
-    ):
-        if key in data:
-            setattr(obj, key, data[key])
+            update_subcontractor = SubcontractorUpdate.model_validate(data)
+            update_data_dict = update_subcontractor.model_dump(
+                exclude_unset=True)  # Crea dict limpio
 
-    s.commit()
-    return jsonify(obj.to_dict()), 200
+            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+                setattr(obj, key, value)
+
+            session.add(obj)
+            session.commit()
+            session.refresh(obj)
+            return jsonify(obj.model_dump()), 200
+
+    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
+    except ValidationError as e:
+        return jsonify({
+            "detail": "Error de validación: Datos de proveedor inválidos para la actualización.",
+            "errors": e.errors()
+        }), 400
+
+    except IntegrityError as e:
+        if session:
+            session.rollback()
+        detail = "Error de integridad: Ya existe un proveedor con estos valores únicos o faltan datos requeridos."
+        print(f"Error de integridad (PATCH): {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:
+        if session:
+            session.rollback()
+        print(f"Error de base de datos al actualizar proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"Error inesperado al actualizar proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para eliminar un subcontratista
 
 
 @subcontractor_bp.delete("/<id_subcontractor>")
 def delete_subcontractor(id_subcontractor):
-    s = get_connection()
-    obj = s.get(SubcontractorORM, id_subcontractor)
-    if not obj:
-        return jsonify({"message": "Subcontractor not found"}), 404
-    s.delete(obj)
-    s.commit()
-    return jsonify({"message": f"Subcontractor deleted: {id_subcontractor}"}), 200
+    session = None
+    try:
+        with get_session() as session:
+            obj = session.get(Subcontractor, id_subcontractor)
+            if not obj:
+                return jsonify({"error": "Subcontractor not found"}), 404
+            session.delete(obj)
+            session.commit()
+            return jsonify({"message": f"Deleted Subcontractor {id_subcontractor}"}), 200
+
+    # Exceptions de integridad, infraestructura e inesperado del servidor
+    except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
+        if session:
+            session.rollback()
+        detail = "Error de integridad: No se puede eliminar el proveedor porque tiene registros relacionados."
+        print(f"Error de integridad (DELETE): {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:
+        if session:
+            session.rollback()
+        print(f"Error de base de datos al eliminar proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"Error inesperado al eliminar proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
 
 
 # ---------- PODIO (Subcontractors App) ----------
@@ -100,7 +237,8 @@ def subcontractors_from_podio():
     try:
         limit = int(request.args.get("limit", 200))
         offset = int(request.args.get("offset", 0))
-        fetch_all = str(request.args.get("all", "false")).lower() in ("1", "true", "yes")
+        fetch_all = str(request.args.get("all", "false")
+                        ).lower() in ("1", "true", "yes")
         view_id = request.args.get("view_id")
         fmt = (request.args.get("format") or "normalized").lower()
         category_mode = (request.args.get("category_mode") or "both").lower()

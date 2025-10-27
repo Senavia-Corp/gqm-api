@@ -1,131 +1,245 @@
-#======================================== Código para la Base de Datos en Postgresql =================================
-from flask import Blueprint, jsonify, request
-from sqlalchemy import select
-from ..database.db import get_connection
-from ..models.JobModel import JobORM
-
-# Mismo patrón que Clients/Subcontractors
-job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
-
-# ---------- GET: lista ----------
-@job_bp.get("/")
-def list_jobs():
-    """
-    GET /jobs
-    Devuelve todos los jobs (simple).
-    Puedes agregar paginación luego con ?limit=&offset=
-    """
-    s = get_connection()
-    rows = s.execute(select(JobORM).order_by(JobORM.project_name.asc())).scalars().all()
-    return jsonify([r.to_dict() for r in rows]), 200
-
-# ---------- GET: uno ----------
-@job_bp.get("/<id_job>")
-def get_job(id_job):
-    """
-    GET /jobs/<id_job>
-    Devuelve un job por ID o 404 si no existe.
-    """
-    s = get_connection()
-    obj = s.get(JobORM, id_job)
-    if not obj:
-        return jsonify({"message": "Job not found"}), 404
-    return jsonify(obj.to_dict()), 200
-
-# ---------- POST: crear ----------
-@job_bp.post("/")
-def create_job():
-    """
-    POST /jobs
-    Body JSON mínimo esperado:
-    {
-      "id_job": "J-001",
-      ... otros campos opcionales ...
-    }
-    """
-    data = request.get_json(force=True, silent=False)
-
-    # id_job es obligatorio
-    if not data.get("id_job"):
-        return jsonify({"error": "Missing required fields: id_job"}), 400
-
-    s = get_connection()
-    if s.get(JobORM, data["id_job"]):
-        return jsonify({"error": "Job with that id_job already exists"}), 409
-
-    obj = JobORM(
-        id_job=data["id_job"],
-        project_name=data.get("project_name"),
-        project_location=data.get("project_location"),
-        job_status=data.get("job_status"),
-        po_wtn_wo=data.get("po_wtn_wo"),
-        service_type=data.get("service_type"),
-        date_assigned=data.get("date_assigned"),
-        gqm_formula_pricing=data.get("gqm_formula_pricing"),
-        gqm_adj_formula_pricing=data.get("gqm_adj_formula_pricing"),
-        gqm_target_sold_pricing=data.get("gqm_target_sold_pricing"),
-        gqm_premium_in_money=data.get("gqm_premium_in_money"),
-        gqm_final_sold_pricing=data.get("gqm_final_sold_pricing"),
-        gqm_final_percentage=data.get("gqm_final_percentage"),
-        gqm_total_change_orders=data.get("gqm_total_change_orders"),
-        id_member=data.get("id_member"),
-        id_client=data.get("id_client"),
-    )
-
-    s.add(obj)
-    s.commit()
-    return jsonify(obj.to_dict()), 201
-
-# ---------- PUT: actualizar ----------
-@job_bp.put("/<id_job>")
-def update_job(id_job):
-    """
-    PUT /jobs/<id_job>
-    Actualiza campos existentes. No cambia el ID.
-    """
-    data = request.get_json(force=True, silent=False)
-    s = get_connection()
-    obj = s.get(JobORM, id_job)
-    if not obj:
-        return jsonify({"message": "Job not found"}), 404
-
-    # Aplica solo campos presentes en el body
-    for key in (
-        "project_name", "project_location", "job_status", "po_wtn_wo", "service_type",
-        "date_assigned", "gqm_formula_pricing", "gqm_adj_formula_pricing",
-        "gqm_target_sold_pricing", "gqm_premium_in_money", "gqm_final_sold_pricing",
-        "gqm_final_percentage", "gqm_total_change_orders", "id_member", "id_client"
-    ):
-        if key in data:
-            setattr(obj, key, data[key])
-
-    s.commit()
-    return jsonify(obj.to_dict()), 200
-
-# ---------- DELETE: eliminar ----------
-@job_bp.delete("/<id_job>")
-def delete_job(id_job):
-    """
-    DELETE /jobs/<id_job>
-    Elimina por ID si existe.
-    """
-    s = get_connection()
-    obj = s.get(JobORM, id_job)
-    if not obj:
-        return jsonify({"message": "Job not found"}), 404
-
-    s.delete(obj)
-    s.commit()
-    return jsonify({"message": f"Job deleted: {id_job}"}), 200
-
-
-#=============================================== Código de para la conexión y manejo de Podio =================================
+# ======================================== Código para la Base de Datos en Postgresql =================================
 from ..models.JobModel import (
     podio_list_jobs,
     podio_create_job_item,
     podio_update_job_item,
     podio_delete_job_item,
 )
+from flask import Blueprint, jsonify, request
+from sqlmodel import select
+from ..database.db_sqlmodel import get_session
+from ..models.JobModel import Job, JobCreate, JobUpdate
+from ..utils.id_generator import generate_custom_id
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from pydantic import ValidationError
+
+# Blueprint de Jobs:
+job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
+
+# -------------------RUTAS CRUD-------------------#
+
+# Ruta para conseguir la lista de todos los trabajos
+
+
+@job_bp.get("/")
+def list_jobs():
+    try:
+        with get_session() as session:
+            results = session.exec(select(Job)).all()
+            return jsonify([obj.model_dump() for obj in results]), 200
+
+    except SQLAlchemyError as db_error:  # Para un fallo de db
+        print(f"Error de base de datos al listar proveedores: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:  # Para un fallo general inesperado
+        print(f"Error inesperado al listar proveedores: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un trabajo por ID
+@job_bp.get("/<id_job>")
+def get_job(id_job):
+    try:
+        with get_session() as session:
+            obj = session.get(Job, id_job)
+            if not obj:
+                return jsonify({"error": "Job not found"}), 404
+            return jsonify(obj.model_dump()), 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar proveedor {id_job}: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar proveedores: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para crear un trabajo
+
+
+@job_bp.post("/")  # REVISAR
+def create_job():
+    try:
+        data = request.get_json()
+        create_job = JobCreate.model_validate(data)
+        obj = Job.model_validate(create_job)
+
+    except ValidationError as e:
+        # Error en el campo Job_type.
+        for err in e.errors():
+            if err["loc"] == ("Job_type",):
+                return jsonify({
+                    "detail": "El campo 'Job_type' debe ser uno de los valores permitidos: QID, PTL o PAR."
+                }), 400
+        # Error en otros campos o JSON.
+        if 'JSON' in str(e):
+            return jsonify({"detail": "La solicitud debe contener un JSON válido."}), 400
+        print(f"Error inesperado en preparación de datos: {e}")
+        return jsonify({"detail": "Error inesperado del servidor."}), 500
+
+    try:
+        with get_session() as session:
+            prefix = obj.Job_type.upper()
+            new_id = generate_custom_id(
+                session, Job, "ID_Jobs", prefix)
+            obj.ID_Jobs = new_id
+
+            session.add(obj)
+            session.commit()
+            session.refresh(obj)
+            return jsonify(obj.model_dump()), 201
+
+    except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
+        session.rollback()  # Deshace los cambios realizados
+        error_message = str(e)
+        if "UNIQUE constraint failed" in error_message:
+            detail = "Ya existe un proveedor con este valor único."
+        else:
+            detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
+        print(f"Error de integridad: {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
+        session.rollback()
+        print(f"Error de base de datos al crear proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+
+        print(f"Error inesperado durante la creación de proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para actualizar un trabajo
+
+
+@job_bp.patch("/<id_job>")
+def update_job(id_job):
+    session = None  # Para que funcione except
+    try:
+        data = request.get_json()
+        with get_session() as session:
+            obj = session.get(Job, id_job)
+            if not obj:
+                return jsonify({"error": "Job not found"}), 404
+
+            update_job = JobUpdate.model_validate(data)
+            update_data_dict = update_job.model_dump(
+                exclude_unset=True)  # Crea dict limpio
+
+            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+                setattr(obj, key, value)
+
+            session.add(obj)
+            session.commit()
+            session.refresh(obj)
+            return jsonify(obj.model_dump()), 200
+
+    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
+    except ValidationError as e:
+        return jsonify({
+            "detail": "Error de validación: Datos de proveedor inválidos para la actualización.",
+            "errors": e.errors()
+        }), 400
+
+    except IntegrityError as e:
+        if session:
+            session.rollback()
+        detail = "Error de integridad: Ya existe un proveedor con estos valores únicos o faltan datos requeridos."
+        print(f"Error de integridad (PATCH): {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:
+        if session:
+            session.rollback()
+        print(f"Error de base de datos al actualizar proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"Error inesperado al actualizar proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
+
+# Ruta para eliminar un trabajo
+
+
+@job_bp.delete("/<id_job>")
+def delete_job(id_job):
+    session = None
+    try:
+        with get_session() as session:
+            obj = session.get(Job, id_job)
+            if not obj:
+                return jsonify({"error": "Job not found"}), 404
+            session.delete(obj)
+            session.commit()
+            return jsonify({"message": f"Deleted Job {id_job}"}), 200
+
+    # Exceptions de integridad, infraestructura e inesperado del servidor
+    except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
+        if session:
+            session.rollback()
+        detail = "Error de integridad: No se puede eliminar el proveedor porque tiene registros relacionados."
+        print(f"Error de integridad (DELETE): {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:
+        if session:
+            session.rollback()
+        print(f"Error de base de datos al eliminar proveedor: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"Error inesperado al eliminar proveedor: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# =============================================== Código de para la conexión y manejo de Podio =================================
+
 
 @job_bp.get("/podio/items")
 def jobs_from_podio():
@@ -137,7 +251,8 @@ def jobs_from_podio():
     try:
         limit = int(request.args.get("limit", 200))
         offset = int(request.args.get("offset", 0))
-        fetch_all = str(request.args.get("all", "false")).lower() in ("1", "true", "yes")
+        fetch_all = str(request.args.get("all", "false")
+                        ).lower() in ("1", "true", "yes")
         view_id = request.args.get("view_id")
         fmt = (request.args.get("format") or "normalized").lower()
         category_mode = (request.args.get("category_mode") or "both").lower()
@@ -174,7 +289,8 @@ def jobs_podio_create():
         hook = bool(body.get("hook", True))
         silent = bool(body.get("silent", False))
 
-        created = podio_create_job_item(fields_payload=fields, external_id=external_id, hook=hook, silent=silent)
+        created = podio_create_job_item(
+            fields_payload=fields, external_id=external_id, hook=hook, silent=silent)
         return jsonify(created), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -201,7 +317,8 @@ def jobs_podio_update(item_id: int):
         hook = bool(body.get("hook", True))
         silent = bool(body.get("silent", False))
 
-        updated = podio_update_job_item(item_id=item_id, fields_payload=fields, hook=hook, silent=silent)
+        updated = podio_update_job_item(
+            item_id=item_id, fields_payload=fields, hook=hook, silent=silent)
         return jsonify(updated), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -218,4 +335,3 @@ def jobs_podio_delete(item_id: int):
         return jsonify({"message": f"Podio Job item deleted: {item_id}"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
-
