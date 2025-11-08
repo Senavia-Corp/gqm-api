@@ -5,9 +5,12 @@ from src.database.db import init_db, db  # Importados para ORM
 from src.routes.Job import job_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
+from src.routes.Supplier import supplier_bp
+
+from src.routes.sync_routes import sync_bp
+
 # Intento con SQLModel:
 from src.database.db_sqlmodel import init_sqlmodel_db
-from src.routes.Supplier import supplier_bp
 
 
 def create_app():
@@ -27,12 +30,13 @@ def create_app():
     app.register_blueprint(client_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
+    app.register_blueprint(sync_bp)  # Sincronización con Podio
 
-    # Ruta simple de home
+    # Ruta simple
 
     @app.get("/")
     def root():
-        return "Home"
+        return "API corriendo correctamente."
 
     return app
 
