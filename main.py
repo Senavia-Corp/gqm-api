@@ -1,28 +1,29 @@
+from src.config import PUBLIC_URL
 from flask import Flask
 import sys
+# Conexion con base de datos:
+from src.database.db_sqlmodel import init_sqlmodel_db
 # Blueprints
-from src.database.db import init_db, db  # Importados para ORM
 from src.routes.Job import job_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
 from src.routes.Supplier import supplier_bp
-
+from src.routes.Tasks import tasks_bp
+from src.routes.Member import member_bp
+from src.routes.Skills import skills_bp
+from src.routes.Webhook_bp import webhook_bp
+from src.podio.webhooks.test_admin_panel import register_podio_webhooks, clear_existing_webhooks
 from src.routes.sync_routes import sync_bp
 
-# Intento con SQLModel:
-from src.database.db_sqlmodel import init_sqlmodel_db
+# Test
+# from src.tests.debug_podio import debug_bp
 
 
 def create_app():
     app = Flask(__name__)
 
-    # Inicializa ORM
-    init_db(app)
-
     #  Crea tablas que no existan (NO borra nada).
-    #   Es seguro dejarlo en dev; en prod se recomienda Alembic.
     with app.app_context():
-        # db.create_all()
         init_sqlmodel_db()
 
     # Registrar blueprints
@@ -30,7 +31,15 @@ def create_app():
     app.register_blueprint(client_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
+    app.register_blueprint(tasks_bp)
+    app.register_blueprint(member_bp)
+    app.register_blueprint(skills_bp)
+
+    # Rutas relacionadas con Podio
     app.register_blueprint(sync_bp)  # Sincronización con Podio
+    # app.register_blueprint(webhook_bp)  # Ruta para recibir todos los webhooks
+
+    # app.register_blueprint(debug_bp)  # test
 
     # Ruta simple
 
@@ -41,9 +50,19 @@ def create_app():
     return app
 
 
+# VER SI FUNCIONA LA URL PUBLICA:
+print("🌐 URL pública actual:", PUBLIC_URL)
+
 if __name__ == "__main__":
     try:
         app = create_app()
+        '''
+        print("🔗 Borrando webhooks antiguos de Podio...")
+        clear_existing_webhooks()
+        print("🔗 Registrando webhooks de Podio...")
+        register_podio_webhooks()
+        print("✅ Webhooks registrados")
+        '''
         app.run(debug=True)
 
     except RuntimeError as e:

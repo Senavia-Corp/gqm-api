@@ -62,3 +62,7 @@ if _missing:
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("[ERROR] DATABASE_URL no está configurada en .env")
+
+
+# URL PARA WEBHOOK DE PODIO
+PUBLIC_URL = os.getenv("PUBLIC_URL")

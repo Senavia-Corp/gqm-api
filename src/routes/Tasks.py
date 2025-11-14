@@ -1,84 +1,77 @@
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from ..models.SupplierModel import Supplier, SupplierCreate, SupplierUpdate
+from ..models.TasksModel import Tasks, TasksCreate, TasksUpdate
 from ..utils.id_generator import generate_custom_id
-from ..utils.pagination import paginate
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 
-# Blueprint de Supplier:
-supplier_bp = Blueprint("supplier_blueprint", __name__,
-                        url_prefix="/suppliers")
+# Blueprint de Tasks:
+tasks_bp = Blueprint("tasks_blueprint", __name__,
+                     url_prefix="/tasks")
 
 # -------------------RUTAS CRUD-------------------#
 
-# --------------------RUTAS GET-------------------#
-# Ruta para conseguir la lista de todos los proveedores
+# Ruta para conseguir la lista de todos las tareas
 
 
-@supplier_bp.get("/")
-@paginate()
-def list_suppliers():
+@tasks_bp.get("/")
+def list_tasks():
     try:
         with get_session() as session:
-            results = session.exec(select(Supplier)).all()
-
-            if not results:
-                return [], 404
-
-            suppliers_data = [obj.model_dump() for obj in results]
-            return suppliers_data, 200
+            results = session.exec(select(Tasks)).all()
+            return jsonify([obj.model_dump() for obj in results]), 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar proveedores: {db_error}")
+        print(f"Error de base de datos al listar las tareas: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar proveedores: {e}")
+        print(f"Error inesperado al listar las tareas: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para conseguir un distruibidor por ID
-@supplier_bp.get("/<id_supplier>")
-def get_supplier(id_supplier):
+# Ruta para conseguir una tarea por ID
+
+@tasks_bp.get("/<id_tasks>")
+def get_tasks(id_tasks):
     try:
         with get_session() as session:
-            obj = session.get(Supplier, id_supplier)
+            obj = session.get(Tasks, id_tasks)
             if not obj:
-                return jsonify({"error": "Supplier not found"}), 404
+                return jsonify({"error": "Task not found"}), 404
             return jsonify(obj.model_dump()), 200
 
     except SQLAlchemyError as db_error:
         print(
-            f"Error de base de datos al buscar proveedor {id_supplier}: {db_error}")
+            f"Error de base de datos al buscar la tarea {id_tasks}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar proveedores: {e}")
+        print(f"Error inesperado al listar las tareas: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
         }), 500
 
+# Ruta para crear una tarea
 
-# --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear un distruibidor
-@supplier_bp.post("/")
-def create_supplier():
+
+@tasks_bp.post("/")
+def create_tasks():
     try:
         data = request.get_json()
-        create_supplier = SupplierCreate.model_validate(data)
-        obj = Supplier.model_validate(create_supplier)
+        create_tasks = TasksCreate.model_validate(data)
+        obj = Tasks.model_validate(create_tasks)
 
     except ValidationError as e:
         if 'JSON' in str(e):
@@ -89,8 +82,8 @@ def create_supplier():
     try:
         with get_session() as session:
             new_id = generate_custom_id(
-                session, Supplier, "ID_Supplier", "SUP")
-            obj.ID_Supplier = new_id
+                session, Tasks, "ID_Tasks", "TAS")
+            obj.ID_Tasks = new_id
 
             session.add(obj)
             session.commit()
@@ -101,7 +94,7 @@ def create_supplier():
         session.rollback()  # Deshace los cambios realizados
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un proveedor con este valor único."
+            detail = "Ya existe una tarea con este valor único."
         else:
             detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
         print(f"Error de integridad: {e}")
@@ -109,7 +102,7 @@ def create_supplier():
 
     except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
         session.rollback()
-        print(f"Error de base de datos al crear proveedor: {db_error}")
+        print(f"Error de base de datos al crear tarea: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -121,26 +114,27 @@ def create_supplier():
         except Exception:
             pass
 
-        print(f"Error inesperado durante la creación de proveedor: {e}")
+        print(f"Error inesperado durante la creación de la tarea: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para actualizar un proveedor
-@supplier_bp.patch("/<id_supplier>")
-def update_supplier(id_supplier):
+# Ruta para actualizar una tarea
+
+@tasks_bp.patch("/<id_tasks>")
+def update_tasks(id_tasks):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.get(Supplier, id_supplier)
+            obj = session.get(Tasks, id_tasks)
             if not obj:
-                return jsonify({"error": "Supplier not found"}), 404
+                return jsonify({"error": "Task not found"}), 404
 
-            update_supplier = SupplierUpdate.model_validate(data)
-            update_data_dict = update_supplier.model_dump(
+            update_tasks = TasksUpdate.model_validate(data)
+            update_data_dict = update_tasks.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
@@ -154,21 +148,21 @@ def update_supplier(id_supplier):
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
-            "detail": "Error de validación: Datos de proveedor inválidos para la actualización.",
+            "detail": "Error de validación: Datos de tarea inválidos para la actualización.",
             "errors": e.errors()
         }), 400
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un proveedor con estos valores únicos o faltan datos requeridos."
+        detail = "Error de integridad: Ya existe una tarea con estos valores únicos o faltan datos requeridos."
         print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al actualizar proveedor: {db_error}")
+        print(f"Error de base de datos al actualizar tarea: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -180,38 +174,39 @@ def update_supplier(id_supplier):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al actualizar proveedor: {e}")
+        print(f"Error inesperado al actualizar tarea: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para eliminar un proveedor
-@supplier_bp.delete("/<id_supplier>")
-def delete_supplier(id_supplier):
+# Ruta para eliminar un distruibidor
+
+@tasks_bp.delete("/<id_tasks>")
+def delete_tasks(id_tasks):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(Supplier, id_supplier)
+            obj = session.get(Tasks, id_tasks)
             if not obj:
-                return jsonify({"error": "Supplier not found"}), 404
+                return jsonify({"error": "Task not found"}), 404
             session.delete(obj)
             session.commit()
-            return jsonify({"message": f"Deleted Supplier {id_supplier}"}), 200
+            return jsonify({"message": f"Deleted Task {id_tasks}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
+    except IntegrityError as e:  # En caso de borrar una tarea que tiene productos asociados con Foreign Key
         if session:
             session.rollback()
-        detail = "Error de integridad: No se puede eliminar el proveedor porque tiene registros relacionados."
+        detail = "Error de integridad: No se puede eliminar la tarea porque tiene registros relacionados."
         print(f"Error de integridad (DELETE): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al eliminar proveedor: {db_error}")
+        print(f"Error de base de datos al eliminar tarea: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -223,7 +218,7 @@ def delete_supplier(id_supplier):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al eliminar proveedor: {e}")
+        print(f"Error inesperado al eliminar tarea: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"

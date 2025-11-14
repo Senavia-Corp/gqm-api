@@ -1,5 +1,4 @@
 # ======================================== Código para la Base de Datos en Postgresql =================================
-from ..models.ClientModel import podio_list_clients
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
@@ -17,21 +16,21 @@ client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")
 
 
 @client_bp.get("/")
-def list_suppliers():
+def list_clients():
     try:
         with get_session() as session:
             results = session.exec(select(Client)).all()
             return jsonify([obj.model_dump() for obj in results]), 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar proveedores: {db_error}")
+        print(f"Error de base de datos al listar clientes: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar proveedores: {e}")
+        print(f"Error inesperado al listar clientes: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
@@ -50,14 +49,14 @@ def get_client(id_client):
 
     except SQLAlchemyError as db_error:
         print(
-            f"Error de base de datos al buscar proveedor {id_client}: {db_error}")
+            f"Error de base de datos al buscar cliente {id_client}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar proveedores: {e}")
+        print(f"Error inesperado al listar clientes: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
@@ -94,7 +93,7 @@ def create_client():
         session.rollback()  # Deshace los cambios realizados
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un proveedor con este valor único."
+            detail = "Ya existe un cliente con este valor único."
         else:
             detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
         print(f"Error de integridad: {e}")
@@ -102,7 +101,7 @@ def create_client():
 
     except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
         session.rollback()
-        print(f"Error de base de datos al crear proveedor: {db_error}")
+        print(f"Error de base de datos al crear cliente: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -114,7 +113,7 @@ def create_client():
         except Exception:
             pass
 
-        print(f"Error inesperado durante la creación de proveedor: {e}")
+        print(f"Error inesperado durante la creación de cliente: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
@@ -148,21 +147,21 @@ def update_client(id_client):
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
-            "detail": "Error de validación: Datos de proveedor inválidos para la actualización.",
+            "detail": "Error de validación: Datos de cliente inválidos para la actualización.",
             "errors": e.errors()
         }), 400
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un proveedor con estos valores únicos o faltan datos requeridos."
+        detail = "Error de integridad: Ya existe un cliente con estos valores únicos o faltan datos requeridos."
         print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al actualizar proveedor: {db_error}")
+        print(f"Error de base de datos al actualizar cliente: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -174,7 +173,7 @@ def update_client(id_client):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al actualizar proveedor: {e}")
+        print(f"Error inesperado al actualizar cliente: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
@@ -199,14 +198,14 @@ def delete_client(id_client):
     except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
         if session:
             session.rollback()
-        detail = "Error de integridad: No se puede eliminar el proveedor porque tiene registros relacionados."
+        detail = "Error de integridad: No se puede eliminar el cliente porque tiene registros relacionados."
         print(f"Error de integridad (DELETE): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al eliminar proveedor: {db_error}")
+        print(f"Error de base de datos al eliminar cliente: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -218,28 +217,8 @@ def delete_client(id_client):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al eliminar proveedor: {e}")
+        print(f"Error inesperado al eliminar cliente: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
-
-
-# =============================================== Código de para la conexión y manejo de Podio =================================
-
-
-@client_bp.get("/podio/items")
-def clients_from_podio():
-    limit = int(request.args.get("limit", 200))
-    offset = int(request.args.get("offset", 0))
-    fetch_all = str(request.args.get("all", "false")
-                    ).lower() in ("1", "true", "yes")
-    view_id = request.args.get("view_id")
-    fmt = (request.args.get("format") or "normalized").lower()
-    category_mode = (request.args.get("category_mode") or "both").lower()
-
-    data = podio_list_clients(
-        limit=limit, offset=offset, fetch_all=fetch_all, view_id=view_id,
-        fmt=fmt, category_mode=category_mode
-    )
-    return jsonify(data), 200

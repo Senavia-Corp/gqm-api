@@ -1,70 +1,98 @@
+# ============ Lógica de rutas =================
+
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from ..models.SupplierModel import Supplier, SupplierCreate, SupplierUpdate
+from ..models.MemberModel import Member, MemberCreate, MemberUpdate
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
+from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
+from sqlalchemy.orm import joinedload
 
-# Blueprint de Supplier:
-supplier_bp = Blueprint("supplier_blueprint", __name__,
-                        url_prefix="/suppliers")
+# Blueprint de Member:
+member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
 
 # -------------------RUTAS CRUD-------------------#
 
 # --------------------RUTAS GET-------------------#
-# Ruta para conseguir la lista de todos los proveedores
+# Ruta para conseguir la lista de todos los miembros GQM
 
 
-@supplier_bp.get("/")
-@paginate()
-def list_suppliers():
+@member_bp.get("/")
+@paginate()  # decorador de paginación
+def list_members():
     try:
         with get_session() as session:
-            results = session.exec(select(Supplier)).all()
+            # Trae los Jobs con sus clientes en una sola consulta
+            statement = (
+                select(Member)
+                # .options(joinedload(Member.rol))
+            )
+            results = session.exec(statement).all()
 
             if not results:
-                return [], 404
+                return [], 404   # El decorador se encarga del formato final
 
-            suppliers_data = [obj.model_dump() for obj in results]
-            return suppliers_data, 200
+            # Esto aplica cuando se cree la tabla de Rol
+            '''member_data = [
+                add_relationships(member, ["rol"])  # se agrega la relacion FK
+                for member in results
+            ]
+
+            return member_data, 200'''
+
+            member_data = [obj.model_dump() for obj in results]
+            return member_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar proveedores: {db_error}")
+        print(f"Error de base de datos al listar miembros GQM: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar proveedores: {e}")
+        print(f"Error inesperado al listar miembros GQM: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para conseguir un distruibidor por ID
-@supplier_bp.get("/<id_supplier>")
-def get_supplier(id_supplier):
+# Ruta para conseguir un miembro GQM por ID_Member
+@member_bp.get("/<id_member>")
+def get_member_by_id(id_member):
     try:
         with get_session() as session:
-            obj = session.get(Supplier, id_supplier)
+            statement = (
+                select(Member)
+                # .options(joinedload(Member.client))
+                .where(Member.ID_Member == id_member)
+            )
+
+            obj = session.exec(statement).first()
+
             if not obj:
-                return jsonify({"error": "Supplier not found"}), 404
-            return jsonify(obj.model_dump()), 200
+                return jsonify({"error": "Member not found"}), 404
+
+            # Construir JSON limpio con la info del cliente
+            member_data = obj.model_dump()
+            # member_data["ID_Rol"] = obj.rol.model_dump() if obj.rol else None
+
+            return jsonify(member_data), 200
 
     except SQLAlchemyError as db_error:
         print(
-            f"Error de base de datos al buscar proveedor {id_supplier}: {db_error}")
+            f"Error de base de datos al buscar miembro GQM {id_member}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar proveedores: {e}")
+        print(f"Error inesperado al listar miembros GQM: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
@@ -72,13 +100,13 @@ def get_supplier(id_supplier):
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear un distruibidor
-@supplier_bp.post("/")
-def create_supplier():
+# Ruta para crear un miembro GQM
+@member_bp.post("/")
+def create_member():
     try:
         data = request.get_json()
-        create_supplier = SupplierCreate.model_validate(data)
-        obj = Supplier.model_validate(create_supplier)
+        create_member = MemberCreate.model_validate(data)
+        obj = Member.model_validate(create_member)
 
     except ValidationError as e:
         if 'JSON' in str(e):
@@ -89,8 +117,8 @@ def create_supplier():
     try:
         with get_session() as session:
             new_id = generate_custom_id(
-                session, Supplier, "ID_Supplier", "SUP")
-            obj.ID_Supplier = new_id
+                session, Member, "ID_Member", "MEM")
+            obj.ID_Member = new_id
 
             session.add(obj)
             session.commit()
@@ -101,7 +129,7 @@ def create_supplier():
         session.rollback()  # Deshace los cambios realizados
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un proveedor con este valor único."
+            detail = "Ya existe un miembro GQM con este valor único."
         else:
             detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
         print(f"Error de integridad: {e}")
@@ -109,7 +137,7 @@ def create_supplier():
 
     except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
         session.rollback()
-        print(f"Error de base de datos al crear proveedor: {db_error}")
+        print(f"Error de base de datos al crear miembro GQM: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -121,26 +149,26 @@ def create_supplier():
         except Exception:
             pass
 
-        print(f"Error inesperado durante la creación de proveedor: {e}")
+        print(f"Error inesperado durante la creación de miembro GQM: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para actualizar un proveedor
-@supplier_bp.patch("/<id_supplier>")
-def update_supplier(id_supplier):
+# Ruta para actualizar un miembro GQM
+@member_bp.patch("/<id_member>")
+def update_member(id_member):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.get(Supplier, id_supplier)
+            obj = session.get(Member, id_member)
             if not obj:
-                return jsonify({"error": "Supplier not found"}), 404
+                return jsonify({"error": "GQM Member not found"}), 404
 
-            update_supplier = SupplierUpdate.model_validate(data)
-            update_data_dict = update_supplier.model_dump(
+            update_member = MemberUpdate.model_validate(data)
+            update_data_dict = update_member.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
@@ -154,21 +182,21 @@ def update_supplier(id_supplier):
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
-            "detail": "Error de validación: Datos de proveedor inválidos para la actualización.",
+            "detail": "Error de validación: Datos de miembro GQM inválidos para la actualización.",
             "errors": e.errors()
         }), 400
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un proveedor con estos valores únicos o faltan datos requeridos."
+        detail = "Error de integridad: Ya existe un miembro GQM con estos valores únicos o faltan datos requeridos."
         print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al actualizar proveedor: {db_error}")
+        print(f"Error de base de datos al actualizar miembro GQM: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -180,38 +208,38 @@ def update_supplier(id_supplier):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al actualizar proveedor: {e}")
+        print(f"Error inesperado al actualizar miembro GQM: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para eliminar un proveedor
-@supplier_bp.delete("/<id_supplier>")
-def delete_supplier(id_supplier):
+# Ruta para eliminar un miembro GQM
+@member_bp.delete("/<id_member>")
+def delete_member(id_member):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(Supplier, id_supplier)
+            obj = session.get(Member, id_member)
             if not obj:
-                return jsonify({"error": "Supplier not found"}), 404
+                return jsonify({"error": "GQM Member not found"}), 404
             session.delete(obj)
             session.commit()
-            return jsonify({"message": f"Deleted Supplier {id_supplier}"}), 200
+            return jsonify({"message": f"Deleted GQM Member {id_member}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
+    except IntegrityError as e:  # En caso de borrar un miembro GQM que tiene productos asociados con Foreign Key
         if session:
             session.rollback()
-        detail = "Error de integridad: No se puede eliminar el proveedor porque tiene registros relacionados."
+        detail = "Error de integridad: No se puede eliminar el miembro GQM porque tiene registros relacionados."
         print(f"Error de integridad (DELETE): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al eliminar proveedor: {db_error}")
+        print(f"Error de base de datos al eliminar miembro GQM: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -223,7 +251,7 @@ def delete_supplier(id_supplier):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al eliminar proveedor: {e}")
+        print(f"Error inesperado al eliminar miembro GQM: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"

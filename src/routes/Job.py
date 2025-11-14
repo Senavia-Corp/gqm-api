@@ -5,8 +5,11 @@ from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..utils.id_generator import generate_custom_id
+from ..utils.pagination import paginate
+from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
+from sqlalchemy.orm import joinedload
 
 from ..podio.services.job_services import (
     create_podio_job,
@@ -19,14 +22,35 @@ job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
 
 # -------------------RUTAS CRUD-------------------#
 
-
+# --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los trabajos
+
+
 @job_bp.get("/")
+@paginate()  # decorador de paginación
 def list_jobs():
     try:
         with get_session() as session:
-            results = session.exec(select(Job)).all()
-            return jsonify([obj.model_dump() for obj in results]), 200
+            # Trae los Jobs con sus clientes en una sola consulta
+            statement = (
+                select(Job)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.member),
+                )
+            )
+            results = session.exec(statement).all()
+
+            if not results:
+                return [], 404   # El decorador se encarga del formato final
+
+            jobs_data = [
+                # se agrega la relacion FK
+                add_relationships(job, ["client", "member"])
+                for job in results
+            ]
+
+            return jobs_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
         print(f"Error de base de datos al listar trabajos: {db_error}")
@@ -45,13 +69,35 @@ def list_jobs():
 
 # Ruta para conseguir un trabajo por ID_Jobs
 @job_bp.get("/<id_job>")
-def get_job(id_job):
+def get_job_by_id(id_job):
     try:
         with get_session() as session:
-            obj = session.get(Job, id_job)
+            statement = (
+                select(Job)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.member),
+                )
+                .where(Job.ID_Jobs == id_job)
+            )
+            obj = session.exec(statement).first()
+
             if not obj:
                 return jsonify({"error": "Job not found"}), 404
-            return jsonify(obj.model_dump()), 200
+
+            # Construir JSON limpio con la info del cliente
+            job_data = obj.model_dump()
+            # Anidar las informacion del cliente y el miembro GQM
+            job_data["client"] = obj.client.model_dump(
+            ) if obj.client else None
+            job_data["member"] = obj.member.model_dump(
+            ) if obj.member else None
+
+            # Elimina las FK del JSON (estética)
+            job_data.pop("ID_Client", None)
+            job_data.pop("ID_Member", None)
+
+            return jsonify(job_data), 200
 
     except SQLAlchemyError as db_error:
         print(
@@ -69,6 +115,217 @@ def get_job(id_job):
         }), 500
 
 
+# Ruta para conseguir un trabajo por Job_status
+@job_bp.get("/status/<status>")
+@paginate()
+def list_jobs_by_status(status):
+    try:
+        with get_session() as session:
+            statement = (
+                select(Job)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.member),
+                )
+                .where(Job.Job_status == status)
+            )
+            results = session.exec(statement).all()
+
+            if not results:
+                return [], 404
+
+            jobs_data = [
+                add_relationships(job, ["client", "member"])
+                for job in results
+            ]
+
+            return jobs_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar trabajo: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar trabajos por status: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un trabajo por ID_Client
+@job_bp.get("/client/<id_client>")
+@paginate()
+def get_job_by_clientID(id_client):
+    try:
+        with get_session() as session:
+            statement = (
+                select(Job)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.member),
+                )
+                .where(Job.ID_Client == id_client)
+            )
+            results = session.exec(statement).all()
+
+            if not results:
+                return [], 404
+
+            jobs_data = [
+                add_relationships(job, ["client", "member"])
+                for job in results
+            ]
+
+            return jobs_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar trabajo: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar trabajos por cliente: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un trabajo por ID_Member
+@job_bp.get("/member/<id_member>")
+@paginate()
+def get_job_by_memberID(id_member):
+    try:
+        with get_session() as session:
+            statement = (
+                select(Job)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.member),
+                )
+                .where(Job.ID_Member == id_member)
+            )
+            results = session.exec(statement).all()
+
+            if not results:
+                return [], 404
+
+            jobs_data = [
+                add_relationships(job, ["client", "member"])
+                for job in results
+            ]
+
+            return jobs_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar trabajo: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar trabajos por cliente: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un trabajo por Job_type
+@job_bp.get("/type/<type>")
+@paginate()
+def list_jobs_by_type(type):
+    try:
+        with get_session() as session:
+            statement = (
+                select(Job)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.member),
+                )
+                .where(Job.Job_type == type)
+            )
+            results = session.exec(statement).all()
+
+            if not results:
+                return [], 404
+
+            jobs_data = [
+                add_relationships(job, ["client", "member"])
+                for job in results
+            ]
+
+            return jobs_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar trabajo: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar trabajos por tipo: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un trabajo por Date_assigned
+@job_bp.get("/date_assigned/<date>")
+@paginate()
+def list_jobs_by_date(date):
+    try:
+        with get_session() as session:
+            statement = (
+                select(Job)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.member),
+                )
+                .where(Job.Date_assigned == date)
+            )
+            results = session.exec(statement).all()
+
+            if not results:
+                return [], 404
+
+            jobs_data = [
+                add_relationships(job, ["client", "member"])
+                for job in results
+            ]
+
+            return jobs_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar trabajo: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar trabajos por fecha: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un trabajo
 @job_bp.post("/")
 def create_job():
@@ -76,7 +333,7 @@ def create_job():
     try:
         data = request.get_json()
         job_data = JobCreate.model_validate(data)
-        obj = Job.model_validate(job_data)
+        obj = Job(**job_data.model_dump(exclude_unset=False, exclude_none=False))
 
         with get_session() as session:
             prefix = obj.Job_type.upper()
@@ -267,12 +524,13 @@ def update_job(podio_item_id):
 
 
 # Ruta para eliminar un trabajo
-@job_bp.delete("/<id_job>")
-def delete_job(id_job):
+@job_bp.delete("/<podio_item_id>")
+def delete_job(podio_item_id):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(Job, id_job)
+            obj = session.exec(select(Job).where(
+                Job.podio_item_id == podio_item_id)).first()
             if not obj:
                 return jsonify({"error": "Job not found"}), 404
 
@@ -286,7 +544,7 @@ def delete_job(id_job):
             session.delete(obj)
             session.commit()
 
-            return jsonify({"message": f"Job {id_job} eliminado correctamente"}), 200
+            return jsonify({"message": f"Job {podio_item_id} eliminado correctamente"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
     except IntegrityError as e:  # En caso de borrar un trabajo que tiene productos asociados con Foreign Key

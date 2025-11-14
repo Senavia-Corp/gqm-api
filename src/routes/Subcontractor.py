@@ -3,9 +3,12 @@ from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.SubcontractorModel import Subcontractor, SubcontractorCreate, SubcontractorUpdate
 from ..utils.id_generator import generate_custom_id
+from ..utils.pagination import paginate
+from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
-from ..models.SubcontractorModel import podio_list_subcontractors
+from sqlalchemy.orm import joinedload
+
 
 # Blueprint de Subcontractor
 subcontractor_bp = Blueprint(
@@ -13,15 +16,29 @@ subcontractor_bp = Blueprint(
 
 # -------------------RUTAS CRUD-------------------#
 
+# --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los subcontratistas
 
 
 @subcontractor_bp.get("/")
+@paginate()
 def list_subcontractors():
     try:
         with get_session() as session:
+            '''
+            Cuando se cree la tabla de Rol se pone:
+            statement = (
+                select(Subcontractor)
+                # .options(joinedload(Subcontractor.rol))
+            )
+            results = session.exec(select(statement)).all()
+            '''
             results = session.exec(select(Subcontractor)).all()
-            return jsonify([obj.model_dump() for obj in results]), 200
+
+            if not results:
+                return [], 404
+
+            return [obj.model_dump() for obj in results], 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
         print(f"Error de base de datos al listar proveedores: {db_error}")
@@ -63,9 +80,131 @@ def get_subcontractor(id_subcontractor):
             "code": "internal_error"
         }), 500
 
+
+# Ruta para conseguir un subcontratista por estado
+@subcontractor_bp.get("/state/<state>")
+@paginate()
+def list_subcontractor_by_state(state):
+    try:
+        with get_session() as session:
+            '''
+            Cuando se cree la tabla de Rol se pone:
+            statement = (
+                select(Subcontractor)
+                # .options(joinedload(Subcontractor.rol))
+                .where(Subcontractor.State == state)
+            )
+            results = session.exec(statement).all()'''
+
+            results = session.exec(select(Subcontractor).where(
+                Subcontractor.State == state)).all()
+
+            if not results:
+                return [], 404
+
+            subcontractor_data = [obj.model_dump() for obj in results]
+            return subcontractor_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar subcontratista: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar subcontratista por estado: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un subcontratista por GQM compliance
+@subcontractor_bp.get("/compliance/<compliance>")
+@paginate()
+def list_subcontractor_by_gqm_compliance(compliance):
+    try:
+        with get_session() as session:
+            '''
+            Cuando se cree la tabla de Rol se pone:
+            statement = (
+                select(Subcontractor)
+                # .options(joinedload(Subcontractor.rol))
+                .where(Subcontractor.Gqm_compliance == compliance)
+            )
+            results = session.exec(statement).all()'''
+
+            results = session.exec(select(Subcontractor).where(
+                Subcontractor.Gqm_compliance == compliance)).all()
+
+            if not results:
+                return [], 404
+
+            subcontractor_data = [obj.model_dump() for obj in results]
+            return subcontractor_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar subcontratista: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(
+            f"Error inesperado al listar subcontratista por Gqm compliance: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un subcontratista por GQM best service training
+@subcontractor_bp.get("/bts/<bts>")
+@paginate()
+def list_subcontractor_by_gqm_bts(bts):
+    try:
+        with get_session() as session:
+            '''
+            Cuando se cree la tabla de Rol se pone:
+            statement = (
+                select(Subcontractor)
+                # .options(joinedload(Subcontractor.rol))
+                .where(Subcontractor.Gqm_best_service_training == bts)
+            )
+            results = session.exec(statement).all()'''
+
+            results = session.exec(select(Subcontractor).where(
+                Subcontractor.Gqm_best_service_training == bts)).all()
+
+            if not results:
+                return [], 404
+
+            subcontractor_data = [obj.model_dump() for obj in results]
+            return subcontractor_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar subcontratista: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(
+            f"Error inesperado al listar subcontratista por Gqm compliance: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un subcontratista
-
-
 @subcontractor_bp.post("/")
 def create_subcontractor():
     try:
@@ -223,32 +362,3 @@ def delete_subcontractor(id_subcontractor):
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
-
-
-# ---------- PODIO (Subcontractors App) ----------
-
-@subcontractor_bp.get("/podio/items")
-def subcontractors_from_podio():
-    """
-    GET /subcontractors/podio/items?limit=4&format=raw|normalized|extracted
-    Parámetros opcionales:
-      - offset, all=true|1|yes, view_id, category_mode (solo para normalized)
-    """
-    try:
-        limit = int(request.args.get("limit", 200))
-        offset = int(request.args.get("offset", 0))
-        fetch_all = str(request.args.get("all", "false")
-                        ).lower() in ("1", "true", "yes")
-        view_id = request.args.get("view_id")
-        fmt = (request.args.get("format") or "normalized").lower()
-        category_mode = (request.args.get("category_mode") or "both").lower()
-
-        data = podio_list_subcontractors(
-            limit=limit, offset=offset, fetch_all=fetch_all, view_id=view_id,
-            fmt=fmt, category_mode=category_mode
-        )
-        return jsonify(data), 200
-    except request.HTTPError as e:
-        return jsonify({"error": f"Podio API: {e.response.text}"}), 502
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400

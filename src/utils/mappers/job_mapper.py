@@ -2,7 +2,7 @@ from typing import Optional
 import re
 
 
-# 🔹 Extraer el Job_type desde el ID del proyecto
+# Extraer el Job_type desde el ID del proyecto
 def extract_job_type_from_id(project_id: Optional[str]) -> Optional[str]:
     """
     Extrae el tipo de Job (QID, PTL, PAR) desde el ID del proyecto.
@@ -23,7 +23,7 @@ def extract_job_type_from_id(project_id: Optional[str]) -> Optional[str]:
     return None
 
 
-# 🔹 Mapeo de los datos de Podio a PostgreSQL
+# Mapeo de los datos de Podio a PostgreSQL
 def map_podio_item_to_job(item: dict) -> dict:
     """
     Transforma un item de Podio (JSON) al formato de Job para PostgreSQL.
