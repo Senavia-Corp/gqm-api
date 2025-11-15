@@ -6,6 +6,8 @@ from src.models.JobModel import Job
 from src.database.db_sqlmodel import get_session
 from sqlmodel import select
 
+# SINCRONIZACIÓN MASIVA
+
 
 def sync_jobs():
 

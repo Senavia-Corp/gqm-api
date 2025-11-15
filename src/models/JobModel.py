@@ -1,12 +1,12 @@
 
-import requests
-
 # ==================================== Modelos para PostgreSQL ====================================#
 
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional
 from datetime import date
 from enum import Enum
+from src.models.ClientModel import Client
+from src.models.MemberModel import Member
 
 
 class JobType(str, Enum):
@@ -23,7 +23,7 @@ class JobBase(SQLModel):
     Job_status: str
     Po_wtn_wo: Optional[str] = Field(default=None)
     Service_type: Optional[str] = Field(default=None)
-    Date_assigned: Optional[str] = Field(default=None)
+    Date_assigned: Optional[date] = Field(default=date.today)
     Estimated_start_date: Optional[date] = Field(default=None)
     Estimated_project_duration: Optional[str] = Field(default=None)
 
@@ -43,17 +43,25 @@ class Job(JobBase, table=True):
     ID_Jobs: Optional[str] = Field(default=None, primary_key=True)
     podio_item_id: Optional[str] = Field(
         default=None, index=True)  # referencia a Podio
-    # ID_Member: Optional[str] = Field(default=None, foreign_key="member.ID_Member")
+
+    # Relaciones foráneas
+    ID_Member: Optional[str] = Field(
+        default=None, foreign_key="member.ID_Member")
+    member: Optional["Member"] = Relationship()
     ID_Client: Optional[str] = Field(
         default=None, foreign_key="client.ID_Client")
+    client: Optional["Client"] = Relationship()
 
 
 class JobCreate(JobBase):
-    pass
+    ID_Client: Optional[str] = None
+    ID_Member: Optional[str] = None
 
 
 class JobUpdate(SQLModel):
 
+    ID_Client: Optional[str] = None
+    ID_Member: Optional[str] = None
     Project_name: Optional[str] = Field(default=None)
     Project_location: Optional[str] = Field(default=None)
     Job_status: Optional[str] = Field(default=None)
