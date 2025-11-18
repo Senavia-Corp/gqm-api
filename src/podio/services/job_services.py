@@ -74,7 +74,14 @@ def update_podio_job(item_id: int, fields: dict):
         print(response.text)
         raise
 
-    return response.json()
+    # --- 🔥 SIMPLE FIX: Podio a veces no devuelve JSON ---
+    if not response.text.strip():
+        return {"status": "ok", "item_id": item_id}
+
+    try:
+        return response.json()
+    except ValueError:
+        return {"status": "ok", "item_id": item_id}
 
 
 # ------------------ DELETE ------------------

@@ -1,8 +1,8 @@
-from src.podio.services.job_services import get_podio_items
+from src.utils.get_podio_items import get_podio_item
 
 if __name__ == "__main__":
     try:
-        items = get_podio_items(limit=5)
+        items = get_podio_item(limit=5)
         print(f"✅ Se obtuvieron {len(items)} items desde Podio.")
         for i, item in enumerate(items, start=1):
             print(f"{i}. {item.get('title')}")
