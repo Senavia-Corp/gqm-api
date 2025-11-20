@@ -1,20 +1,23 @@
 import requests
 from src.podio.podio_auth import get_podio_headers
 from src.config import PUBLIC_URL, PODIO_TAP_APP_ID
+from src.utils.middleware.retries import retry_api
 
 
+@retry_api(max_retries=3, backoff=2)
 def list_webhooks():
     """
     Retorna la lista de webhooks de la app.
-    GET https://api.podio.com/hook/{app_id}/
+    GET https://api.podio.com/hook/app/{app_id}/
     """
     headers = get_podio_headers()
-    url = f"https://api.podio.com/hook/{PODIO_TAP_APP_ID}/"
+    url = f"https://api.podio.com/hook/app/{PODIO_TAP_APP_ID}/"
     resp = requests.get(url, headers=headers)
     resp.raise_for_status()
     return resp.json()
 
 
+@retry_api(max_retries=3, backoff=2)
 def clear_existing_webhooks():
     """
     Elimina todos los webhooks asociados a la app.
@@ -51,6 +54,7 @@ def clear_existing_webhooks():
     return (len(errors) == 0), errors
 
 
+@retry_api(max_retries=3, backoff=2)
 def register_podio_webhooks():
     """
     Registra los webhooks necesarios (create, update, delete).

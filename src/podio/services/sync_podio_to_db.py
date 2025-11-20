@@ -5,10 +5,12 @@ from src.utils.mappers.job_mapper import map_podio_item_to_job
 from src.models.JobModel import Job
 from src.database.db_sqlmodel import get_session
 from sqlmodel import select
+from src.utils.middleware.retries import retry_db
 
 # SINCRONIZACIÓN MASIVA
 
 
+@retry_db(max_retries=3, delay=1)
 def sync_jobs():
 
     # Sincroniza los Jobs desde Podio a PostgreSQL.

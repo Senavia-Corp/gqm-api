@@ -8,7 +8,7 @@ DATABASE_URL = config("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL no está definida en el .env")
 
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=False)
 
 
 def init_sqlmodel_db(app=None):

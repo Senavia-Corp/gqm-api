@@ -2,6 +2,7 @@ import requests
 from src.podio.podio_auth import get_podio_headers
 from src.config import PODIO_TAP_APP_ID, BASE_URL
 from src.utils.clean_podio_fields import clean_podio_fields
+from src.utils.middleware.retries import retry_api
 
 
 # ============================================================
@@ -13,7 +14,7 @@ def podio_headers():
 
 
 # ------------------ GET ------------------
-
+@retry_api(max_retries=3, backoff=2)
 def get_podio_jobs(limit=50, offset=0):
 
     headers = podio_headers()
@@ -27,7 +28,7 @@ def get_podio_jobs(limit=50, offset=0):
 
 
 # ------------------ CREATE ------------------
-
+@retry_api(max_retries=3, backoff=2)
 def create_podio_job(fields: dict):
     headers = podio_headers()
     url = f"{BASE_URL}/item/app/{PODIO_TAP_APP_ID}/"
@@ -52,7 +53,7 @@ def create_podio_job(fields: dict):
 
 
 # ------------------ UPDATE ------------------
-
+@retry_api(max_retries=3, backoff=2)
 def update_podio_job(item_id: int, fields: dict):
     headers = podio_headers()
     url = f"{BASE_URL}/item/{item_id}"
@@ -85,7 +86,7 @@ def update_podio_job(item_id: int, fields: dict):
 
 
 # ------------------ DELETE ------------------
-
+@retry_api(max_retries=3, backoff=2)
 def delete_podio_job(item_id: str):
 
     headers = podio_headers()

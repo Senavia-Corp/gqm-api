@@ -1,9 +1,11 @@
 from src.config import PUBLIC_URL
 from flask import Flask
 import sys
+# Middleware de logs para todos los request:
+from src.utils.middleware.request_logger import register_request_logger
 # Conexion con base de datos:
 from src.database.db_sqlmodel import init_sqlmodel_db
-# Blueprints
+# Blueprints:
 from src.routes.Job import job_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
@@ -11,8 +13,9 @@ from src.routes.Supplier import supplier_bp
 from src.routes.Tasks import tasks_bp
 from src.routes.Member import member_bp
 from src.routes.Skills import skills_bp
-# Sincronizacion masiva de Podio a Postgre
+# Sincronizacion masiva de Podio a Postgre:
 from src.routes.podio_routes.MasiveSync import sync_bp
+# Rutas de webhooks:
 from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
 
@@ -22,6 +25,9 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 
 def create_app():
     app = Flask(__name__)
+
+    # Middleware de logs para todas las rutas
+    register_request_logger(app)
 
     #  Crea tablas que no existan (NO borra nada).
     with app.app_context():
@@ -65,7 +71,7 @@ if __name__ == "__main__":
     try:
         app = create_app()
 
-        app.run(debug=True)
+        app.run(debug=True, port=80)
 
     except RuntimeError as e:
         print(f"\n[ERROR CRÍTICO] La aplicación no pudo iniciar: {e}")

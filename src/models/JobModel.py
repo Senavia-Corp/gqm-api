@@ -30,6 +30,7 @@ class JobBase(SQLModel):
     Gqm_formula_pricing: Optional[float] = Field(default=None)
     Gqm_adj_formula_pricing: Optional[float] = Field(default=None)
     Gqm_target_sold_pricing: Optional[float] = Field(default=None)
+    Gqm_target_return: Optional[float] = Field(default=None)
     Gqm_premium_in_money: Optional[float] = Field(default=None)
     Gqm_final_sold_pricing: Optional[float] = Field(default=None)
     # Gqm_final_sold_pricing: float
@@ -74,6 +75,7 @@ class JobUpdate(SQLModel):
     Gqm_formula_pricing: Optional[float] = Field(default=None)
     Gqm_adj_formula_pricing: Optional[float] = Field(default=None)
     Gqm_target_sold_pricing: Optional[float] = Field(default=None)
+    Gqm_target_return: Optional[float] = Field(default=None)
     Gqm_premium_in_money: Optional[float] = Field(default=None)
     Gqm_final_sold_pricing: Optional[float] = Field(default=None)
     Gqm_final_percentage: Optional[float] = Field(default=None)
