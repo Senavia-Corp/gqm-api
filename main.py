@@ -1,5 +1,6 @@
 from src.config import PUBLIC_URL
 from flask import Flask
+from flask_cors import CORS
 import sys
 # Middleware de logs para todos los request:
 from src.utils.middleware.request_logger import register_request_logger
@@ -25,6 +26,9 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 
 def create_app():
     app = Flask(__name__)
+
+    # Configurar CORS con origines específicos
+    CORS(app)
 
     # Middleware de logs para todas las rutas
     register_request_logger(app)
