@@ -7,17 +7,22 @@ from src.utils.middleware.request_logger import register_request_logger
 from src.database.db_sqlmodel import init_sqlmodel_db
 # Blueprints:
 from src.routes.Job import job_bp
+from src.routes.JobLinks import job_multiplier_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
 from src.routes.Supplier import supplier_bp
 from src.routes.Tasks import tasks_bp
 from src.routes.Member import member_bp
 from src.routes.Skills import skills_bp
+from src.routes.MultiplierR import multiplier_bp
 # Sincronizacion masiva de Podio a Postgre:
 from src.routes.podio_routes.MasiveSync import sync_bp
 # Rutas de webhooks:
-from src.routes.Webhook_bp import webhook_bp
+# from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
+# Rutas de Quickbooks sandbox
+from src.routes.qbo_routes.sandbox_route import qbo_bp
+from src.quickbooks.qbo_auth import qbo_oauth_bp
 
 # Test
 # from src.tests.debug_podio import debug_bp
@@ -35,18 +40,24 @@ def create_app():
 
     # Registrar blueprints
     app.register_blueprint(job_bp)
+    app.register_blueprint(job_multiplier_bp)
     app.register_blueprint(client_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
     app.register_blueprint(tasks_bp)
     app.register_blueprint(member_bp)
     app.register_blueprint(skills_bp)
+    app.register_blueprint(multiplier_bp)
 
     # Rutas relacionadas con Podio
     app.register_blueprint(sync_bp)  # Sincronización con Podio
-    app.register_blueprint(webhook_bp)  # Para recibir todos los webhooks
+    # app.register_blueprint(webhook_bp)  # Para recibir todos los webhooks
     # Para crear o eliminar los hooks de Podio
     app.register_blueprint(admin_bp)
+
+    # Para conexion con sandbox de Quickbooks
+    app.register_blueprint(qbo_bp)
+    # app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
 
     # app.register_blueprint(debug_bp)  # test
 

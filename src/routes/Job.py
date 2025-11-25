@@ -39,16 +39,17 @@ def list_jobs():
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404   # El decorador se encarga del formato final
 
             jobs_data = [
                 # se agrega la relacion FK
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -79,21 +80,17 @@ def get_job_by_id(id_job):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Jobs == id_job)
             )
-            obj = session.exec(statement).first()
+            obj = session.exec(statement).unique().first()
 
             if not obj:
                 return jsonify({"error": "Job not found"}), 404
 
-            # Construir JSON limpio con la info del cliente
-            job_data = obj.model_dump()
-            # Anidar las informacion del cliente y el miembro GQM
-            job_data["client"] = obj.client.model_dump(
-            ) if obj.client else None
-            job_data["member"] = obj.member.model_dump(
-            ) if obj.member else None
+            job_data = add_relationships(
+                obj, ["client", "member", "multipliers"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)
@@ -128,16 +125,17 @@ def list_jobs_by_status(status):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.Job_status == status)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -170,16 +168,17 @@ def get_job_by_clientID(id_client):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Client == id_client)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -212,16 +211,17 @@ def get_job_by_memberID(id_member):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Member == id_member)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -254,16 +254,17 @@ def list_jobs_by_type(type):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.Job_type == type)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -296,16 +297,17 @@ def list_jobs_by_date(date):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.Date_assigned == date)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 

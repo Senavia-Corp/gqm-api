@@ -2,11 +2,13 @@
 # ==================================== Modelos para PostgreSQL ====================================#
 
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional
+from typing import Optional, List
 from datetime import date
 from enum import Enum
-from src.models.ClientModel import Client
-from src.models.MemberModel import Member
+from .ClientModel import Client
+from .MemberModel import Member
+from .link_models.JobMultiplierR import JobMultiplierRLink
+from .MultiplierRModel import MultiplierR
 
 
 class JobType(str, Enum):
@@ -52,6 +54,12 @@ class Job(JobBase, table=True):
     ID_Client: Optional[str] = Field(
         default=None, foreign_key="client.ID_Client")
     client: Optional["Client"] = Relationship()
+
+    # Relación M:N con Multiplier Range
+    multipliers: List[MultiplierR] = Relationship(
+        back_populates="jobs",
+        link_model=JobMultiplierRLink
+    )
 
 
 class JobCreate(JobBase):
