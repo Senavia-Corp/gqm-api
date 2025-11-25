@@ -11,6 +11,7 @@ class MemberBase(SQLModel):
     Email_Address: str
     Phone_Number: str
     Address: Optional[str] = Field(default=None)
+    Password: str
 
 
 class Member(MemberBase, table=True):
@@ -33,5 +34,6 @@ class MemberUpdate(SQLModel):
     Email_Address: Optional[str] = Field(default=None)
     Phone_Number: Optional[str] = Field(default=None)
     Address: Optional[str] = Field(default=None)
+    Password: Optional[str]
 
 # Info relacionadas con Rol estann comentadas hasta crear tabla

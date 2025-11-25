@@ -1,7 +1,9 @@
 import requests
 from src.podio.podio_auth import get_podio_headers
+from src.utils.middleware.retries import retry_api
 
 
+@retry_api(max_retries=3, backoff=2)
 def get_podio_item(item_id: int) -> dict:
 
     url = f"https://api.podio.com/item/{item_id}"

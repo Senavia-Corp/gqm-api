@@ -3,33 +3,32 @@ from sqlalchemy.inspection import inspect
 
 
 def add_relationships(obj, relations: list[str]):
-    """
-    Convierte un SQLModel a dict y agrega relaciones anidadas.
-    """
-
     base = obj.model_dump()
 
-    # Inspeccionar el mapper SQLAlchemy del modelo
     mapper = inspect(obj.__class__)
-
-    # Detectar FKs correspondientes a las relaciones incluidas
     fks_to_remove = []
 
     for rel_name in relations:
         if rel_name in mapper.relationships:
             rel = mapper.relationships[rel_name]
 
-            # Obtener columnas FK locales que apuntan a esta relación
+            # Si es Many-to-Many → NO eliminar FKs
+            if rel.secondary is not None:
+                continue
+
+            # Si es One-to-Many o Many-to-One → eliminar FKs
             for fk_col in rel.local_columns:
                 fks_to_remove.append(fk_col.key)
 
-    # Eliminar automáticamente todas las FKs detectadas
     for fk in fks_to_remove:
         base.pop(fk, None)
 
-    # Agregar las relaciones anidadas
     for rel_name in relations:
         rel_obj = getattr(obj, rel_name, None)
-        base[rel_name] = rel_obj.model_dump() if rel_obj else None
+
+        if isinstance(rel_obj, list):
+            base[rel_name] = [item.model_dump() for item in rel_obj]
+        else:
+            base[rel_name] = rel_obj.model_dump() if rel_obj else None
 
     return base

@@ -1,9 +1,12 @@
 from flask import Blueprint, request, jsonify
-from urllib.parse import parse_qs
+from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job
 from ..utils.get_podio_items import get_podio_item
 from ..utils.mappers.job_mapper import map_podio_item_to_job
+import requests
+from src.podio.podio_auth import get_podio_headers
+from src.utils.middleware.retries import retry_api
 
 
 # Un solo Blueprint para todos los webhooks
@@ -14,105 +17,107 @@ webhook_bp = Blueprint("webhook", __name__)
 # ---- Webhook de PODIO
 # ----------------------------------------
 
+@retry_api(max_retries=3, backoff=2)
+def activate_podio_webhook(hook_id, code):
+    """Valida y activa un webhook en Podio automáticamente."""
+    url = f"https://api.podio.com/hook/{hook_id}/verify/validate"  # HTTPS obligatorio
+    headers = get_podio_headers()
+    payload = {"code": code}
+    resp = requests.post(url, json=payload, headers=headers)
+    resp.raise_for_status()
+    print(f"✅ Webhook {hook_id} activado correctamente")
+
+
 @webhook_bp.route("/webhook/podio", methods=["POST"])
 def podio_webhook():
-    print("🔹 Llegó un request a /webhook/podio")
-
-    # Leer el payload crudo
-    raw_data = request.data.decode("utf-8")
-    print(f"🔹 Payload crudo recibido: {raw_data}")
-
-    # Manejar pings de verificación de Podio
-    if raw_data.startswith("type=hook.verify"):
-        try:
-            # Extraer hook_id y code
-            params = dict(x.split("=") for x in raw_data.split("&"))
-            hook_id = int(params.get("hook_id"))
-            code = params.get("code")
-            print(
-                f"📩 Ping de verificación recibido: hook_id={hook_id}, code={code}")
-
-            # Responder exactamente lo que Podio espera
-            return jsonify({
-                "type": "hook.verify",
-                "hook_id": hook_id,
-                "code": code
-            }), 200
-
-        except Exception as e:
-            print("❌ Error procesando ping:", e)
-            return jsonify({"error": str(e)}), 400
-
-    # Intentar parsear JSON normal (eventos reales)
     try:
-        data = request.get_json(force=True)
-    except Exception as e:
-        print("❌ Error parseando JSON:", e)
-        return jsonify({"error": str(e)}), 400
+        # Podio envía form-data, no JSON
+        data = request.form.to_dict()
+        if not data:
+            raw = request.data.decode("utf-8", errors="ignore")
+            print(f"🔹 Payload crudo recibido (vacío): {raw}")
+            return jsonify({"status": "ok"}), 200
 
-    event_type = data.get("type")
-    item_id = data.get("item_id")
-    print(f"📩 Webhook recibido: {event_type} | item_id={item_id}")
+        print(f"🔹 Datos parseados: {data}")
 
-    try:
+        # --- Activar automáticamente si es hook.verify
+        if data.get("type") == "hook.verify":
+            hook_id = data.get("hook_id")
+            code = data.get("code")
+            print(f"📩 VERIFICACIÓN recibida: hook_id={hook_id}, code={code}")
+
+            try:
+                activate_podio_webhook(hook_id, code)
+            except Exception as e:
+                print(f"❌ No se pudo activar el webhook: {e}")
+                return jsonify({"error": str(e)}), 500
+
+            return jsonify({"status": "hook.verify recibido y activado"}), 200
+
+        # --- Eventos reales
+        event_type = data.get("type")
+        item_id = data.get("item_id")
+        print(f"📩 Evento recibido: {event_type} | item_id={item_id}")
+
         with get_session() as session:
-            # Obtener item completo desde Podio si no viene en payload
-            podio_item = data.get("item")
-            if not podio_item:
-                podio_item = get_podio_item(item_id)
 
-            # Mapear a formato Job
-            job_data = map_podio_item_to_job(podio_item)
+            # CREATE / UPDATE
+            if event_type in ("item.create", "item.update"):
+                podio_item = data.get("item") or get_podio_item(item_id)
+                job_data = map_podio_item_to_job(podio_item)
 
-            # Manejo de eventos
-            if event_type == "item.create":
-                existing = session.get(Job, job_data["ID_Jobs"])
-                if existing:
-                    print(
-                        f"⚠️ Job {job_data['ID_Jobs']} ya existe, se omite inserción.")
-                else:
-                    new_job = Job(**job_data)
-                    session.add(new_job)
-                    session.commit()
-                    session.refresh(new_job)
-                    print(f"✅ Nuevo Job creado: {new_job.ID_Jobs}")
+                job_id = str(job_data.get("ID_Jobs"))
 
-            elif event_type == "item.update":
-                existing = session.get(Job, job_data["ID_Jobs"])
-                if existing:
-                    for k, v in job_data.items():
-                        setattr(existing, k, v)
-                    session.add(existing)
-                    session.commit()
-                    session.refresh(existing)
-                    print(f"🔄 Job actualizado: {existing.ID_Jobs}")
-                else:
-                    print(
-                        f"⚠️ Job {job_data['ID_Jobs']} no existe, creando nuevo...")
-                    new_job = Job(**job_data)
-                    session.add(new_job)
-                    session.commit()
-                    session.refresh(new_job)
-                    print(f"✅ Nuevo Job creado: {new_job.ID_Jobs}")
+                obj = session.exec(select(Job).where(
+                    Job.ID_Jobs == job_id)).first()
 
+                if event_type == "item.create":
+                    if obj:
+                        print(
+                            f"⚠️ Job {job_id} ya existe, omitiendo creación.")
+                    else:
+                        new_job = Job(**job_data)
+                        session.add(new_job)
+                        session.commit()
+                        session.refresh(new_job)
+                        print(f"✅ Nuevo Job creado: {job_id}")
+
+                else:  # update
+                    if obj:
+                        for k, v in job_data.items():
+                            setattr(obj, k, v)
+                        session.add(obj)
+                        session.commit()
+                        session.refresh(obj)
+                        print(f"🔄 Job actualizado: {job_id}")
+                    else:
+                        new_job = Job(**job_data)
+                        session.add(new_job)
+                        session.commit()
+                        session.refresh(new_job)
+                        print(f"✅ Nuevo Job creado desde update: {job_id}")
+
+            # DELETE
             elif event_type == "item.delete":
-                existing = session.get(Job, job_data["ID_Jobs"])
-                if existing:
-                    session.delete(existing)
+                job_id = str(data.get("item_id"))
+                obj = session.exec(select(Job).where(
+                    Job.podio_item_id == job_id)).first()
+                if obj:
+                    session.delete(obj)
                     session.commit()
-                    print(f"🗑️ Job eliminado: {existing.ID_Jobs}")
+                    print(f"🗑️ Job eliminado: {job_id}")
                 else:
-                    print(
-                        f"⚠️ Job {job_data['ID_Jobs']} no existe, nada que eliminar.")
+                    print(f"⚠️ Job {job_id} no existe; nada que eliminar.")
 
             else:
-                print(f"⚠️ Evento desconocido: {event_type}")
+                print(f"⚠️ Evento desconocido o no manejado: {event_type}")
 
     except Exception as e:
         print("❌ Error procesando webhook:", e)
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"status": "ok"}), 200
+
 
 # ----------------------------------------
 # ---- Webhook de BUILDERTREND (futuro)

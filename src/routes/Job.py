@@ -10,6 +10,8 @@ from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
+from ..utils.middleware.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.db_route_retries.delete_session import delete_with_retry
 
 from ..podio.services.job_services import (
     create_podio_job,
@@ -37,16 +39,17 @@ def list_jobs():
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404   # El decorador se encarga del formato final
 
             jobs_data = [
                 # se agrega la relacion FK
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -77,21 +80,17 @@ def get_job_by_id(id_job):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Jobs == id_job)
             )
-            obj = session.exec(statement).first()
+            obj = session.exec(statement).unique().first()
 
             if not obj:
                 return jsonify({"error": "Job not found"}), 404
 
-            # Construir JSON limpio con la info del cliente
-            job_data = obj.model_dump()
-            # Anidar las informacion del cliente y el miembro GQM
-            job_data["client"] = obj.client.model_dump(
-            ) if obj.client else None
-            job_data["member"] = obj.member.model_dump(
-            ) if obj.member else None
+            job_data = add_relationships(
+                obj, ["client", "member", "multipliers"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)
@@ -126,16 +125,17 @@ def list_jobs_by_status(status):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.Job_status == status)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -168,16 +168,17 @@ def get_job_by_clientID(id_client):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Client == id_client)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -210,16 +211,17 @@ def get_job_by_memberID(id_member):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Member == id_member)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -252,16 +254,17 @@ def list_jobs_by_type(type):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.Job_type == type)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -294,16 +297,17 @@ def list_jobs_by_date(date):
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.member),
+                    joinedload(Job.multipliers),
                 )
                 .where(Job.Date_assigned == date)
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member"])
+                add_relationships(job, ["client", "member", "multipliers"])
                 for job in results
             ]
 
@@ -341,9 +345,7 @@ def create_job():
             obj.ID_Jobs = new_id
 
             # Guardar en base de datos
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
 
             # Crear también en Podio
             try:
@@ -359,6 +361,8 @@ def create_job():
                     "gqm-adj-formula-pricing": obj.Gqm_adj_formula_pricing,
                     # GQM (Target) Sold Pricing
                     "gqm-target-sold-pricing": obj.Gqm_target_sold_pricing,
+                    # GQM (Target) Return %
+                    "gqm-target-return": obj.Gqm_target_return,
                     # 2025 GQM (Premium in $)
                     "2023-gqm-final": obj.Gqm_premium_in_money,
                     # GQM (Final Sold) Pricing
@@ -372,12 +376,9 @@ def create_job():
 
                 # Guardar el podio_item_id en PostgreSQL
                 if podio_response and podio_response.get("item_id"):
-                    job_obj = session.get(Job, obj.ID_Jobs)
-                    job_obj.podio_item_id = podio_response["item_id"]
-                    session.add(job_obj)
-                    session.commit()
-                    print(
-                        f"✅ Guardado podio_item_id: {job_obj.podio_item_id}")
+                    obj.podio_item_id = podio_response["item_id"]
+                    save_with_retry(session, obj)
+                    print(f"✅ Guardado podio_item_id: {obj.podio_item_id}")
                 else:
                     print("⚠️ No se pudo obtener el item_id de Podio.")
 
@@ -448,9 +449,7 @@ def update_job(podio_item_id):
             for key, value in update_data.items():
                 setattr(obj, key, value)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
 
             # Actualizar también en Podio
             try:
@@ -466,6 +465,8 @@ def update_job(podio_item_id):
                     "gqm-adj-formula-pricing": obj.Gqm_adj_formula_pricing,
                     # GQM (Target) Sold Pricing
                     "gqm-target-sold-pricing": obj.Gqm_target_sold_pricing,
+                    # GQM (Target) Return %
+                    "gqm-target-return": obj.Gqm_target_return,
                     # 2025 GQM (Premium in $)
                     "2023-gqm-final": obj.Gqm_premium_in_money,
                     # GQM (Final Sold) Pricing
@@ -541,8 +542,7 @@ def delete_job(podio_item_id):
                 except Exception as podio_error:
                     print(f"⚠️ Error al eliminar item en Podio: {podio_error}")
 
-            session.delete(obj)
-            session.commit()
+            delete_with_retry(session, obj)
 
             return jsonify({"message": f"Job {podio_item_id} eliminado correctamente"}), 200
 
