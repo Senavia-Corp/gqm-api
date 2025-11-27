@@ -10,8 +10,8 @@ from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
-from ..utils.middleware.db_route_retries.add_session import save_with_retry
-from ..utils.middleware.db_route_retries.delete_session import delete_with_retry
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 
 from ..podio.services.job_services import (
     create_podio_job,
@@ -24,10 +24,9 @@ job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
 
 # -------------------RUTAS CRUD-------------------#
 
+
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los trabajos
-
-
 @job_bp.get("/")
 @paginate()  # decorador de paginación
 def list_jobs():
@@ -38,7 +37,7 @@ def list_jobs():
                 select(Job)
                 .options(
                     joinedload(Job.client),
-                    joinedload(Job.member),
+                    joinedload(Job.members),
                     joinedload(Job.multipliers),
                 )
             )
@@ -49,7 +48,7 @@ def list_jobs():
 
             jobs_data = [
                 # se agrega la relacion FK
-                add_relationships(job, ["client", "member", "multipliers"])
+                add_relationships(job, ["client", "members", "multipliers"])
                 for job in results
             ]
 
@@ -79,7 +78,7 @@ def get_job_by_id(id_job):
                 select(Job)
                 .options(
                     joinedload(Job.client),
-                    joinedload(Job.member),
+                    joinedload(Job.members),
                     joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Jobs == id_job)
@@ -90,11 +89,10 @@ def get_job_by_id(id_job):
                 return jsonify({"error": "Job not found"}), 404
 
             job_data = add_relationships(
-                obj, ["client", "member", "multipliers"])
+                obj, ["client", "members", "multipliers"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)
-            job_data.pop("ID_Member", None)
 
             return jsonify(job_data), 200
 
@@ -124,7 +122,7 @@ def list_jobs_by_status(status):
                 select(Job)
                 .options(
                     joinedload(Job.client),
-                    joinedload(Job.member),
+                    joinedload(Job.members),
                     joinedload(Job.multipliers),
                 )
                 .where(Job.Job_status == status)
@@ -135,7 +133,7 @@ def list_jobs_by_status(status):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member", "multipliers"])
+                add_relationships(job, ["client", "members", "multipliers"])
                 for job in results
             ]
 
@@ -167,7 +165,7 @@ def get_job_by_clientID(id_client):
                 select(Job)
                 .options(
                     joinedload(Job.client),
-                    joinedload(Job.member),
+                    joinedload(Job.members),
                     joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Client == id_client)
@@ -178,7 +176,7 @@ def get_job_by_clientID(id_client):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member", "multipliers"])
+                add_relationships(job, ["client", "members", "multipliers"])
                 for job in results
             ]
 
@@ -210,7 +208,7 @@ def get_job_by_memberID(id_member):
                 select(Job)
                 .options(
                     joinedload(Job.client),
-                    joinedload(Job.member),
+                    joinedload(Job.members),
                     joinedload(Job.multipliers),
                 )
                 .where(Job.ID_Member == id_member)
@@ -221,7 +219,7 @@ def get_job_by_memberID(id_member):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member", "multipliers"])
+                add_relationships(job, ["client", "members", "multipliers"])
                 for job in results
             ]
 
@@ -253,7 +251,7 @@ def list_jobs_by_type(type):
                 select(Job)
                 .options(
                     joinedload(Job.client),
-                    joinedload(Job.member),
+                    joinedload(Job.members),
                     joinedload(Job.multipliers),
                 )
                 .where(Job.Job_type == type)
@@ -264,7 +262,7 @@ def list_jobs_by_type(type):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member", "multipliers"])
+                add_relationships(job, ["client", "members", "multipliers"])
                 for job in results
             ]
 
@@ -296,7 +294,7 @@ def list_jobs_by_date(date):
                 select(Job)
                 .options(
                     joinedload(Job.client),
-                    joinedload(Job.member),
+                    joinedload(Job.members),
                     joinedload(Job.multipliers),
                 )
                 .where(Job.Date_assigned == date)
@@ -307,7 +305,7 @@ def list_jobs_by_date(date):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "member", "multipliers"])
+                add_relationships(job, ["client", "members", "multipliers"])
                 for job in results
             ]
 

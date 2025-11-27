@@ -2,8 +2,9 @@
 # ==================================== Modelos para PostgreSQL ====================================#
 
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional
+from typing import Optional, List
 # agregar modelo de Rol cuando se cree
+from .link_models.JobMember import JobMemberLink
 
 
 class MemberBase(SQLModel):
@@ -18,9 +19,16 @@ class Member(MemberBase, table=True):
     __tablename__ = "member"
 
     ID_Member: Optional[str] = Field(default=None, primary_key=True)
+
     # Relaciones foráneas
     # ID_Rol: Optional[str] = Field(default=None, foreign_key="rol.ID_Rol")
     # rol: Optional["Rol"] = Relationship()
+
+    # Relación de muchos a muchos
+    jobs: List["Job"] = Relationship(  # type: ignore
+        back_populates="members",
+        link_model=JobMemberLink
+    )
 
 
 class MemberCreate(MemberBase):

@@ -1,5 +1,5 @@
 
-from src.utils.middleware.retries import retry_db
+from src.utils.middleware.retries.retries import retry_db
 
 
 @retry_db(max_retries=3, delay=1)

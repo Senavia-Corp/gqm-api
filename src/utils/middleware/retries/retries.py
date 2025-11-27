@@ -1,7 +1,7 @@
 
 import time
 import functools
-from src.utils.middleware.logs import logger
+from src.utils.middleware.logs.logs import logger
 
 
 def retry_api(max_retries=3, backoff=2):

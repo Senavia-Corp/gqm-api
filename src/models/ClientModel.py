@@ -1,6 +1,6 @@
 
-from sqlmodel import SQLModel, Field
-from typing import Optional
+from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, List
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -25,6 +25,9 @@ class Client(ClientBase, table=True):
     __tablename__ = "client"
 
     ID_Client: Optional[str] = Field(default=None, primary_key=True)
+
+    # Relaciones foráneas 1:M
+    jobs: List["Job"] = Relationship(back_populates="client")  # type: ignore
 
     # ID_Community_Tracking: Optional[str] = Field(default=None, foreign_key="property_mgmt_co.ID_Community_Tracking")
     # ID_PropertyManager: Optional[str] = Field(default=None, foreign_key="property_manager.ID_PropertyManager")

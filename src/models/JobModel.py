@@ -6,6 +6,7 @@ from typing import Optional, List
 from datetime import date
 from enum import Enum
 from .ClientModel import Client
+from .link_models.JobMember import JobMemberLink
 from .MemberModel import Member
 from .link_models.JobMultiplierR import JobMultiplierRLink
 from .MultiplierRModel import MultiplierR
@@ -47,30 +48,32 @@ class Job(JobBase, table=True):
     podio_item_id: Optional[str] = Field(
         default=None, index=True)  # referencia a Podio
 
-    # Relaciones foráneas
-    ID_Member: Optional[str] = Field(
-        default=None, foreign_key="member.ID_Member")
-    member: Optional["Member"] = Relationship()
+    # Relaciones foráneas 1:M
     ID_Client: Optional[str] = Field(
         default=None, foreign_key="client.ID_Client")
-    client: Optional["Client"] = Relationship()
+    client: Optional["Client"] = Relationship(back_populates="jobs")
 
-    # Relación M:N con Multiplier Range
+    attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="job")
+
+    # Relaciones de muchos a muchos
     multipliers: List[MultiplierR] = Relationship(
         back_populates="jobs",
         link_model=JobMultiplierRLink
+    )
+    members: List[Member] = Relationship(
+        back_populates="jobs",
+        link_model=JobMemberLink
     )
 
 
 class JobCreate(JobBase):
     ID_Client: Optional[str] = None
-    ID_Member: Optional[str] = None
 
 
 class JobUpdate(SQLModel):
 
     ID_Client: Optional[str] = None
-    ID_Member: Optional[str] = None
     Project_name: Optional[str] = Field(default=None)
     Project_location: Optional[str] = Field(default=None)
     Job_status: Optional[str] = Field(default=None)

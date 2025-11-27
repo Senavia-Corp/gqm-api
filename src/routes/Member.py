@@ -10,6 +10,7 @@ from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
+from ..utils.middleware.auth.password_hashing import hash_password
 
 # Blueprint de Member:
 member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
@@ -43,7 +44,13 @@ def list_members():
 
             return member_data, 200'''
 
-            member_data = [obj.model_dump() for obj in results]
+            member_data = []
+
+            for obj in results:
+                data = obj.model_dump()
+                data.pop("Password", None)
+                member_data.append(data)
+
             return member_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
@@ -79,6 +86,7 @@ def get_member_by_id(id_member):
 
             # Construir JSON limpio con la info del cliente
             member_data = obj.model_dump()
+            member_data.pop("Password", None)
             # member_data["ID_Rol"] = obj.rol.model_dump() if obj.rol else None
 
             return jsonify(member_data), 200
@@ -116,6 +124,9 @@ def create_member():
 
     try:
         with get_session() as session:
+
+            obj.Password = hash_password(obj.Password)  # Hash al password
+
             new_id = generate_custom_id(
                 session, Member, "ID_Member", "MEM")
             obj.ID_Member = new_id
@@ -123,7 +134,11 @@ def create_member():
             session.add(obj)
             session.commit()
             session.refresh(obj)
-            return jsonify(obj.model_dump()), 201
+
+            response = obj.model_dump()
+            response.pop("Password", None)
+
+            return jsonify(response), 201
 
     except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
         session.rollback()  # Deshace los cambios realizados
@@ -171,13 +186,23 @@ def update_member(id_member):
             update_data_dict = update_member.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
+            # Hash al passsword si se actualiza
+            if "Password" in update_data_dict:
+                update_data_dict["Password"] = hash_password(
+                    update_data_dict["Password"]
+                )
+
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
             session.add(obj)
             session.commit()
             session.refresh(obj)
-            return jsonify(obj.model_dump()), 200
+
+            response = obj.model_dump()
+            response.pop("Password", None)
+
+            return jsonify(response), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:

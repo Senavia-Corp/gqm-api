@@ -10,6 +10,7 @@ from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
+from ..utils.middleware.auth.password_hashing import hash_password
 
 # Blueprint de Technician:
 technician_bp = Blueprint("technician_blueprint",
@@ -35,11 +36,12 @@ def list_technicians():
             if not results:
                 return [], 404   # El decorador se encarga del formato final
 
-            technician_data = [
-                # se agrega la relacion FK
-                add_relationships(technician, ["subcontractor"])
-                for technician in results
-            ]
+            technician_data = []
+
+            for tech in results:
+                data = add_relationships(tech, ["subcontractor"])
+                data.pop("Password", None)
+                technician_data.append(data)
 
             return technician_data, 200
 
@@ -76,8 +78,9 @@ def get_tech_by_id(id_technician):
 
             # Construir JSON limpio con la info del cliente
             technician_data = obj.model_dump()
-            technician_data["ID_Subcontractor"] = obj.rol.model_dump(
-            ) if obj.rol else None
+            technician_data.pop("Password", None)
+            technician_data["ID_Subcontractor"] = obj.subcontractor.model_dump(
+            ) if obj.subcontractor else None
 
             return jsonify(technician_data), 200
 
@@ -114,6 +117,9 @@ def create_techician():
 
     try:
         with get_session() as session:
+
+            obj.Password = hash_password(obj.Password)  # Hash al password
+
             new_id = generate_custom_id(
                 session, Technician, "ID_Technician", "TEC")
             obj.ID_Technician = new_id
@@ -121,7 +127,11 @@ def create_techician():
             session.add(obj)
             session.commit()
             session.refresh(obj)
-            return jsonify(obj.model_dump()), 201
+
+            response = obj.model_dump()
+            response.pop("Password", None)
+
+            return jsonify(response), 201
 
     except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
         session.rollback()  # Deshace los cambios realizados
@@ -169,13 +179,23 @@ def update_technician(id_technician):
             update_data_dict = update_technician.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
+            # Hash al passsword si se actualiza
+            if "Password" in update_data_dict:
+                update_data_dict["Password"] = hash_password(
+                    update_data_dict["Password"]
+                )
+
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
             session.add(obj)
             session.commit()
             session.refresh(obj)
-            return jsonify(obj.model_dump()), 200
+
+            response = obj.model_dump()
+            response.pop("Password", None)
+
+            return jsonify(response), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
