@@ -39,6 +39,7 @@ def list_jobs():
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments)
                 )
             )
             results = session.exec(statement).unique().all()
@@ -48,7 +49,8 @@ def list_jobs():
 
             jobs_data = [
                 # se agrega la relacion FK
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(
+                    job, ["client", "members", "multipliers", "attachments"])
                 for job in results
             ]
 
@@ -80,6 +82,7 @@ def get_job_by_id(id_job):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments)
                 )
                 .where(Job.ID_Jobs == id_job)
             )
@@ -89,7 +92,7 @@ def get_job_by_id(id_job):
                 return jsonify({"error": "Job not found"}), 404
 
             job_data = add_relationships(
-                obj, ["client", "members", "multipliers"])
+                obj, ["client", "members", "multipliers", "attachments"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)

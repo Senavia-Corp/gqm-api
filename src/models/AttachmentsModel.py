@@ -17,7 +17,7 @@ class Attachments(AttachmentsBase, table=True):
 
     ID_Attachment: Optional[str] = Field(default=None, primary_key=True)
 
-    # Relaciones foráneas 1:M
+    # Relaciones foráneas M:1
     ID_Jobs: Optional[str] = Field(
         default=None, foreign_key="jobs.ID_Jobs")
     job: Optional["Job"] = Relationship(back_populates="attachments")

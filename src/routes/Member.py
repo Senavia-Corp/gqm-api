@@ -17,37 +17,28 @@ member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
 
 # -------------------RUTAS CRUD-------------------#
 
+
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los miembros GQM
-
-
 @member_bp.get("/")
 @paginate()  # decorador de paginación
 def list_members():
     try:
         with get_session() as session:
-            # Trae los Jobs con sus clientes en una sola consulta
+            # Trae los miembros GQM con sus trabajos en una sola consulta
             statement = (
                 select(Member)
-                # .options(joinedload(Member.rol))
+                .options(joinedload(Member.jobs))  # agregar rol
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404   # El decorador se encarga del formato final
 
-            # Esto aplica cuando se cree la tabla de Rol
-            '''member_data = [
-                add_relationships(member, ["rol"])  # se agrega la relacion FK
-                for member in results
-            ]
-
-            return member_data, 200'''
-
             member_data = []
 
-            for obj in results:
-                data = obj.model_dump()
+            for member in results:
+                data = add_relationships(member, ["jobs"])  # agregar fk rol
                 data.pop("Password", None)
                 member_data.append(data)
 
@@ -75,19 +66,18 @@ def get_member_by_id(id_member):
         with get_session() as session:
             statement = (
                 select(Member)
-                # .options(joinedload(Member.client))
+                .options(joinedload(Member.jobs))
                 .where(Member.ID_Member == id_member)
             )
 
-            obj = session.exec(statement).first()
+            obj = session.exec(statement).unique().first()
 
             if not obj:
                 return jsonify({"error": "Member not found"}), 404
 
-            # Construir JSON limpio con la info del cliente
-            member_data = obj.model_dump()
+            # Construir JSON limpio con la info de los jobs
+            member_data = add_relationships(obj, ["jobs"])
             member_data.pop("Password", None)
-            # member_data["ID_Rol"] = obj.rol.model_dump() if obj.rol else None
 
             return jsonify(member_data), 200
 

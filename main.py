@@ -7,7 +7,7 @@ from src.utils.middleware.logs.request_logger import register_request_logger
 from src.database.db_sqlmodel import init_sqlmodel_db
 # Blueprints:
 from src.routes.Job import job_bp
-from src.routes.JobLinks import job_member_bp, job_multiplier_bp
+from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
 from src.routes.Supplier import supplier_bp

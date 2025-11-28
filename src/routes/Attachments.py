@@ -101,7 +101,7 @@ def get_attachment_by_id(id_attachment):
 @attachments_bp.post("/")
 def create_attachment():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         create_attachment = AttachmentsCreate.model_validate(data)
         obj = Attachments.model_validate(create_attachment)
 

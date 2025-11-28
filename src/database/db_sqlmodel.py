@@ -2,6 +2,13 @@ from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy.exc import SQLAlchemyError
 from decouple import config
 
+# Todos los modelos
+from src.models.PropertyManagerModel import PropertyManager
+from src.models.PropertyMgmtCoModel import PropertyMgmtCo
+from src.models.ClientModel import Client
+from src.models.link_models.ClientPManager import ClientPrManagerLink
+
+
 # Configuración para PostgreSQL
 DATABASE_URL = config("DATABASE_URL")
 # Ver que existan las credenciales

@@ -48,11 +48,12 @@ class Job(JobBase, table=True):
     podio_item_id: Optional[str] = Field(
         default=None, index=True)  # referencia a Podio
 
-    # Relaciones foráneas 1:M
+    # Relaciones foráneas M:1
     ID_Client: Optional[str] = Field(
         default=None, foreign_key="client.ID_Client")
     client: Optional["Client"] = Relationship(back_populates="jobs")
 
+    # Relaciones foráneas 1:M
     attachments: List["Attachments"] = Relationship(  # type: ignore
         back_populates="job")
 
@@ -72,8 +73,8 @@ class JobCreate(JobBase):
 
 
 class JobUpdate(SQLModel):
-
     ID_Client: Optional[str] = None
+
     Project_name: Optional[str] = Field(default=None)
     Project_location: Optional[str] = Field(default=None)
     Job_status: Optional[str] = Field(default=None)

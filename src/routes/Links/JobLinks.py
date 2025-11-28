@@ -1,10 +1,10 @@
 from flask import Blueprint, jsonify
-from ..database.db_sqlmodel import get_session
-from ..models.JobModel import Job
-from ..models.MemberModel import Member
-from ..models.link_models.JobMember import JobMemberLink
-from ..models.MultiplierRModel import MultiplierR
-from ..models.link_models.JobMultiplierR import JobMultiplierRLink
+from ...database.db_sqlmodel import get_session
+from ...models.JobModel import Job
+from ...models.MemberModel import Member
+from ...models.link_models.JobMember import JobMemberLink
+from ...models.MultiplierRModel import MultiplierR
+from ...models.link_models.JobMultiplierR import JobMultiplierRLink
 
 
 # ------------------- Link entre Job y Member -------------------#
