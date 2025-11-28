@@ -12,13 +12,14 @@ def add_relationships(obj, relations: list[str]):
         if rel_name in mapper.relationships:
             rel = mapper.relationships[rel_name]
 
-            # Si es Many-to-Many → NO eliminar FKs
+            # Many-to-Many → no tocar FKs
             if rel.secondary is not None:
                 continue
 
-            # Si es One-to-Many o Many-to-One → eliminar FKs
+            # One-to-Many o Many-to-One → eliminar solo FKs que NO sean PK
             for fk_col in rel.local_columns:
-                fks_to_remove.append(fk_col.key)
+                if not fk_col.primary_key:   # ⬅⬅⬅ FIX
+                    fks_to_remove.append(fk_col.key)
 
     for fk in fks_to_remove:
         base.pop(fk, None)
