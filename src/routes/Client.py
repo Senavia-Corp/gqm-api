@@ -26,7 +26,11 @@ def list_clients():
             # Trae todos los clientes con sus jobs
             statement = (
                 select(Client)
-                .options(joinedload(Client.jobs))
+                .options(
+                    joinedload(Client.jobs),
+                    joinedload(Client.property_manager),
+                    joinedload(Client.property_mgmt_co)
+                )
             )
             results = session.exec(statement).unique().all()
 
@@ -34,7 +38,8 @@ def list_clients():
                 return [], 404
 
             clients_data = [
-                add_relationships(client, ["jobs"])
+                add_relationships(
+                    client, ["jobs", "property_manager", "property_mgmt_co"])
                 for client in results
             ]
 
@@ -62,7 +67,11 @@ def get_client(id_client):
         with get_session() as session:
             statement = (
                 select(Client)
-                .options(joinedload(Client.jobs))
+                .options(
+                    joinedload(Client.jobs),
+                    joinedload(Client.property_manager),
+                    joinedload(Client.property_mgmt_co)
+                )
                 .where(Client.ID_Client == id_client)
             )
 
@@ -72,7 +81,7 @@ def get_client(id_client):
                 return jsonify({"error": "Client not found"}), 404
 
             client_data = add_relationships(
-                obj, ["jobs"])
+                obj, ["jobs", "property_manager", "property_mgmt_co"])
 
             return jsonify(client_data), 200
 
