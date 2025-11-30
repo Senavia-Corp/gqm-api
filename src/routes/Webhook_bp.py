@@ -6,7 +6,7 @@ from ..utils.get_podio_items import get_podio_item
 from ..utils.mappers.job_mapper import map_podio_item_to_job
 import requests
 from src.podio.podio_auth import get_podio_headers
-from src.utils.middleware.retries import retry_api
+from src.utils.middleware.retries.retries import retry_api
 
 
 # Un solo Blueprint para todos los webhooks

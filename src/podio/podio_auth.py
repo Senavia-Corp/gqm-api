@@ -7,8 +7,8 @@ from src.config import (
     PODIO_CLIENT_ID,
     PODIO_CLIENT_SECRET,
 )
-from src.utils.middleware.logs import logger
-from src.utils.middleware.retries import retry_api
+from src.utils.middleware.logs.logs import logger
+from src.utils.middleware.retries.retries import retry_api
 
 
 # Cache del token (para mejorar la optimización de la conexion con Podio)

@@ -2,7 +2,7 @@
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from ..models.ClientModel import Client, ClientCreate, ClientUpdate
+from ..models.PropertyManagerModel import PropertyManager, PrManagerCreate, PrManagerUpdate
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
@@ -10,26 +10,26 @@ from sqlalchemy.orm import joinedload
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 
-# Blueprint de Client:
-client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")
+# Blueprint de Property Manager:
+property_manager_bp = Blueprint(
+    "property_manager_blueprint", __name__, url_prefix="/property_manager")
 
 # -------------------RUTAS CRUD-------------------#
 
 
 # --------------------RUTAS GET-------------------#
-# Ruta para conseguir la lista de todos los clientes
-@client_bp.get("/")
+# Ruta para conseguir la lista de todos los property managers
+@property_manager_bp.get("/")
 @paginate()
-def list_clients():
+def list_pr_managers():
     try:
         with get_session() as session:
-            # Trae todos los clientes con sus jobs
+            # Trae todos los property managers con info anidada
             statement = (
-                select(Client)
+                select(PropertyManager)
                 .options(
-                    joinedload(Client.jobs),
-                    joinedload(Client.property_manager),
-                    joinedload(Client.property_mgmt_co)
+                    joinedload(PropertyManager.property_mgmt_co),
+                    joinedload(PropertyManager.client)
                 )
             )
             results = session.exec(statement).unique().all()
@@ -37,64 +37,63 @@ def list_clients():
             if not results:
                 return [], 404
 
-            clients_data = [
-                add_relationships(
-                    client, ["jobs", "property_manager", "property_mgmt_co"])
-                for client in results
+            managers_data = [
+                add_relationships(manager, ["property_mgmt_co", "client"])
+                for manager in results
             ]
 
-            return clients_data, 200
+            return managers_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar clientes: {db_error}")
+        print(
+            f"Error de base de datos al listar property managers: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar clientes: {e}")
+        print(f"Error inesperado al listar property managers: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para conseguir un cliente por ID
-@client_bp.get("/<id_client>")
-def get_client(id_client):
+# Ruta para conseguir un property managers por ID
+@property_manager_bp.get("/<property_manager_id>")
+def get_manager(property_manager_id):
     try:
         with get_session() as session:
             statement = (
-                select(Client)
+                select(PropertyManager)
                 .options(
-                    joinedload(Client.jobs),
-                    joinedload(Client.property_manager),
-                    joinedload(Client.property_mgmt_co)
+                    joinedload(PropertyManager.property_mgmt_co),
+                    joinedload(PropertyManager.client)
                 )
-                .where(Client.ID_Client == id_client)
+                .where(PropertyManager.ID_PropertyManager == property_manager_id)
             )
 
-            obj = session.exec(statement).unique().first()
+            results = session.exec(statement).unique().first()
 
-            if not obj:
-                return jsonify({"error": "Client not found"}), 404
+            if not results:
+                return jsonify({"error": "Property Manager not found"}), 404
 
-            client_data = add_relationships(
-                obj, ["jobs", "property_manager", "property_mgmt_co"])
+            managers_data = add_relationships(
+                results, ["property_mgmt_co", "client"])
 
-            return jsonify(client_data), 200
+            return jsonify(managers_data), 200
 
     except SQLAlchemyError as db_error:
         print(
-            f"Error de base de datos al buscar cliente {id_client}: {db_error}")
+            f"Error de base de datos al buscar property manager {property_manager_id}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar clientes: {e}")
+        print(f"Error inesperado al listar property managers: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
@@ -102,13 +101,13 @@ def get_client(id_client):
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear un cliente
-@client_bp.post("/")
-def create_client():
+# Ruta para crear un property manager
+@property_manager_bp.post("/")
+def create_manager():
     try:
         data = request.get_json()
-        create_client = ClientCreate.model_validate(data)
-        obj = Client.model_validate(create_client)
+        create_manager = PrManagerCreate.model_validate(data)
+        obj = PropertyManager.model_validate(create_manager)
 
     except ValidationError as e:
         if 'JSON' in str(e):
@@ -119,8 +118,8 @@ def create_client():
     try:
         with get_session() as session:
             new_id = generate_custom_id(
-                session, Client, "ID_Client", "CLI")
-            obj.ID_Client = new_id
+                session, PropertyManager, "ID_PropertyManager", "PrM")
+            obj.ID_PropertyManager = new_id
 
             session.add(obj)
             session.commit()
@@ -131,7 +130,7 @@ def create_client():
         session.rollback()  # Deshace los cambios realizados
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un cliente con este valor único."
+            detail = "Ya existe un property manager con este valor único."
         else:
             detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
         print(f"Error de integridad: {e}")
@@ -139,7 +138,7 @@ def create_client():
 
     except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
         session.rollback()
-        print(f"Error de base de datos al crear cliente: {db_error}")
+        print(f"Error de base de datos al crear property manager: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -151,26 +150,26 @@ def create_client():
         except Exception:
             pass
 
-        print(f"Error inesperado durante la creación de cliente: {e}")
+        print(f"Error inesperado durante la creación de property manager: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para actualizar un cliente
-@client_bp.patch("/<id_client>")
-def update_client(id_client):
+# Ruta para actualizar un property manager
+@property_manager_bp.patch("/<property_manager_id>")
+def update_manager(property_manager_id):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.get(Client, id_client)
+            obj = session.get(PropertyManager, property_manager_id)
             if not obj:
-                return jsonify({"error": "Client not found"}), 404
+                return jsonify({"error": "Property Manager not found"}), 404
 
-            update_client = ClientUpdate.model_validate(data)
-            update_data_dict = update_client.model_dump(
+            update_manager = PrManagerUpdate.model_validate(data)
+            update_data_dict = update_manager.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
@@ -184,21 +183,22 @@ def update_client(id_client):
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
-            "detail": "Error de validación: Datos de cliente inválidos para la actualización.",
+            "detail": "Error de validación: Datos de property manager inválidos para la actualización.",
             "errors": e.errors()
         }), 400
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un cliente con estos valores únicos o faltan datos requeridos."
+        detail = "Error de integridad: Ya existe un property manager con estos valores únicos o faltan datos requeridos."
         print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al actualizar cliente: {db_error}")
+        print(
+            f"Error de base de datos al actualizar property manager: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -210,38 +210,39 @@ def update_client(id_client):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al actualizar cliente: {e}")
+        print(f"Error inesperado al actualizar property manager: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para eliminar un cliente
-@client_bp.delete("/<id_client>")
-def delete_client(id_client):
+# Ruta para eliminar un property manager
+@property_manager_bp.delete("/<property_manager_id>")
+def delete_manager(property_manager_id):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(Client, id_client)
+            obj = session.get(PropertyManager, property_manager_id)
             if not obj:
-                return jsonify({"error": "Client not found"}), 404
+                return jsonify({"error": "Property Manager not found"}), 404
             session.delete(obj)
             session.commit()
-            return jsonify({"message": f"Deleted Client {id_client}"}), 200
+            return jsonify({"message": f"Deleted Property Manager {property_manager_id}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
+    except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: No se puede eliminar el cliente porque tiene registros relacionados."
+        detail = "Error de integridad: No se puede eliminar el property manager porque tiene registros relacionados."
         print(f"Error de integridad (DELETE): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al eliminar cliente: {db_error}")
+        print(
+            f"Error de base de datos al eliminar property manager: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -253,7 +254,7 @@ def delete_client(id_client):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al eliminar cliente: {e}")
+        print(f"Error inesperado al eliminar property manager: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"

@@ -9,7 +9,7 @@ from .SubcontractorModel import Subcontractor
 class TechnicianBase(SQLModel):
     Name: Optional[str] = Field(default=None)
     Location: Optional[str] = Field(default=None)
-    Email_Address: Optional[str] = Field(default=None)
+    Email_Address: str
     Phone_Number: Optional[str] = Field(default=None)
     Type_of_technician: Optional[str] = Field(default=None)
     Password: str

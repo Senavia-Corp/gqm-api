@@ -5,7 +5,7 @@ from src.utils.mappers.job_mapper import map_podio_item_to_job
 from src.models.JobModel import Job
 from src.database.db_sqlmodel import get_session
 from sqlmodel import select
-from src.utils.middleware.retries import retry_db
+from src.utils.middleware.retries.retries import retry_db
 
 # SINCRONIZACIÓN MASIVA
 

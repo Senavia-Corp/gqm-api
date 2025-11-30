@@ -2,23 +2,30 @@ from src.config import PUBLIC_URL
 from flask import Flask
 import sys
 # Middleware de logs para todos los request:
-from src.utils.middleware.request_logger import register_request_logger
+from src.utils.middleware.logs.request_logger import register_request_logger
 # Conexion con base de datos:
 from src.database.db_sqlmodel import init_sqlmodel_db
 # Blueprints:
 from src.routes.Job import job_bp
-from src.routes.JobLinks import job_multiplier_bp
+from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
 from src.routes.Supplier import supplier_bp
 from src.routes.Tasks import tasks_bp
 from src.routes.Member import member_bp
+from src.routes.Technician import technician_bp
 from src.routes.Skills import skills_bp
 from src.routes.MultiplierR import multiplier_bp
+from src.routes.Attachments import attachments_bp
+from src.routes.PropertyManager import property_manager_bp
+from src.routes.PropertyMgmtCo import property_mgmt_co_bp
+from src.routes.Links.ClientPrManager import client_pr_manager_bp
+# Rutas de login:
+from src.routes.Login_auth import auth_bp
 # Sincronizacion masiva de Podio a Postgre:
 from src.routes.podio_routes.MasiveSync import sync_bp
 # Rutas de webhooks:
-# from src.routes.Webhook_bp import webhook_bp
+from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
 # Rutas de Quickbooks sandbox
 from src.routes.qbo_routes.sandbox_route import qbo_bp
@@ -41,16 +48,25 @@ def create_app():
     # Registrar blueprints
     app.register_blueprint(job_bp)
     app.register_blueprint(job_multiplier_bp)
+    app.register_blueprint(job_member_bp)
     app.register_blueprint(client_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
     app.register_blueprint(tasks_bp)
     app.register_blueprint(member_bp)
+    app.register_blueprint(technician_bp)
     app.register_blueprint(skills_bp)
     app.register_blueprint(multiplier_bp)
+    app.register_blueprint(attachments_bp)
+    app.register_blueprint(property_manager_bp)
+    app.register_blueprint(property_mgmt_co_bp)
+    app.register_blueprint(client_pr_manager_bp)
+
+    # Ruta para login
+    app.register_blueprint(auth_bp)
 
     # Rutas relacionadas con Podio
-    app.register_blueprint(sync_bp)  # Sincronización con Podio
+    # app.register_blueprint(sync_bp)  # Sincronización con Podio
     # app.register_blueprint(webhook_bp)  # Para recibir todos los webhooks
     # Para crear o eliminar los hooks de Podio
     app.register_blueprint(admin_bp)

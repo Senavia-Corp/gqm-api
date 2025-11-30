@@ -1,6 +1,6 @@
 import requests
 from src.podio.podio_auth import get_podio_headers
-from src.utils.middleware.retries import retry_api
+from src.utils.middleware.retries.retries import retry_api
 
 
 @retry_api(max_retries=3, backoff=2)

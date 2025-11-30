@@ -1,6 +1,8 @@
 
-from sqlmodel import SQLModel, Field
-from typing import Optional
+from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, List
+from .PropertyMgmtCoModel import PropertyMgmtCo
+from .link_models.ClientPManager import ClientPrManagerLink
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -26,15 +28,29 @@ class Client(ClientBase, table=True):
 
     ID_Client: Optional[str] = Field(default=None, primary_key=True)
 
-    # ID_Community_Tracking: Optional[str] = Field(default=None, foreign_key="property_mgmt_co.ID_Community_Tracking")
-    # ID_PropertyManager: Optional[str] = Field(default=None, foreign_key="property_manager.ID_PropertyManager")
+    # Relaciones foráneas 1:M
+    jobs: List["Job"] = Relationship(back_populates="client")  # type: ignore
+
+    # Relaciones foráneas M:1
+    ID_Community_Tracking: Optional[str] = Field(
+        default=None, foreign_key="property_mgmt_co.ID_Community_Tracking")
+    property_mgmt_co: Optional["PropertyMgmtCo"] = Relationship(
+        back_populates="clients")
+
+    # Relación de muchos a muchos
+    property_manager: List["PropertyManager"] = Relationship(  # type: ignore
+        back_populates="client",
+        link_model=ClientPrManagerLink
+    )
 
 
 class ClientCreate(ClientBase):
-    pass
+    ID_Community_Tracking: Optional[str] = None
 
 
 class ClientUpdate(ClientBase):
+    ID_Community_Tracking: Optional[str] = None
+
     Client_Community: Optional[str] = Field(default=None)
     Parent_Mgmt_Company: Optional[str] = Field(default=None)
     Parent_Company: Optional[str] = Field(default=None)
