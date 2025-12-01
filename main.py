@@ -86,18 +86,24 @@ def create_app():
     return app
 
 
-# Verificar la URL pública
-print("🌐 URL pública actual:", PUBLIC_URL)
+def validate_public_url():
+    """
+    Esta validación se usa solo cuando corres la app localmente.
+    En Vercel no queremos que un import falle por esto.
+    """
+    print("🌐 URL pública actual:", PUBLIC_URL)
 
-if not PUBLIC_URL or "http" not in PUBLIC_URL:
-    print("❌ ERROR: PUBLIC_URL no es válida. No se puede registrar el webhook.")
-    sys.exit(1)
+    if not PUBLIC_URL or "http" not in PUBLIC_URL:
+        print("❌ ERROR: PUBLIC_URL no es válida. No se puede registrar el webhook.")
+        # Puedes elegir: solo avisar o terminar el proceso local.
+        sys.exit(1)
 
 
 if __name__ == "__main__":
     try:
+        validate_public_url()
+        
         app = create_app()
-
         app.run(debug=True, port=80)
 
     except RuntimeError as e:
