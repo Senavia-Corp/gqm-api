@@ -58,9 +58,9 @@ def qbo_callback():
 # 2. INTERCAMBIO INICIAL: code → tokens
 # =======================================
 def exchange_code_for_tokens(code):
-    client_id = os.getenv("QBO_CLIENT_ID_DEV")
-    client_secret = os.getenv("QBO_CLIENT_SECRET_DEV")
-    redirect_uri = os.getenv("QBO_REDIRECT_URI_DEV")
+    client_id = os.getenv("QBO_CLIENT_ID")
+    client_secret = os.getenv("QBO_CLIENT_SECRET")
+    redirect_uri = os.getenv("QBO_REDIRECT_URI")
 
     auth_header = base64.b64encode(
         f"{client_id}:{client_secret}".encode()).decode()
@@ -88,8 +88,8 @@ def exchange_code_for_tokens(code):
 # 3. REFRESH: obtiene nuevos tokens
 # =========================================
 def refresh_access_token(refresh_token):
-    client_id = os.getenv("QBO_CLIENT_ID_DEV")
-    client_secret = os.getenv("QBO_CLIENT_SECRET_DEV")
+    client_id = os.getenv("QBO_CLIENT_ID")
+    client_secret = os.getenv("QBO_CLIENT_SECRET")
 
     auth_header = base64.b64encode(
         f"{client_id}:{client_secret}".encode()).decode()
@@ -138,7 +138,7 @@ def get_valid_access_token(realm_id):
         token_record.expires_in = new_tokens["expires_in"]
         token_record.refresh_token_expires_in = new_tokens.get(
             "x_refresh_token_expires_in")
-        token_record.updated_at = datetime.utcnow()
+        token_record.updated_at = datetime.now()
 
         session.add(token_record)
         session.commit()
@@ -151,12 +151,12 @@ def get_qbo_basic_auth() -> str:
 
     # Retorna la cadena base64 necesaria para la cabecera Authorization: Basic <value>
 
-    client_id = os.getenv("QBO_CLIENT_ID_DEV")
-    client_secret = os.getenv("QBO_CLIENT_SECRET_DEV")
+    client_id = os.getenv("QBO_CLIENT_ID")
+    client_secret = os.getenv("QBO_CLIENT_SECRET")
 
     if not client_id or not client_secret:
         raise RuntimeError(
-            "QBO_CLIENT_ID_DEV and QBO_CLIENT_SECRET_DEV must be set in environment variables")
+            "QBO_CLIENT_ID and QBO_CLIENT_SECRET must be set in environment variables")
 
     raw = f"{client_id}:{client_secret}"
     return base64.b64encode(raw.encode()).decode()
