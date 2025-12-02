@@ -22,9 +22,9 @@ def test_company_info(realm_id):
 # Launch URL
 @qbo_bp.get("/connect")
 def connect_qbo():
-    client_id = os.getenv("QBO_CLIENT_ID_DEV")  # Producción
+    client_id = os.getenv("QBO_CLIENT_ID")  # Producción
     # Debe coincidir exactamente con lo registrado en Intuit
-    redirect_uri = os.getenv("QBO_REDIRECT_URI_DEV")
+    redirect_uri = os.getenv("QBO_REDIRECT_URI")
 
     # URL de OAuth2 para producción
     base_url = "https://appcenter.intuit.com/connect/oauth2"
