@@ -2,35 +2,68 @@ from flask import Blueprint, request
 import os
 import base64
 import requests
+from datetime import datetime, timedelta
+from sqlmodel import select
+from ..database.db_sqlmodel import get_session
+from .TokensModel import QuickBooksToken
 
-# RUTA PARA CONSEGUIR CODE PARA OBTENER TOKENS:
+
+# Blueprint
 qbo_oauth_bp = Blueprint("qbo_oauth_bp", __name__)
 
 
+# 1. CALLBACK: obtiene el CODE y genera tokens
+# ============================================
 @qbo_oauth_bp.route("/callback")
 def qbo_callback():
     code = request.args.get("code")
     realmId = request.args.get("realmId")
 
-    print("CODE:", code)
-    print("REALM:", realmId)
+    if not code or not realmId:
+        return "Missing code or realmId", 400
 
     tokens = exchange_code_for_tokens(code)
-    print("TOKENS:", tokens)
 
-    return "OK", 200
+    # Guardar tokens en PostgreSQL
+    with get_session() as session:
+        existing = session.exec(
+            select(QuickBooksToken).where(QuickBooksToken.realm_id == realmId)
+        ).first()
+
+        if existing:
+            existing.access_token = tokens["access_token"]
+            existing.refresh_token = tokens["refresh_token"]
+            existing.token_type = tokens.get("token_type")
+            existing.expires_in = tokens["expires_in"]
+            existing.refresh_token_expires_in = tokens.get(
+                "x_refresh_token_expires_in")
+            existing.updated_at = datetime.now()
+        else:
+            new_entry = QuickBooksToken(
+                realm_id=realmId,
+                access_token=tokens["access_token"],
+                refresh_token=tokens["refresh_token"],
+                token_type=tokens.get("token_type"),
+                expires_in=tokens["expires_in"],
+                refresh_token_expires_in=tokens.get(
+                    "x_refresh_token_expires_in")
+            )
+            session.add(new_entry)
+
+        session.commit()
+
+    return "QuickBooks Connected Successfully", 200
 
 
-# FUNCION PARA INTERCAMBIAR EL CODE POR LOS TOKENS (AUTOMÁTICO)
+# 2. INTERCAMBIO INICIAL: code → tokens
+# =======================================
 def exchange_code_for_tokens(code):
-    client_id = os.getenv("QBO_CLIENT_ID")
-    client_secret = os.getenv("QBO_CLIENT_SECRET")
-    redirect_uri = os.getenv("QBO_REDIRECT_URI")
+    client_id = os.getenv("QBO_CLIENT_ID_DEV")
+    client_secret = os.getenv("QBO_CLIENT_SECRET_DEV")
+    redirect_uri = os.getenv("QBO_REDIRECT_URI_DEV")
 
-    # Basic Auth en base64
     auth_header = base64.b64encode(
-        f"{client_id}:{client_secret}".encode()
-    ).decode()
+        f"{client_id}:{client_secret}".encode()).decode()
 
     headers = {
         "Authorization": f"Basic {auth_header}",
@@ -44,17 +77,19 @@ def exchange_code_for_tokens(code):
     }
 
     url = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-
     response = requests.post(url, headers=headers, data=data)
 
-    print("TOKEN RESPONSE:", response.text)
+    print("STATUS:", response.status_code)
+    print("RAW RESPONSE:", response.text)
+
     return response.json()
 
 
-# FUNCIÓN PARA CONSEGUIR ACCESS TOKEN CUANDO SE EXPIRE DESPUES DE 1 HORA
+# 3. REFRESH: obtiene nuevos tokens
+# =========================================
 def refresh_access_token(refresh_token):
-    client_id = os.getenv("QBO_CLIENT_ID")
-    client_secret = os.getenv("QBO_CLIENT_SECRET")
+    client_id = os.getenv("QBO_CLIENT_ID_DEV")
+    client_secret = os.getenv("QBO_CLIENT_SECRET_DEV")
 
     auth_header = base64.b64encode(
         f"{client_id}:{client_secret}".encode()).decode()
@@ -70,6 +105,58 @@ def refresh_access_token(refresh_token):
     }
 
     url = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-
     response = requests.post(url, headers=headers, data=data)
+
     return response.json()
+
+
+# 4. FUNCIÓN CENTRAL: obtener token válido SIEMPRE
+# ===================================================
+def get_valid_access_token(realm_id):
+    with get_session() as session:
+        token_record = session.exec(
+            select(QuickBooksToken)
+            .where(QuickBooksToken.realm_id == realm_id)).first()
+
+        if not token_record:
+            raise Exception("QuickBooks not connected for this company.")
+
+        # Calcular expiración
+        expires_at = token_record.updated_at + \
+            timedelta(seconds=token_record.expires_in)
+
+        # Si NO expiró → se devuelve el token
+        if datetime.now() < expires_at:
+            return token_record.access_token
+
+        # Si expiró → se genera uno nuevo
+        new_tokens = refresh_access_token(token_record.refresh_token)
+
+        # Guardamos nuevos tokens
+        token_record.access_token = new_tokens["access_token"]
+        token_record.refresh_token = new_tokens["refresh_token"]
+        token_record.expires_in = new_tokens["expires_in"]
+        token_record.refresh_token_expires_in = new_tokens.get(
+            "x_refresh_token_expires_in")
+        token_record.updated_at = datetime.utcnow()
+
+        session.add(token_record)
+        session.commit()
+
+        return token_record.access_token
+
+
+# Helper que construye la cabecera Basic Authorization requerida por Intuit
+def get_qbo_basic_auth() -> str:
+
+    # Retorna la cadena base64 necesaria para la cabecera Authorization: Basic <value>
+
+    client_id = os.getenv("QBO_CLIENT_ID_DEV")
+    client_secret = os.getenv("QBO_CLIENT_SECRET_DEV")
+
+    if not client_id or not client_secret:
+        raise RuntimeError(
+            "QBO_CLIENT_ID_DEV and QBO_CLIENT_SECRET_DEV must be set in environment variables")
+
+    raw = f"{client_id}:{client_secret}"
+    return base64.b64encode(raw.encode()).decode()
