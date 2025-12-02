@@ -99,12 +99,12 @@ def validate_public_url():
         # Puedes elegir: solo avisar o terminar el proceso local.
         sys.exit(1)
 
+app = create_app()
 
 if __name__ == "__main__":
     try:
         validate_public_url()
-
-        app = create_app()
+        
         app.run(debug=True, port=80)
 
     except RuntimeError as e:
