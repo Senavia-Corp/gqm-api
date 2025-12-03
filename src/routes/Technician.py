@@ -31,7 +31,7 @@ def list_technicians():
                 select(Technician)
                 .options(joinedload(Technician.subcontractor))
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404   # El decorador se encarga del formato final
@@ -40,7 +40,6 @@ def list_technicians():
 
             for tech in results:
                 data = add_relationships(tech, ["subcontractor"])
-                data.pop("Password", None)
                 technician_data.append(data)
 
             return technician_data, 200
@@ -71,16 +70,14 @@ def get_tech_by_id(id_technician):
                 .where(Technician.ID_Technician == id_technician)
             )
 
-            obj = session.exec(statement).first()
+            obj = session.exec(statement).unique().first()
 
             if not obj:
                 return jsonify({"error": "Technician not found"}), 404
 
             # Construir JSON limpio con la info del cliente
-            technician_data = obj.model_dump()
-            technician_data.pop("Password", None)
-            technician_data["ID_Subcontractor"] = obj.subcontractor.model_dump(
-            ) if obj.subcontractor else None
+            technician_data = add_relationships(
+                obj, ["subcontractor"])
 
             return jsonify(technician_data), 200
 

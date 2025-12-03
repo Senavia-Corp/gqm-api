@@ -3,15 +3,16 @@ from flask import request, jsonify
 
 
 def paginate(default_limit=10, max_limit=100):
-    """
-    Decorador para paginar cualquier endpoint GET.
-    Parámetro de ruta que usa: ?page=1&limit=20
-    """
+
+    from flask import Response
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
 
-            # Obtener parámetros desde la URL
+            # ---------------------------
+            # Leer parámetros de paginación
+            # ---------------------------
             try:
                 page = int(request.args.get("page", 1))
                 limit = int(request.args.get("limit", default_limit))
@@ -23,18 +24,54 @@ def paginate(default_limit=10, max_limit=100):
 
             offset = (page - 1) * limit
 
-            # El endpoint devuelve (lista, statusCode)
-            data, status = func(*args, **kwargs)
+            # ---------------------------
+            # Ejecutar endpoint original
+            # ---------------------------
+            result = func(*args, **kwargs)
 
-            # Si el endpoint devolvió 404 NOT FOUND
-            if status == 404:
-                return jsonify({
-                    "message": "No se encontraron resultados para esta consulta"
-                }), 404
+            data = None
+            status = 200
 
+            # Caso 1: El endpoint devuelve (data, status)
+            if isinstance(result, tuple) and len(result) == 2:
+                data, status = result
+
+                # Si data es una Response → no paginar
+                if isinstance(data, Response):
+                    return data, status
+
+            # Caso 2: endpoint devuelve una Response
+            elif isinstance(result, Response):
+                return result
+
+            # Caso 3: devuelve solo una lista
+            else:
+                data = result
+
+            # ---------------------------
+            # Validación
+            # ---------------------------
             if not isinstance(data, list):
-                return jsonify({"error": "Pagination only works with list results"}), 500
+                return jsonify({
+                    "error": "Pagination only works with list results",
+                    "received_type": str(type(data))
+                }), 500
 
+            # ---------------------------
+            # LISTA VACÍA → TU NUEVO COMPORTAMIENTO
+            # ---------------------------
+            if len(data) == 0:
+                return jsonify({
+                    "message": "No hay datos disponibles.",
+                    "page": page,
+                    "limit": limit,
+                    "total": 0,
+                    "results": []
+                }), 200
+
+            # ---------------------------
+            # Paginar resultados
+            # ---------------------------
             paginated = data[offset: offset + limit]
 
             return jsonify({

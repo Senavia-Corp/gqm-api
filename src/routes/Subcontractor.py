@@ -16,39 +16,41 @@ subcontractor_bp = Blueprint(
 
 # -------------------RUTAS CRUD-------------------#
 
+
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los subcontratistas
-
-
 @subcontractor_bp.get("/")
 @paginate()
 def list_subcontractors():
     try:
         with get_session() as session:
-            '''
-            Cuando se cree la tabla de Rol se pone:
+
             statement = (
                 select(Subcontractor)
-                # .options(joinedload(Subcontractor.rol))
+                .options(joinedload(Subcontractor.technicians))
             )
-            results = session.exec(select(statement)).all()
-            '''
-            results = session.exec(select(Subcontractor)).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
-            return [obj.model_dump() for obj in results], 200
+            subcontr_data = [
+                add_relationships(
+                    subcontractor, ["technicians"])
+                for subcontractor in results
+            ]
+
+            return subcontr_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar proveedores: {db_error}")
+        print(f"Error de base de datos al listar subcontratistas: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar proveedores: {e}")
+        print(f"Error inesperado al listar subcontratistas: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
@@ -60,21 +62,33 @@ def list_subcontractors():
 def get_subcontractor(id_subcontractor):
     try:
         with get_session() as session:
-            obj = session.get(Subcontractor, id_subcontractor)
+
+            statement = (
+                select(Subcontractor)
+                .options(joinedload(Subcontractor.technicians))
+                .where(Subcontractor.ID_Subcontractor == id_subcontractor)
+            )
+
+            obj = session.exec(statement).unique().first()
+
             if not obj:
                 return jsonify({"error": "Subcontractor not found"}), 404
-            return jsonify(obj.model_dump()), 200
+
+            subcontr_data = add_relationships(
+                obj, ["technicians"])
+
+            return jsonify(subcontr_data), 200
 
     except SQLAlchemyError as db_error:
         print(
-            f"Error de base de datos al buscar proveedor {id_subcontractor}: {db_error}")
+            f"Error de base de datos al buscar subcontratista {id_subcontractor}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar proveedores: {e}")
+        print(f"Error inesperado al listar subcontratistas: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
@@ -87,23 +101,25 @@ def get_subcontractor(id_subcontractor):
 def list_subcontractor_by_state(state):
     try:
         with get_session() as session:
-            '''
-            Cuando se cree la tabla de Rol se pone:
+
             statement = (
                 select(Subcontractor)
-                # .options(joinedload(Subcontractor.rol))
+                .options(
+                    joinedload(Subcontractor.technicians)
+                )
                 .where(Subcontractor.State == state)
             )
-            results = session.exec(statement).all()'''
-
-            results = session.exec(select(Subcontractor).where(
-                Subcontractor.State == state)).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
-            subcontractor_data = [obj.model_dump() for obj in results]
-            return subcontractor_data, 200
+            subcontr_data = [
+                add_relationships(subcontr, ["technicians"])
+                for subcontr in results
+            ]
+
+            return subcontr_data, 200
 
     except SQLAlchemyError as db_error:
         print(
@@ -127,23 +143,25 @@ def list_subcontractor_by_state(state):
 def list_subcontractor_by_gqm_compliance(compliance):
     try:
         with get_session() as session:
-            '''
-            Cuando se cree la tabla de Rol se pone:
+
             statement = (
                 select(Subcontractor)
-                # .options(joinedload(Subcontractor.rol))
+                .options(
+                    joinedload(Subcontractor.technicians)
+                )
                 .where(Subcontractor.Gqm_compliance == compliance)
             )
-            results = session.exec(statement).all()'''
-
-            results = session.exec(select(Subcontractor).where(
-                Subcontractor.Gqm_compliance == compliance)).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
-            subcontractor_data = [obj.model_dump() for obj in results]
-            return subcontractor_data, 200
+            subcontr_data = [
+                add_relationships(subcontr, ["technicians"])
+                for subcontr in results
+            ]
+
+            return subcontr_data, 200
 
     except SQLAlchemyError as db_error:
         print(
@@ -168,23 +186,25 @@ def list_subcontractor_by_gqm_compliance(compliance):
 def list_subcontractor_by_gqm_bts(bts):
     try:
         with get_session() as session:
-            '''
-            Cuando se cree la tabla de Rol se pone:
+
             statement = (
                 select(Subcontractor)
-                # .options(joinedload(Subcontractor.rol))
+                .options(
+                    joinedload(Subcontractor.technicians)
+                )
                 .where(Subcontractor.Gqm_best_service_training == bts)
             )
-            results = session.exec(statement).all()'''
-
-            results = session.exec(select(Subcontractor).where(
-                Subcontractor.Gqm_best_service_training == bts)).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
-            subcontractor_data = [obj.model_dump() for obj in results]
-            return subcontractor_data, 200
+            subcontr_data = [
+                add_relationships(subcontr, ["technicians"])
+                for subcontr in results
+            ]
+
+            return subcontr_data, 200
 
     except SQLAlchemyError as db_error:
         print(

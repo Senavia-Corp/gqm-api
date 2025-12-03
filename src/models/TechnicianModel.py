@@ -20,10 +20,11 @@ class Technician(TechnicianBase, table=True):
 
     ID_Technician: Optional[str] = Field(default=None, primary_key=True)
 
-    # Relaciones foráneas
+    # Relaciones foráneas M:1
     ID_Subcontractor: Optional[str] = Field(
         default=None, foreign_key="subcontractor.ID_Subcontractor")
-    subcontractor: Optional["Subcontractor"] = Relationship()
+    subcontractor: Optional["Subcontractor"] = Relationship(
+        back_populates="technicians")
 
 
 class TechnicianCreate (TechnicianBase):
@@ -37,4 +38,4 @@ class TechnicianUpdate(SQLModel):
     Email_Address: Optional[str] = Field(default=None)
     Phone_Number: Optional[str] = Field(default=None)
     Type_of_technician: Optional[str] = Field(default=None)
-    Password: Optional[str]
+    Password: Optional[str] = Field(default=None)

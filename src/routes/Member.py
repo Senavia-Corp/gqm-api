@@ -39,7 +39,6 @@ def list_members():
 
             for member in results:
                 data = add_relationships(member, ["jobs"])  # agregar fk rol
-                data.pop("Password", None)
                 member_data.append(data)
 
             return member_data, 200
@@ -77,7 +76,6 @@ def get_member_by_id(id_member):
 
             # Construir JSON limpio con la info de los jobs
             member_data = add_relationships(obj, ["jobs"])
-            member_data.pop("Password", None)
 
             return jsonify(member_data), 200
 

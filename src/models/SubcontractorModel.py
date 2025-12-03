@@ -1,8 +1,9 @@
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
-from sqlmodel import SQLModel, Field
-from typing import Optional
+from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, List
+from .link_models.JobSubcontractor import JobSubcontractorLink
 
 
 class SubcontractorBase(SQLModel):
@@ -23,9 +24,16 @@ class Subcontractor(SubcontractorBase, table=True):
 
     ID_Subcontractor: Optional[str] = Field(default=None, primary_key=True)
 
-    # Relaciones foráneas
-    # ID_Rol: Optional[str] = Field(default=None, foreign_key="rol.ID_Rol")
-    # rol: Optional["Rol"] = Relationship()
+    # Relación de muchos a muchos
+    jobs: List["Job"] = Relationship(  # type: ignore
+        back_populates="subcontractors",
+        link_model=JobSubcontractorLink
+    )
+
+    # Relaciones foráneas 1:M
+    technicians: List["Technician"] = Relationship(  # type: ignore
+        back_populates="subcontractor"
+    )
 
 
 class SubcontractorCreate(SubcontractorBase):

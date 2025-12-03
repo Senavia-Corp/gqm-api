@@ -10,6 +10,8 @@ from .link_models.JobMember import JobMemberLink
 from .MemberModel import Member
 from .link_models.JobMultiplierR import JobMultiplierRLink
 from .MultiplierRModel import MultiplierR
+from .link_models.JobSubcontractor import JobSubcontractorLink
+from .SubcontractorModel import Subcontractor
 
 
 class JobType(str, Enum):
@@ -45,6 +47,7 @@ class Job(JobBase, table=True):
     __tablename__ = "jobs"
 
     ID_Jobs: Optional[str] = Field(default=None, primary_key=True)
+
     podio_item_id: Optional[str] = Field(
         default=None, index=True)  # referencia a Podio
 
@@ -65,6 +68,10 @@ class Job(JobBase, table=True):
     members: List[Member] = Relationship(
         back_populates="jobs",
         link_model=JobMemberLink
+    )
+    subcontractors: List[Subcontractor] = Relationship(
+        back_populates="jobs",
+        link_model=JobSubcontractorLink
     )
 
 

@@ -2,12 +2,23 @@ from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy.exc import SQLAlchemyError
 from decouple import config
 
-# Todos los modelos
+# Todos los modelos (para evitar problemas con las relaciones en la creación de las tablas en la db)
+from src.models.AttachmentsModel import Attachments
+# from src.models.ChangeOrderModel import ChangeOrder
+from src.models.ClientModel import Client
+from src.models.JobModel import Job
+from src.models.MemberModel import Member
+from src.models.MultiplierRModel import MultiplierR
 from src.models.PropertyManagerModel import PropertyManager
 from src.models.PropertyMgmtCoModel import PropertyMgmtCo
-from src.models.ClientModel import Client
+from src.models.SkillsModel import Skills
+from src.models.SubcontractorModel import Subcontractor
+from src.models.SupplierModel import Supplier
+# Modelos de links de las relaciones N:M
 from src.models.link_models.ClientPManager import ClientPrManagerLink
-
+from src.models.link_models.JobMember import JobMemberLink
+from src.models.link_models.JobMultiplierR import JobMultiplierRLink
+from src.models.link_models.JobSubcontractor import JobSubcontractorLink
 
 # Configuración para PostgreSQL
 DATABASE_URL = config("DATABASE_URL")

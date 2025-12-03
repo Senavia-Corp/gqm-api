@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
+from ..models.SubcontractorModel import Subcontractor
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -32,14 +33,16 @@ job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
 def list_jobs():
     try:
         with get_session() as session:
-            # Trae los Jobs con sus clientes en una sola consulta
+            # Trae los Jobs con la información asociada en una sola consulta
             statement = (
                 select(Job)
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
-                    joinedload(Job.attachments)
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
             )
             results = session.exec(statement).unique().all()
@@ -50,7 +53,7 @@ def list_jobs():
             jobs_data = [
                 # se agrega la relacion FK
                 add_relationships(
-                    job, ["client", "members", "multipliers", "attachments"])
+                    job, ["client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -82,7 +85,9 @@ def get_job_by_id(id_job):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
-                    joinedload(Job.attachments)
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.ID_Jobs == id_job)
             )
@@ -92,7 +97,7 @@ def get_job_by_id(id_job):
                 return jsonify({"error": "Job not found"}), 404
 
             job_data = add_relationships(
-                obj, ["client", "members", "multipliers", "attachments"])
+                obj, ["client", "members", "multipliers", "attachments", "subcontractors.technicians"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)
@@ -127,6 +132,9 @@ def list_jobs_by_status(status):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.Job_status == status)
             )
@@ -136,7 +144,8 @@ def list_jobs_by_status(status):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -170,6 +179,9 @@ def get_job_by_clientID(id_client):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.ID_Client == id_client)
             )
@@ -179,7 +191,8 @@ def get_job_by_clientID(id_client):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -213,6 +226,9 @@ def get_job_by_memberID(id_member):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.ID_Member == id_member)
             )
@@ -222,7 +238,8 @@ def get_job_by_memberID(id_member):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -256,6 +273,9 @@ def list_jobs_by_type(type):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.Job_type == type)
             )
@@ -265,7 +285,8 @@ def list_jobs_by_type(type):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -299,6 +320,9 @@ def list_jobs_by_date(date):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.Date_assigned == date)
             )
@@ -308,7 +332,8 @@ def list_jobs_by_date(date):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
