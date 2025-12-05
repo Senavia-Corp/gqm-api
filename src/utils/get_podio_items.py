@@ -4,10 +4,13 @@ from src.utils.middleware.retries.retries import retry_api
 
 
 @retry_api(max_retries=3, backoff=2)
-def get_podio_item(item_id: int) -> dict:
-
+def get_podio_item(item_id: int, app_type: str = "QID") -> dict:
+    """
+    Trae un item completo desde Podio usando su item_id.
+    app_type se usa para obtener los headers correctos.
+    """
     url = f"https://api.podio.com/item/{item_id}"
-    headers = get_podio_headers()
+    headers = get_podio_headers(app_type)
 
     try:
         response = requests.get(url, headers=headers, timeout=10)

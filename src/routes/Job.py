@@ -14,11 +14,12 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 
-from ..podio.services.job_services import (
-    create_podio_job,
-    update_podio_job,
-    delete_podio_job
-)
+from ..podio.services.job_services import podio_jobs_router
+
+from ..utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
+from ..utils.mappers.to_podio.ptl_mapper import map_job_to_podio_ptl
+from ..utils.mappers.to_podio.par_mapper import map_job_to_podio_par
+
 
 # Blueprint de Jobs:
 job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
@@ -373,32 +374,21 @@ def create_job():
             # Guardar en base de datos
             save_with_retry(session, obj)
 
-            # Crear también en Podio
-            try:
-                podio_fields = {
-                    "id-projects-workorder": obj.ID_Jobs,                # ID Projects & Workorder
-                    "project-location": obj.Project_location,            # Project Location
-                    "job-status": obj.Job_status,                        # Job Status
-                    "project-name-2": obj.Project_name,                  # Project Name - Community
-                    "powtnwo": obj.Po_wtn_wo,                            # PO/WTN/WO#
-                    "service-type": obj.Service_type,                    # Service Type
-                    "date-assigned": obj.Date_assigned,                  # Date Assigned
-                    # GQM (Adj Formula) Pricing
-                    "gqm-adj-formula-pricing": obj.Gqm_adj_formula_pricing,
-                    # GQM (Target) Sold Pricing
-                    "gqm-target-sold-pricing": obj.Gqm_target_sold_pricing,
-                    # GQM (Target) Return %
-                    "gqm-target-return": obj.Gqm_target_return,
-                    # 2025 GQM (Premium in $)
-                    "2023-gqm-final": obj.Gqm_premium_in_money,
-                    # GQM (Final Sold) Pricing
-                    "2023-gqm-premium-in": obj.Gqm_final_sold_pricing,
-                    # GQM (Final) %
-                    "gqm-final-sold-pricing": obj.Gqm_final_percentage,
-                    "gqm-total-change-orders": obj.Gqm_total_change_orders,   # GQM Total Change Orders
-                }
+            # Mapeador segun Job type
+            if obj.Job_type == "QID":
+                podio_fields = map_job_to_podio_qid(obj)
+            elif obj.Job_type == "PTL":
+                podio_fields = map_job_to_podio_ptl(obj)
+            elif obj.Job_type == "PAR":
+                podio_fields = map_job_to_podio_par(obj)
+            else:
+                return jsonify({"error": f"Job_type inválido: {obj.Job_type}"}), 400
 
-                podio_response = create_podio_job(podio_fields)
+            # Crear también en Podio
+            podio_service = podio_jobs_router.get_service(obj.Job_type)
+
+            try:
+                podio_response = podio_service.create_item(podio_fields)
 
                 # Guardar el podio_item_id en PostgreSQL
                 if podio_response and podio_response.get("item_id"):
@@ -477,32 +467,24 @@ def update_job(podio_item_id):
 
             save_with_retry(session, obj)
 
+            # Mapeador segun Job type
+            if obj.Job_type == "QID":
+                podio_fields = map_job_to_podio_qid(obj)
+            elif obj.Job_type == "PTL":
+                podio_fields = map_job_to_podio_ptl(obj)
+            elif obj.Job_type == "PAR":
+                podio_fields = map_job_to_podio_par(obj)
+            else:
+                return jsonify({"error": f"Job_type inválido: {obj.Job_type}"}), 400
+
+            # Crear también en Podio
+            podio_service = podio_jobs_router.get_service(obj.Job_type)
+
             # Actualizar también en Podio
             try:
-                podio_fields = {
-                    "id-projects-workorder": obj.ID_Jobs,                # ID Projects & Workorder
-                    "project-location": obj.Project_location,            # Project Location
-                    "job-status": obj.Job_status,                        # Job Status
-                    "project-name-2": obj.Project_name,                  # Project Name - Community
-                    "powtnwo": obj.Po_wtn_wo,                            # PO/WTN/WO#
-                    "service-type": obj.Service_type,                    # Service Type
-                    "date-assigned": obj.Date_assigned,                  # Date Assigned
-                    # GQM (Adj Formula) Pricing
-                    "gqm-adj-formula-pricing": obj.Gqm_adj_formula_pricing,
-                    # GQM (Target) Sold Pricing
-                    "gqm-target-sold-pricing": obj.Gqm_target_sold_pricing,
-                    # GQM (Target) Return %
-                    "gqm-target-return": obj.Gqm_target_return,
-                    # 2025 GQM (Premium in $)
-                    "2023-gqm-final": obj.Gqm_premium_in_money,
-                    # GQM (Final Sold) Pricing
-                    "2023-gqm-premium-in": obj.Gqm_final_sold_pricing,
-                    # GQM (Final) %
-                    "gqm-final-sold-pricing": obj.Gqm_final_percentage,
-                    "gqm-total-change-orders": obj.Gqm_total_change_orders,   # GQM Total Change Orderss
-                }
                 if obj.podio_item_id:
-                    update_podio_job(int(obj.podio_item_id), podio_fields)
+                    podio_service.update_item(
+                        int(obj.podio_item_id), podio_fields)
                     print(
                         f"🧩 Job {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
                 else:
@@ -561,12 +543,12 @@ def delete_job(podio_item_id):
             if not obj:
                 return jsonify({"error": "Job not found"}), 404
 
+            podio_service = podio_jobs_router.get_service(obj.Job_type)
             # Eliminar también en Podio
-            if obj.podio_item_id:
-                try:
-                    delete_podio_job(obj.podio_item_id)
-                except Exception as podio_error:
-                    print(f"⚠️ Error al eliminar item en Podio: {podio_error}")
+            try:
+                podio_service.delete_item(obj.podio_item_id)
+            except Exception as e:
+                print("⚠️ Error borrando en Podio:", e)
 
             delete_with_retry(session, obj)
 

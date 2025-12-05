@@ -5,6 +5,16 @@ from ..models.TasksModel import Tasks, TasksCreate, TasksUpdate
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
+from sqlalchemy.orm import joinedload
+from ..utils.relationships import add_relationships
+from ..utils.pagination import paginate
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+
+from ..podio.services.tasks_services import podio_tasks_router
+
+from ..utils.mappers.to_podio.tasks_mapper import map_task_to_podio
+
 
 # Blueprint de Tasks:
 tasks_bp = Blueprint("tasks_blueprint", __name__,
@@ -12,15 +22,31 @@ tasks_bp = Blueprint("tasks_blueprint", __name__,
 
 # -------------------RUTAS CRUD-------------------#
 
+
 # Ruta para conseguir la lista de todos las tareas
-
-
 @tasks_bp.get("/")
+@paginate()
 def list_tasks():
     try:
         with get_session() as session:
-            results = session.exec(select(Tasks)).all()
-            return jsonify([obj.model_dump() for obj in results]), 200
+            statement = (
+                select(Tasks)
+                .options(
+                    joinedload(Tasks.job),
+                    joinedload(Tasks.technician))
+            )
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 404
+
+            tasks_data = [
+                add_relationships(
+                    tasks, ["job", "technician"])
+                for tasks in results
+            ]
+
+            return tasks_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
         print(f"Error de base de datos al listar las tareas: {db_error}")
@@ -38,15 +64,27 @@ def list_tasks():
 
 
 # Ruta para conseguir una tarea por ID
-
 @tasks_bp.get("/<id_tasks>")
 def get_tasks(id_tasks):
     try:
         with get_session() as session:
-            obj = session.get(Tasks, id_tasks)
+            statement = (
+                select(Tasks)
+                .options(
+                    joinedload(Tasks.job),
+                    joinedload(Tasks.technician))
+                .where(Tasks.ID_Tasks == id_tasks)
+            )
+
+            obj = session.exec(statement).unique().first()
+
             if not obj:
                 return jsonify({"error": "Task not found"}), 404
-            return jsonify(obj.model_dump()), 200
+
+            tasks_data = add_relationships(
+                obj, ["job", "technician"])
+
+            return jsonify(tasks_data), 200
 
     except SQLAlchemyError as db_error:
         print(
@@ -63,15 +101,16 @@ def get_tasks(id_tasks):
             "code": "internal_error"
         }), 500
 
+
+# --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear una tarea
-
-
 @tasks_bp.post("/")
 def create_tasks():
     try:
         data = request.get_json()
         create_tasks = TasksCreate.model_validate(data)
-        obj = Tasks.model_validate(create_tasks)
+        obj = Tasks(
+            **create_tasks.model_dump(exclude_unset=False, exclude_none=False))
 
     except ValidationError as e:
         if 'JSON' in str(e):
@@ -82,12 +121,29 @@ def create_tasks():
     try:
         with get_session() as session:
             new_id = generate_custom_id(
-                session, Tasks, "ID_Tasks", "TAS")
+                session, Tasks, "ID_Tasks", "TSK")
             obj.ID_Tasks = new_id
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
+            # Mapear a Podio
+            podio_fields = map_task_to_podio(obj)
+            podio_service = podio_tasks_router.get_service()
+
+            try:
+                podio_response = podio_service.create_item(podio_fields)
+
+                # Guardar el podio_item_id en PostgreSQL
+                if podio_response and podio_response.get("item_id"):
+                    obj.podio_item_id = podio_response["item_id"]
+                    save_with_retry(session, obj)
+                    print(f"✅ Guardado podio_item_id: {obj.podio_item_id}")
+                else:
+                    print("⚠️ No se pudo obtener el item_id de Podio.")
+
+            except Exception as podio_error:
+                print(f"⚠️ Error al crear item en Podio: {podio_error}")
+
             return jsonify(obj.model_dump()), 201
 
     except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
@@ -123,13 +179,15 @@ def create_tasks():
 
 # Ruta para actualizar una tarea
 
-@tasks_bp.patch("/<id_tasks>")
-def update_tasks(id_tasks):
+@tasks_bp.patch("/<podio_item_id>")
+def update_tasks(podio_item_id):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.get(Tasks, id_tasks)
+            obj = session.exec(
+                select(Tasks).where(Tasks.podio_item_id == podio_item_id)
+            ).first()
             if not obj:
                 return jsonify({"error": "Task not found"}), 404
 
@@ -140,9 +198,30 @@ def update_tasks(id_tasks):
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
+            # Mapear a Podio
+            podio_service = podio_tasks_router.get_service()
+            podio_fields = map_task_to_podio(obj)
+
+            try:
+                if obj.podio_item_id:
+                    podio_service.update_item(
+                        int(obj.podio_item_id), podio_fields)
+                    print(
+                        f"🧩 Client {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
+                else:
+                    # Si no tiene podio_item_id, crearlo en Podio
+                    podio_response = podio_service.create_item(podio_fields)
+                    if podio_response and podio_response.get("item_id"):
+                        obj.podio_item_id = podio_response["item_id"]
+                        save_with_retry(session, obj)
+                        print(
+                            f"✅ Client {podio_item_id} creado en Podio (item_id={obj.podio_item_id})")
+            except Exception as podio_error:
+                print(
+                    f"⚠️ Error al actualizar/crear Client en Podio: {podio_error}")
+
             return jsonify(obj.model_dump()), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
@@ -183,17 +262,29 @@ def update_tasks(id_tasks):
 
 # Ruta para eliminar un distruibidor
 
-@tasks_bp.delete("/<id_tasks>")
-def delete_tasks(id_tasks):
+@tasks_bp.delete("/<podio_item_id>")
+def delete_tasks(podio_item_id):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(Tasks, id_tasks)
+            obj = session.exec(
+                select(Tasks).where(Tasks.podio_item_id == podio_item_id)
+            ).first()
             if not obj:
                 return jsonify({"error": "Task not found"}), 404
-            session.delete(obj)
-            session.commit()
-            return jsonify({"message": f"Deleted Task {id_tasks}"}), 200
+
+            # Eliminar en Podio
+            podio_service = podio_tasks_router.get_service()
+            try:
+                podio_service.delete_item(obj.podio_item_id)
+                print(f"🗑️ Cliente eliminado en Podio: {obj.podio_item_id}")
+            except Exception as podio_error:
+                print(f"⚠️ Error borrando cliente en Podio: {podio_error}")
+
+            # Eliminar en DB
+            delete_with_retry(session, obj)
+
+            return jsonify({"message": f"Client {podio_item_id} eliminado correctamente"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
     except IntegrityError as e:  # En caso de borrar una tarea que tiene productos asociados con Foreign Key

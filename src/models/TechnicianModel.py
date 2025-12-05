@@ -2,7 +2,7 @@
 # ==================================== Modelos para PostgreSQL ====================================#
 
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional
+from typing import Optional, List
 from .SubcontractorModel import Subcontractor
 
 
@@ -25,6 +25,10 @@ class Technician(TechnicianBase, table=True):
         default=None, foreign_key="subcontractor.ID_Subcontractor")
     subcontractor: Optional["Subcontractor"] = Relationship(
         back_populates="technicians")
+
+    # Relaciones foráneas 1:M
+    tasks: List["Tasks"] = Relationship(  # type: ignore
+        back_populates="technician")
 
 
 class TechnicianCreate (TechnicianBase):

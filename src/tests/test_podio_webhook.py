@@ -1,6 +1,6 @@
 import json
 from src.utils.get_podio_items import get_podio_item
-from src.utils.mappers.job_mapper import map_podio_item_to_job
+from src.utils.mappers.from_podio.job_mapper import map_podio_item_to_job
 from main import create_app
 from src.database.db_sqlmodel import get_session
 from src.models.JobModel import Job

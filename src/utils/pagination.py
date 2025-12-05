@@ -58,7 +58,7 @@ def paginate(default_limit=10, max_limit=100):
                 }), 500
 
             # ---------------------------
-            # LISTA VACÍA → TU NUEVO COMPORTAMIENTO
+            # LISTA VACÍA
             # ---------------------------
             if len(data) == 0:
                 return jsonify({

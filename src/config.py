@@ -29,34 +29,77 @@ TOKEN_URL = "https://api.podio.com/oauth/token"
 PODIO_CLIENT_ID = os.getenv("PODIO_CLIENT_ID")
 PODIO_CLIENT_SECRET = os.getenv("PODIO_CLIENT_SECRET")
 
-# Credenciales del App Test Admin Panel
-PODIO_TAP_APP_ID = os.getenv("PODIO_TAP_APP_ID")
-PODIO_TAP_APP_TOKEN = os.getenv("PODIO_TAP_APP_TOKEN")
-
-# Credenciales del App QID2025
-# PODIO_QID2025_APP_ID = os.getenv("PODIO_QID2025_APP_ID")
-# PODIO_QID2025_APP_TOKEN = os.getenv("PODIO_QID2025_APP_TOKEN")
-
-# Credenciales del App Clients
-PODIO_CLIENTS_APP_ID = os.getenv("PODIO_CLIENTS_APP_ID")
-PODIO_CLIENTS_APP_TOKEN = os.getenv("PODIO_CLIENTS_APP_TOKEN")
-
-# Credenciales del App Subcontractors
-PODIO_SUBCONTRACTORS_APP_ID = os.getenv("PODIO_SUBCONTRACTORS_APP_ID")
-PODIO_SUBCONTRACTORS_APP_TOKEN = os.getenv("PODIO_SUBCONTRACTORS_APP_TOKEN")
+# Credenciales del App Test Admin 1 QID
+QID_TAP_APP_ID = os.getenv("QID_TAP_APP_ID")
+QID_TAP_APP_TOKEN = os.getenv("QID_TAP_APP_TOKEN")
+# Credenciales del App Test Admin 2 PTL
+PTL_TAP_APP_ID = os.getenv("PTL_TAP_APP_ID")
+PTL_TAP_APP_TOKEN = os.getenv("PTL_TAP_APP_TOKEN")
+# Credenciales del App Test Admin 3 PAR
+PAR_TAP_APP_ID = os.getenv("PAR_TAP_APP_ID")
+PAR_TAP_APP_TOKEN = os.getenv("PAR_TAP_APP_TOKEN")
+# Credenciales del App Test Admin 4 Clients
+CLI_TAP_APP_ID = os.getenv("CLI_TAP_APP_ID")
+CLI_TAP_APP_TOKEN = os.getenv("CLI_TAP_APP_TOKEN")
+# Credenciales del App Test Admin 5 Tasks
+TAS_TAP_APP_ID = os.getenv("TAS_TAP_APP_ID")
+TAS_TAP_APP_TOKEN = os.getenv("TAS_TAP_APP_TOKEN")
 
 # Verificar que las credenciales esten en .env
 _missing = [k for k, v in {
     "PODIO_CLIENT_ID": PODIO_CLIENT_ID,
     "PODIO_CLIENT_SECRET": PODIO_CLIENT_SECRET,
-    "PODIO_TAP_APP_ID": PODIO_TAP_APP_ID,
-    "PODIO_TAP_APP_TOKEN": PODIO_TAP_APP_TOKEN,
-    # "PODIO_QID2025_APP_ID": PODIO_QID2025_APP_ID,
-    # "PODIO_QID2025_APP_TOKEN": PODIO_QID2025_APP_TOKEN,
+    "QID_TAP_APP_ID": QID_TAP_APP_ID,
+    "QID_TAP_APP_TOKEN": QID_TAP_APP_TOKEN,
+    "PTL_TAP_APP_ID": PTL_TAP_APP_ID,
+    "PTL_TAP_APP_TOKEN": PTL_TAP_APP_TOKEN,
+    "PAR_TAP_APP_ID": PAR_TAP_APP_ID,
+    "PAR_TAP_APP_TOKEN": PAR_TAP_APP_TOKEN,
+    "CLI_TAP_APP_ID": CLI_TAP_APP_ID,
+    "CLI_TAP_APP_TOKEN": CLI_TAP_APP_TOKEN,
+    "TAS_TAP_APP_ID": TAS_TAP_APP_ID,
+    "TAS_TAP_APP_TOKEN": TAS_TAP_APP_TOKEN
 }.items() if not v]
 
 if _missing:
     print(f"[WARN] Faltan variables en .env: {', '.join(_missing)}")
+
+
+# Mapa de Apps de Podio
+
+PODIO_APPS = {
+    "QID": {
+        "APP_ID": QID_TAP_APP_ID,
+        "APP_TOKEN": QID_TAP_APP_TOKEN,
+    },
+    "PTL": {
+        "APP_ID": PTL_TAP_APP_ID,
+        "APP_TOKEN": PTL_TAP_APP_TOKEN,
+    },
+    "PAR": {
+        "APP_ID": PAR_TAP_APP_ID,
+        "APP_TOKEN": PAR_TAP_APP_TOKEN,
+    },
+    "CLI": {
+        "APP_ID": CLI_TAP_APP_ID,
+        "APP_TOKEN": CLI_TAP_APP_TOKEN,
+    },
+    "TASK": {
+        "APP_ID": TAS_TAP_APP_ID,
+        "APP_TOKEN": TAS_TAP_APP_TOKEN,
+    }
+}
+
+
+def get_podio_app_credentials(app_type: str):
+    """
+    Devuelve APP_ID y APP_TOKEN según app_type (QID, PTL, PAR, CLI).
+    """
+    app_type = app_type.upper()
+    if app_type not in PODIO_APPS:
+        raise ValueError(f"Tipo de app inválido: {app_type}")
+    return PODIO_APPS[app_type]
+
 
 # URL de Postgres
 DATABASE_URL = os.getenv("DATABASE_URL")

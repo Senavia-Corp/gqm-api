@@ -32,7 +32,7 @@ from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 
 # Test
-# from src.tests.debug_podio import debug_bp
+from src.tests.debug_podio import debug_bp
 
 
 def create_app():
@@ -67,17 +67,17 @@ def create_app():
     app.register_blueprint(auth_bp)
 
     # Rutas relacionadas con Podio
-    # app.register_blueprint(sync_bp)  # Sincronización con Podio
-    # app.register_blueprint(webhook_bp)  # Para recibir todos los webhooks
+    app.register_blueprint(sync_bp)  # Sincronización con Podio
+    app.register_blueprint(webhook_bp)  # Para recibir todos los webhooks
     # Para crear o eliminar los hooks de Podio
     app.register_blueprint(admin_bp)
+
+    app.register_blueprint(debug_bp)  # test
 
     # Para conexión con Sandbox de Quickbooks
     # Test del sandbox que se volverá a producción
     app.register_blueprint(qbo_bp)
     app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
-
-    # app.register_blueprint(debug_bp)  # test
 
     # Ruta simple
 

@@ -28,6 +28,9 @@ class Client(ClientBase, table=True):
 
     ID_Client: Optional[str] = Field(default=None, primary_key=True)
 
+    podio_item_id: Optional[str] = Field(
+        default=None, index=True)  # referencia a Podio
+
     # Relaciones foráneas 1:M
     jobs: List["Job"] = Relationship(back_populates="client")  # type: ignore
 

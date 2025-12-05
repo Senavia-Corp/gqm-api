@@ -3,7 +3,7 @@
 
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
-from datetime import date
+from datetime import datetime
 from enum import Enum
 from .ClientModel import Client
 from .link_models.JobMember import JobMemberLink
@@ -28,8 +28,8 @@ class JobBase(SQLModel):
     Job_status: str
     Po_wtn_wo: Optional[str] = Field(default=None)
     Service_type: Optional[str] = Field(default=None)
-    Date_assigned: Optional[date] = Field(default=date.today)
-    Estimated_start_date: Optional[date] = Field(default=None)
+    Date_assigned: Optional[datetime] = Field(default_factory=datetime.now)
+    Estimated_start_date: Optional[datetime] = Field(default=None)
     Estimated_project_duration: Optional[str] = Field(default=None)
 
     Gqm_formula_pricing: Optional[float] = Field(default=None)
@@ -58,6 +58,9 @@ class Job(JobBase, table=True):
 
     # Relaciones foráneas 1:M
     attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="job",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+    tasks: List["Tasks"] = Relationship(  # type: ignore
         back_populates="job")
 
     # Relaciones de muchos a muchos
@@ -88,7 +91,7 @@ class JobUpdate(SQLModel):
     Po_wtn_wo: Optional[str] = Field(default=None)
     Service_type: Optional[str] = Field(default=None)
     Date_assigned: Optional[str] = Field(default=None)
-    Estimated_start_date: Optional[date] = Field(default=None)
+    Estimated_start_date: Optional[datetime] = Field(default=None)
     Estimated_project_duration: Optional[str] = Field(default=None)
 
     Gqm_formula_pricing: Optional[float] = Field(default=None)
