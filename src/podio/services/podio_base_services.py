@@ -27,6 +27,15 @@ class PodioBaseService:
 
         return response.json().get("items", [])
 
+    @retry_api(max_retries=3, backoff=2)
+    def get_item(self, item_id: int):
+
+        url = f"{BASE_URL}/item/{item_id}"
+        response = requests.get(url, headers=self._headers())
+        response.raise_for_status()
+
+        return response.json()
+
     # ------------- CREATE -------------
 
     @retry_api(max_retries=3, backoff=2)

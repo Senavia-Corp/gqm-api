@@ -1,7 +1,7 @@
 FIELD_ALIASES = {
     # 🔹 ID del Job
     "ID_Jobs": [
-        "id-projects-workorder",  # QID
+        "app_item_id_formatted",  # QID
         "titulo",                 # PTL + PAR title
     ],
 
@@ -9,6 +9,7 @@ FIELD_ALIASES = {
     "ID_Client": [
         "client-2",  # QID
         "client",    # PTL + PAR
+        "related-client",
     ],
 
     # 🔹 Project Location
@@ -52,44 +53,11 @@ FIELD_ALIASES = {
         "estimated-start-date",  # PTL
     ],
 
-    # 🔹 GQM Formula Pricing
-    "Gqm_formula_pricing": [
-        "gqm-formula-pricing-2",  # PAR
-    ],
-
-    # 🔹 GQM Adjusted Formula Pricing
-    "Gqm_adj_formula_pricing": [
-        "gqm-adj-formula-pricing-2",  # QID
-    ],
-
     # 🔹 Target Sold Pricing
     "Gqm_target_sold_pricing": [
-        "gqm-target-sold-pricing",   # QID
+        "gqm-target-sold-pricing-2",   # QID
         "gqm-target-ptl-2",          # PTL
         "gqm-target-sold-par",       # PAR
-    ],
-
-    # 🔹 Target Return
-    "Gqm_target_return": [
-        "gqm-target-return",       # QID
-        "gqm-target-par-return-2",  # PAR
-    ],
-
-    # 🔹 Premium in Money
-    "Gqm_premium_in_money": [
-        "2023-gqm-premium-in",   # QID
-        "gqm-premium-in-par-2",  # PAR
-    ],
-
-    # 🔹 Final Sold Pricing
-    "Gqm_final_sold_pricing": [
-        "gqm-final-sold-pricing",     # QID
-        "2025-gqm-final-sold-ptl",    # PTL
-    ],
-
-    # 🔹 Final Percentage
-    "Gqm_final_percentage": [
-        "2023-gqm-final",  # QID
     ],
 
     # 🔹 Total Change Orders

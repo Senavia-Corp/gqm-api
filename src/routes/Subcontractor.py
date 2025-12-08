@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.SubcontractorModel import Subcontractor, SubcontractorCreate, SubcontractorUpdate
+from ..models.TechnicianModel import Technician
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -27,7 +28,11 @@ def list_subcontractors():
 
             statement = (
                 select(Subcontractor)
-                .options(joinedload(Subcontractor.technicians))
+                .options(
+                    joinedload(Subcontractor.technicians)
+                    .joinedload(Technician.tasks),
+                    joinedload(Subcontractor.orders),
+                )
             )
             results = session.exec(statement).unique().all()
 
@@ -36,7 +41,7 @@ def list_subcontractors():
 
             subcontr_data = [
                 add_relationships(
-                    subcontractor, ["technicians"])
+                    subcontractor, ["technicians.tasks", "orders"])
                 for subcontractor in results
             ]
 
@@ -65,7 +70,11 @@ def get_subcontractor(id_subcontractor):
 
             statement = (
                 select(Subcontractor)
-                .options(joinedload(Subcontractor.technicians))
+                .options(
+                    joinedload(Subcontractor.technicians)
+                    .joinedload(Technician.tasks),
+                    joinedload(Subcontractor.orders),
+                )
                 .where(Subcontractor.ID_Subcontractor == id_subcontractor)
             )
 
@@ -75,7 +84,7 @@ def get_subcontractor(id_subcontractor):
                 return jsonify({"error": "Subcontractor not found"}), 404
 
             subcontr_data = add_relationships(
-                obj, ["technicians"])
+                obj, ["technicians.tasks", "orders"])
 
             return jsonify(subcontr_data), 200
 
@@ -105,7 +114,8 @@ def list_subcontractor_by_state(state):
             statement = (
                 select(Subcontractor)
                 .options(
-                    joinedload(Subcontractor.technicians)
+                    joinedload(Subcontractor.technicians),
+                    joinedload(Subcontractor.orders),
                 )
                 .where(Subcontractor.State == state)
             )
@@ -147,7 +157,8 @@ def list_subcontractor_by_gqm_compliance(compliance):
             statement = (
                 select(Subcontractor)
                 .options(
-                    joinedload(Subcontractor.technicians)
+                    joinedload(Subcontractor.technicians),
+                    joinedload(Subcontractor.orders),
                 )
                 .where(Subcontractor.Gqm_compliance == compliance)
             )
@@ -191,6 +202,8 @@ def list_subcontractor_by_gqm_bts(bts):
                 select(Subcontractor)
                 .options(
                     joinedload(Subcontractor.technicians)
+                    .joinedload(Technician.technicians),
+                    joinedload(Subcontractor.orders),
                 )
                 .where(Subcontractor.Gqm_best_service_training == bts)
             )

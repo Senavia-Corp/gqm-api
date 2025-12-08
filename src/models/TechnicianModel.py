@@ -35,11 +35,7 @@ class TechnicianCreate (TechnicianBase):
     ID_Subcontractor: Optional[str] = None
 
 
-class TechnicianUpdate(SQLModel):
+class TechnicianUpdate(TechnicianBase):
     ID_Subcontractor: Optional[str] = None
-    Name: Optional[str] = Field(default=None)
-    Location: Optional[str] = Field(default=None)
     Email_Address: Optional[str] = Field(default=None)
-    Phone_Number: Optional[str] = Field(default=None)
-    Type_of_technician: Optional[str] = Field(default=None)
     Password: Optional[str] = Field(default=None)

@@ -5,7 +5,6 @@ from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..models.SubcontractorModel import Subcontractor
-from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -367,13 +366,6 @@ def create_job():
         obj = Job(**job_data.model_dump(exclude_unset=False, exclude_none=False))
 
         with get_session() as session:
-            prefix = obj.Job_type.upper()
-            new_id = generate_custom_id(session, Job, "ID_Jobs", prefix)
-            obj.ID_Jobs = new_id
-
-            # Guardar en base de datos
-            save_with_retry(session, obj)
-
             # Mapeador segun Job type
             if obj.Job_type == "QID":
                 podio_fields = map_job_to_podio_qid(obj)
@@ -388,15 +380,37 @@ def create_job():
             podio_service = podio_jobs_router.get_service(obj.Job_type)
 
             try:
+                # 🔹 Loggear payload antes de enviarlo
+                import json
+                print("🚀 Payload que se enviará a Podio:")
+                print(json.dumps(podio_fields, indent=4))
+
                 podio_response = podio_service.create_item(podio_fields)
 
                 # Guardar el podio_item_id en PostgreSQL
                 if podio_response and podio_response.get("item_id"):
                     obj.podio_item_id = podio_response["item_id"]
+
+                    # Avisar al webhook que no repita llamado.
+                    import time
+                    from .Webhook_bp import recent_created_items
+                    recent_created_items[obj.podio_item_id] = time.time()
+                    print(
+                        f"⛔ Registrado item creado por la app: {obj.podio_item_id}")
+
+                    # Buscar y guardar el ID_Jobs
+                    item = podio_service.get_item(obj.podio_item_id)
+                    formatted_id = item.get("app_item_id_formatted")
+                    if formatted_id:
+                        obj.ID_Jobs = formatted_id
+                    else:
+                        raise ValueError(
+                            "No se pudo obtener app_item_id_formatted de Podio")
+
                     save_with_retry(session, obj)
-                    print(f"✅ Guardado podio_item_id: {obj.podio_item_id}")
+
                 else:
-                    print("⚠️ No se pudo obtener el item_id de Podio.")
+                    print("⚠️ No se pudo obtener los datos de Podio.")
 
             except Exception as podio_error:
                 print(f"⚠️ Error al crear item en Podio: {podio_error}")
@@ -477,7 +491,6 @@ def update_job(podio_item_id):
             else:
                 return jsonify({"error": f"Job_type inválido: {obj.Job_type}"}), 400
 
-            # Crear también en Podio
             podio_service = podio_jobs_router.get_service(obj.Job_type)
 
             # Actualizar también en Podio
@@ -487,6 +500,18 @@ def update_job(podio_item_id):
                         int(obj.podio_item_id), podio_fields)
                     print(
                         f"🧩 Job {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
+
+                    # Avisar al webhook que no repita llamado.
+                    import time
+                    import src.routes.Webhook_bp as webhook_state
+
+                    item_id_int = int(obj.podio_item_id)
+
+                    webhook_state.recent_created_items[item_id_int] = time.time(
+                    )
+                    print(
+                        f"⛔ Registrado update creado por la app: {item_id_int}")
+
                 else:
                     print(
                         f"⚠️ Job {podio_item_id} no tiene podio_item_id, se omitió actualización en Podio")
@@ -544,6 +569,15 @@ def delete_job(podio_item_id):
                 return jsonify({"error": "Job not found"}), 404
 
             podio_service = podio_jobs_router.get_service(obj.Job_type)
+
+            # Avisar al webhook que no repita llamado.
+            import time
+            import src.routes.Webhook_bp as webhook_state
+
+            item_id_int = int(obj.podio_item_id)
+            webhook_state.recent_created_items[item_id_int] = time.time()
+            print(f"⛔ Registrado delete creado por la app: {item_id_int}")
+
             # Eliminar también en Podio
             try:
                 podio_service.delete_item(obj.podio_item_id)

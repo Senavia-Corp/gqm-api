@@ -141,10 +141,11 @@ def create_client():
                 # Guardar el podio_item_id en PostgreSQL
                 if podio_response and podio_response.get("item_id"):
                     obj.podio_item_id = podio_response["item_id"]
+
                     save_with_retry(session, obj)
-                    print(f"✅ Guardado podio_item_id: {obj.podio_item_id}")
+                    print(f"✅ Guardado Job en DB.")
                 else:
-                    print("⚠️ No se pudo obtener el item_id de Podio.")
+                    print("⚠️ No se pudo obtener los datos de Podio.")
 
             except Exception as podio_error:
                 print(f"⚠️ Error al crear item en Podio: {podio_error}")

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 PODIO_FIELD_TYPES = {
     # Campos de QID
-    "id-projects-workorder": "text",
+    # ----- De Jobs
     "client-2": "app",
     "project-location-2": "location",
     "job-status-2": "category",
@@ -11,45 +11,60 @@ PODIO_FIELD_TYPES = {
     "powtnwo": "text",
     "service-type-3": "category",
     "date-assigned-2": "date",
-    "gqm-adj-formula-pricing-2": "calculation",
-    "gqm-target-sold-pricing": "text",
-    "gqm-target-return": "text",
-    "2023-gqm-final": "text",
-    "2023-gqm-premium-in": "text",
-    "gqm-final-sold-pricing": "text",
-    "gqm-total-change-orders-2": "number",
+    "gqm-target-sold-pricing-2": "money",
+    # FALTA LA RELACION CON MEMBER!!
+    # ----- De Order
+    "tech-1-formula-2": "money",
+    "tech-2-formula": "money",
+    # ----- De Estimate Cost
+    "estimated-rent-total-2": "money",
+    "estimated-material-total-2": "money",
+    "estimated-city-permits-total": "money",
+    "bldg-dept-fees-1": "money",
+    "bldg-dept-fees-2": "money",
+    "bldg-dept-fees-3": "money",
+    "purchase-1": "money",
+    "purchase-2": "money",
+    "purchase-3": "money",
+    # ----- De Change Orders
+    "": "money",
+
 
     # Campos de PTL
-    "titulo": "text",
+    # ----- De Jobs
     "client": "app",
     "location": "location",
-    "mgmt-member": "app",
-    "categoria": "category",
+    "categoria": "category",  # Esto es status
     "estimated-start-date": "date",
+    "ptl-cost": "money",  # Target sold pricing
+    # FALTA LA RELACION CON MEMBER!!
+    # ----- De Order
+    "tech-1-ptl-original-pricing": "money",
+    "tech-1-ptl-original-pricing-2": "money",
+    # ----- De Estimate Cost
+    "gc-fee-if-applicable-2": "money",
+    "gqm-estimated-material-total": "money",
+    "tech-1-hd-materials": "money",
+    "tech-2-hd-materials": "money",
+    # ----- De Change Orders
+    "": "money",
 
-    "gqm-total-change-orders": "number",
-    "gqm-adj-formula-total-cost": "number",
-    "ptl-pricing-target": "category",
-    "gqm-target-ptl-2": "calculation",
-    "gqm-inc-collected-premium": "number",
-    "2025-gqm-final-sold-ptl": "number",
 
     # Campos de PAR
-    "titulo": "text",
+    # ----- De Jobs
     "client": "app",
-    "job-status": "category",
     "week-assigned": "date",
-    "gqm-formula-pricing-2": "calculation",
+    "job-status": "category",
     "gqm-target-sold-par": "money",
-    "gqm-target-par-return-2": "calculation",
-    "gqm-premium-in-par-2": "calculation",
+    # ----- De Order
+    "tech-1-formula": "money",
+    "tech-2-formula": "money",
 
     # Campos de Clients
     "titulo": "text",
-    "parent-mgmt-company": "contact",
+    "address": "location",
     "parent-company": "text",
-    "address": "text",
-    "website": "text",
+    "website-2": "embed",
     "invoicecollection": "text",
     "compliance-partner": "category",
     "risk-value": "category",
@@ -58,17 +73,22 @@ PODIO_FIELD_TYPES = {
     "phone": "phone",
     "client-status": "category",
     "services-interested-in": "category",
+    # FALTA LA RELACION CON parent-mgmt-company!!!
 
     # Campos de Tasks
-    "titulo": "text",
+    "titulo": "text",  # Name en mi modelo
     "description": "text",
     "status": "category",
-    "deadline": "date",
+    "deadline": "date",  # Delivery_date en mi modelo
+    "related-project": "app",
 }
 
 
 def convert_value_for_podio(field_id, value):
     field_type = PODIO_FIELD_TYPES.get(field_id, "text")
+
+    if field_type == "app":
+        return {} if value is not None else None  # AGREGAR LO DEL PAYLOAD
 
     if field_type == "text":
         return {"value": str(value)} if value is not None else None
@@ -77,6 +97,24 @@ def convert_value_for_podio(field_id, value):
         if value is None:
             return None
         return {"value": str(value)}
+
+    if field_type == "embed":
+        if value is None:
+            return None
+
+        # Caso 1: te pasan directamente la URL como string
+        if isinstance(value, str):
+            url = value.strip()
+            if not url:
+                return None
+            return {"url": url}
+
+        # Caso 2: dict con una URL {"url": "..."}
+        if isinstance(value, dict) and "url" in value:
+            url = value.get("url")
+            if not url:
+                return None
+            return {"url": str(url)}
 
     if field_type == "number":
         if value is None:
@@ -109,22 +147,17 @@ def convert_value_for_podio(field_id, value):
     if field_type == "email":
         if value is None:
             return None
-        return {"value": str(value)}
+        return [{"type": "work", "value": str(value)}]
 
     if field_type == "phone":
         if value is None:
             return None
-        return {"value": str(value)}
+        return [{"type": "work", "value": str(value)}]
 
     if field_type == "contact":
         if value is None:
             return None
         return {"value": int(value)}  # profile_id
-
-    if field_type == "app":
-        if value is None:
-            return None
-        return {"value": int(value)}  # item_id de otro item
 
     if field_type == "location":
         if value is None:

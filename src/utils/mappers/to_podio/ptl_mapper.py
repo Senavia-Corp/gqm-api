@@ -1,26 +1,32 @@
 from ...convert_value_podio import convert_value_for_podio
+from sqlmodel import select
+from src.models.ClientModel import Client
 
 PTL_FIELD_MAP = {
-    "ID_Jobs": "titulo",
-    "Client_id": "client",
+    # ----- De Jobs
+    # REVISAR CLIENT!!!!
     "Project_location": "location",
-    "ID_Member": "mgmt-member",
     "Job_status": "categoria",
     "Estimated_start_date": "estimated-start-date",
+    "Gqm_target_sold_pricing": "ptl-cost",
+    # "ID_Member": "mgmt-member",
 
-    "Gqm_total_change_orders": "gqm-total-change-orders",
-    "Gqm_adj_formula_pricing": "gqm-adj-formula-total-cost",
-    "Gqm_target_sold_pricing": "ptl-pricing-target",
-    "Gqm_target_return": "gqm-target-ptl-2",
-    "Gqm_premium_in_money": "gqm-inc-collected-premium",
-    "Gqm_final_sold_pricing": "2025-gqm-final-sold-ptl",
+    # ----- De Order
+    # "tech-1-ptl-original-pricing",
+    # "tech-1-ptl-original-pricing-2",
+
+    # ----- De Estimate Cost
 }
 
 
-def map_job_to_podio_ptl(job_obj):
+def map_job_to_podio_ptl(job_obj, session=None):
     payload = {}
+    # Campos normales
     for attr, podio_field in PTL_FIELD_MAP.items():
         value = getattr(job_obj, attr, None)
         if value:
             payload[podio_field] = convert_value_for_podio(podio_field, value)
+
+    # Campo relacionado
+
     return payload

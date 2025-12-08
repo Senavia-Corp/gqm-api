@@ -25,6 +25,8 @@ def map_podio_item_to_client(item: dict) -> dict:
 
                 if isinstance(v, dict) and "text" in v:
                     v = v["text"]
+                elif "name" in v:
+                    v = v["name"]
 
                 return clean_html(v)
         return None

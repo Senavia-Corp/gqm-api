@@ -7,13 +7,13 @@ from .link_models.JobSubcontractor import JobSubcontractorLink
 
 
 class SubcontractorBase(SQLModel):
-    Organization: str
+    Organization: Optional[str] = Field(default=None)
     Name: Optional[str] = Field(default=None)
-    Email_Address: str
+    Email_Address: Optional[str] = Field(default=None)
     Phone_Number: Optional[str] = Field(default=None)
     Organization_Website: Optional[str] = Field(default=None)
     Address: Optional[str] = Field(default=None)
-    State: str
+    State: Optional[str] = Field(default=None)
     Score: Optional[float] = Field(default=None)
     Gqm_compliance: Optional[str] = Field(default=None)
     Gqm_best_service_training: Optional[str] = Field(default=None)
@@ -32,8 +32,9 @@ class Subcontractor(SubcontractorBase, table=True):
 
     # Relaciones foráneas 1:M
     technicians: List["Technician"] = Relationship(  # type: ignore
-        back_populates="subcontractor"
-    )
+        back_populates="subcontractor")
+    orders: List["Order"] = Relationship(  # type: ignore
+        back_populates="subcontractor")
 
 
 class SubcontractorCreate(SubcontractorBase):
@@ -42,7 +43,5 @@ class SubcontractorCreate(SubcontractorBase):
 
 
 class SubcontractorUpdate(SubcontractorBase):
+    pass
     # ID_Rol: Optional[str] = None
-    Organization: Optional[str] = Field(default=None)
-    Email_Address: Optional[str] = Field(default=None)
-    State: Optional[str] = Field(default=None)

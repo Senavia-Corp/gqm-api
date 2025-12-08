@@ -2,10 +2,10 @@ from ...convert_value_podio import convert_value_for_podio
 
 CLIENT_FIELD_MAP = {
     "Client_Community": "titulo",
-    "Parent_Mgmt_Company": "parent-mgmt-company",
-    "Parent_Company": "parent-company",
+    # "Parent_Mgmt_Company": "parent-mgmt-company",
     "Address": "address",
-    "Website": "website",
+    "Parent_Company": "parent-company",
+    "Website": "website-2",
     "Invoice_Collection": "invoicecollection",
     "Compliance_Partner": "compliance-partner",
     "Risk_Value": "risk-value",
