@@ -54,7 +54,7 @@ def list_jobs():
             jobs_data = [
                 # se agrega la relacion FK
                 add_relationships(
-                    job, ["client", "members", "multipliers", "attachments", "subcontractors.technicians"])
+                    job, ["client", "members", "multipliers", "attachments", "subcontractors.technicians", "subcontractors.orders"])
                 for job in results
             ]
 
