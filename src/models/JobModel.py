@@ -3,6 +3,7 @@
 
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
+from sqlalchemy import Column, TIMESTAMP, func
 from datetime import datetime
 from enum import Enum
 from .ClientModel import Client
@@ -79,6 +80,16 @@ class Job(JobBase, table=True):
     subcontractors: List[Subcontractor] = Relationship(
         back_populates="jobs",
         link_model=JobSubcontractorLink
+    )
+
+    # Timestamps automáticos
+    created_at: datetime = Field(
+        sa_column=Column(TIMESTAMP(timezone=True),
+                         server_default=func.now(), nullable=False)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(
+        ), onupdate=func.now(), nullable=False)
     )
 
 
