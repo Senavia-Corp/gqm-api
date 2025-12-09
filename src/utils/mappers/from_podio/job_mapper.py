@@ -86,7 +86,6 @@ def map_podio_item_to_job(item: dict, session=None) -> dict:
         "Date_assigned": parse_date(get_value(FIELD_ALIASES["Date_assigned"])),
         "Estimated_start_date": parse_date(get_value(FIELD_ALIASES["Estimated_start_date"])),
         "Gqm_target_sold_pricing": get_value(FIELD_ALIASES["Gqm_target_sold_pricing"]),
-        "Gqm_total_change_orders": get_value(FIELD_ALIASES["Gqm_total_change_orders"]),
     }
 
     return job_dict

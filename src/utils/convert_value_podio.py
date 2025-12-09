@@ -88,7 +88,7 @@ def convert_value_for_podio(field_id, value):
     field_type = PODIO_FIELD_TYPES.get(field_id, "text")
 
     if field_type == "app":
-        return {} if value is not None else None  # AGREGAR LO DEL PAYLOAD
+        return {"value": int(value)} if value else None
 
     if field_type == "text":
         return {"value": str(value)} if value is not None else None

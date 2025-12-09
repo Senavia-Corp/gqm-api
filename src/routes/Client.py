@@ -11,9 +11,9 @@ from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
-
 from ..podio.services.client_services import podio_clients_router
-
+import time
+from ..utils.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.client_mapper import map_client_to_podio
 
 # Blueprint de Client:
@@ -141,9 +141,12 @@ def create_client():
                 # Guardar el podio_item_id en PostgreSQL
                 if podio_response and podio_response.get("item_id"):
                     obj.podio_item_id = podio_response["item_id"]
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
 
                     save_with_retry(session, obj)
                     print(f"✅ Guardado Job en DB.")
+
                 else:
                     print("⚠️ No se pudo obtener los datos de Podio.")
 
@@ -213,6 +216,10 @@ def update_client(podio_item_id):
                 if obj.podio_item_id:
                     podio_service.update_item(
                         int(obj.podio_item_id), podio_fields)
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
                     print(
                         f"🧩 Client {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
                 else:
@@ -220,9 +227,11 @@ def update_client(podio_item_id):
                     podio_response = podio_service.create_item(podio_fields)
                     if podio_response and podio_response.get("item_id"):
                         obj.podio_item_id = podio_response["item_id"]
+
                         save_with_retry(session, obj)
                         print(
                             f"✅ Client {podio_item_id} creado en Podio (item_id={obj.podio_item_id})")
+
             except Exception as podio_error:
                 print(
                     f"⚠️ Error al actualizar/crear Client en Podio: {podio_error}")
@@ -281,6 +290,8 @@ def delete_client(podio_item_id):
             podio_service = podio_clients_router.get_service()
             try:
                 podio_service.delete_item(obj.podio_item_id)
+                # Anti-loop: registrar evento
+                register_event(obj.podio_item_id)
                 print(f"🗑️ Cliente eliminado en Podio: {obj.podio_item_id}")
             except Exception as podio_error:
                 print(f"⚠️ Error borrando cliente en Podio: {podio_error}")

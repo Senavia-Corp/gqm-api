@@ -12,9 +12,9 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
-
 from ..podio.services.job_services import podio_jobs_router
-
+import time
+from ..utils.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
 from ..utils.mappers.to_podio.ptl_mapper import map_job_to_podio_ptl
 from ..utils.mappers.to_podio.par_mapper import map_job_to_podio_par
@@ -42,10 +42,11 @@ def list_jobs():
                     joinedload(Job.multipliers),
                     joinedload(Job.attachments),
                     joinedload(Job.tasks),
+                    joinedload(Job.estimate_costs),
                     joinedload(Job.subcontractors).joinedload(
                         Subcontractor.technicians),
                     joinedload(Job.subcontractors).joinedload(
-                        Subcontractor.orders)
+                        Subcontractor.orders),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -56,7 +57,9 @@ def list_jobs():
             jobs_data = [
                 # se agrega la relacion FK
                 add_relationships(
-                    job, ["client", "members", "multipliers", "attachments", "subcontractors.technicians", "subcontractors.orders", "tasks"])
+                    job, ["client", "members", "multipliers",
+                          "attachments", "subcontractors.technicians",
+                          "subcontractors.orders", "tasks", "estimate_costs"])
                 for job in results
             ]
 
@@ -89,8 +92,12 @@ def get_job_by_id(id_job):
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
                     joinedload(Job.attachments),
-                    joinedload(Job.subcontractors)
-                    .joinedload(Subcontractor.technicians)
+                    joinedload(Job.tasks),
+                    joinedload(Job.estimate_costs),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.technicians),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.orders),
                 )
                 .where(Job.ID_Jobs == id_job)
             )
@@ -100,7 +107,9 @@ def get_job_by_id(id_job):
                 return jsonify({"error": "Job not found"}), 404
 
             job_data = add_relationships(
-                obj, ["client", "members", "multipliers", "attachments", "subcontractors.technicians"])
+                obj,  ["client", "members", "multipliers",
+                       "attachments", "subcontractors.technicians",
+                       "subcontractors.orders", "tasks", "estimate_costs"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)
@@ -394,13 +403,6 @@ def create_job():
                 if podio_response and podio_response.get("item_id"):
                     obj.podio_item_id = podio_response["item_id"]
 
-                    # Avisar al webhook que no repita llamado.
-                    import time
-                    from .Webhook_bp import recent_created_items
-                    recent_created_items[obj.podio_item_id] = time.time()
-                    print(
-                        f"⛔ Registrado item creado por la app: {obj.podio_item_id}")
-
                     # Buscar y guardar el ID_Jobs
                     item = podio_service.get_item(obj.podio_item_id)
                     formatted_id = item.get("app_item_id_formatted")
@@ -409,6 +411,9 @@ def create_job():
                     else:
                         raise ValueError(
                             "No se pudo obtener app_item_id_formatted de Podio")
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
 
                     save_with_retry(session, obj)
 
@@ -501,19 +506,12 @@ def update_job(podio_item_id):
                 if obj.podio_item_id:
                     podio_service.update_item(
                         int(obj.podio_item_id), podio_fields)
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
+                    save_with_retry(session, obj)
                     print(
                         f"🧩 Job {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
-
-                    # Avisar al webhook que no repita llamado.
-                    import time
-                    import src.routes.Webhook_bp as webhook_state
-
-                    item_id_int = int(obj.podio_item_id)
-
-                    webhook_state.recent_created_items[item_id_int] = time.time(
-                    )
-                    print(
-                        f"⛔ Registrado update creado por la app: {item_id_int}")
 
                 else:
                     print(
@@ -573,17 +571,12 @@ def delete_job(podio_item_id):
 
             podio_service = podio_jobs_router.get_service(obj.Job_type)
 
-            # Avisar al webhook que no repita llamado.
-            import time
-            import src.routes.Webhook_bp as webhook_state
-
-            item_id_int = int(obj.podio_item_id)
-            webhook_state.recent_created_items[item_id_int] = time.time()
-            print(f"⛔ Registrado delete creado por la app: {item_id_int}")
-
             # Eliminar también en Podio
             try:
                 podio_service.delete_item(obj.podio_item_id)
+                # Anti-loop: registrar evento
+                register_event(obj.podio_item_id)
+
             except Exception as e:
                 print("⚠️ Error borrando en Podio:", e)
 

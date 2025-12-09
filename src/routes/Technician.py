@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.TechnicianModel import Technician, TechnicianCreate, TechnicianUpdate
+from ..models.SubcontractorModel import Subcontractor
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -30,7 +31,8 @@ def list_technicians():
             statement = (
                 select(Technician)
                 .options(
-                    joinedload(Technician.subcontractor),
+                    joinedload(Technician.subcontractor).joinedload(
+                        Subcontractor.jobs),
                     joinedload(Technician.tasks)
                 )
             )
@@ -42,7 +44,8 @@ def list_technicians():
             technician_data = []
 
             for tech in results:
-                data = add_relationships(tech, ["subcontractor", "tasks"])
+                data = add_relationships(
+                    tech, ["subcontractor", "tasks", "subcontractor.jobs"])
                 technician_data.append(data)
 
             return technician_data, 200
@@ -70,7 +73,8 @@ def get_tech_by_id(id_technician):
             statement = (
                 select(Technician)
                 .options(
-                    joinedload(Technician.subcontractor),
+                    joinedload(Technician.subcontractor).joinedload(
+                        Subcontractor.jobs),
                     joinedload(Technician.tasks)
                 )
                 .where(Technician.ID_Technician == id_technician)
@@ -83,7 +87,7 @@ def get_tech_by_id(id_technician):
 
             # Construir JSON limpio con la info del cliente
             technician_data = add_relationships(
-                obj, ["subcontractor", "tasks"])
+                obj, ["subcontractor", "tasks", "subcontractor.jobs"])
 
             return jsonify(technician_data), 200
 

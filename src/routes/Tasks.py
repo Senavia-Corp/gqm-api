@@ -1,3 +1,4 @@
+import json
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
@@ -10,9 +11,9 @@ from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
-
 from ..podio.services.tasks_services import podio_tasks_router
-
+import time
+from ..utils.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.tasks_mapper import map_task_to_podio
 
 
@@ -127,7 +128,10 @@ def create_tasks():
             save_with_retry(session, obj)
 
             # Mapear a Podio
-            podio_fields = map_task_to_podio(obj)
+            podio_fields = map_task_to_podio(obj, session=session)
+            print("🚀 Payload enviado a Podio:")
+            print(json.dumps(podio_fields, indent=4, ensure_ascii=False))
+
             podio_service = podio_tasks_router.get_service()
 
             try:
@@ -136,23 +140,12 @@ def create_tasks():
                 # Guardar el podio_item_id en PostgreSQL
                 if podio_response and podio_response.get("item_id"):
                     obj.podio_item_id = podio_response["item_id"]
-
-                    # Extraer el app_item_id si está disponible
-                    app_item_id = podio_response.get("app_item_id")
-                    if not app_item_id and "values" in podio_response:
-                        # Algunas veces Podio devuelve app_item_id dentro de values[0].app
-                        try:
-                            app_item_id = podio_response["values"][0]["app"]["app_item_id"]
-                        except (KeyError, IndexError, TypeError):
-                            app_item_id = None
-
-                    if app_item_id:
-                        obj.podio_app_id = app_item_id
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
 
                     save_with_retry(session, obj)
-                    print(f"✅ Guardado Job en DB:")
-                    print(f"   - podio_item_id: {obj.podio_item_id}")
-                    print(f"   - podio_app_id:  {obj.podio_app_id}")
+                    print(f"✅ Job guardado en DB: {obj.podio_item_id}")
+
                 else:
                     print("⚠️ No se pudo obtener los datos de Podio.")
 
@@ -193,7 +186,6 @@ def create_tasks():
 
 
 # Ruta para actualizar una tarea
-
 @tasks_bp.patch("/<podio_item_id>")
 def update_tasks(podio_item_id):
     session = None  # Para que funcione except
@@ -223,16 +215,23 @@ def update_tasks(podio_item_id):
                 if obj.podio_item_id:
                     podio_service.update_item(
                         int(obj.podio_item_id), podio_fields)
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
                     print(
                         f"🧩 Client {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
+
                 else:
                     # Si no tiene podio_item_id, crearlo en Podio
                     podio_response = podio_service.create_item(podio_fields)
                     if podio_response and podio_response.get("item_id"):
                         obj.podio_item_id = podio_response["item_id"]
+
                         save_with_retry(session, obj)
                         print(
                             f"✅ Client {podio_item_id} creado en Podio (item_id={obj.podio_item_id})")
+
             except Exception as podio_error:
                 print(
                     f"⚠️ Error al actualizar/crear Client en Podio: {podio_error}")
@@ -292,14 +291,16 @@ def delete_tasks(podio_item_id):
             podio_service = podio_tasks_router.get_service()
             try:
                 podio_service.delete_item(obj.podio_item_id)
-                print(f"🗑️ Cliente eliminado en Podio: {obj.podio_item_id}")
+                # Anti-loop: registrar evento
+                register_event(obj.podio_item_id)
+                print(f"🗑️ Tarea eliminado en Podio: {obj.podio_item_id}")
             except Exception as podio_error:
-                print(f"⚠️ Error borrando cliente en Podio: {podio_error}")
+                print(f"⚠️ Error borrando tarea en Podio: {podio_error}")
 
             # Eliminar en DB
             delete_with_retry(session, obj)
 
-            return jsonify({"message": f"Client {podio_item_id} eliminado correctamente"}), 200
+            return jsonify({"message": f"Task {podio_item_id} eliminada correctamente"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
     except IntegrityError as e:  # En caso de borrar una tarea que tiene productos asociados con Foreign Key

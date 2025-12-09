@@ -47,7 +47,7 @@ def map_podio_item_to_task(item: dict, session) -> dict:
         "Name": get_value("titulo"),
         "Task_description": get_value("description"),
         "Task_status": get_value("status"),
-        "Designation_date": parse_date(get_value("deadline")),
+        "Delivery_date": parse_date(get_value("deadline")),
         "ID_Jobs": get_related_job_id(session),
     }
 

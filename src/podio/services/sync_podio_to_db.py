@@ -77,11 +77,28 @@ def sync_jobs():
                                       mapped["podio_item_id"])
                 ).first()
 
-                if existing:
-                    # 2. Actualizar
-                    for key, value in mapped.items():
-                        setattr(existing, key, value)
-                    print(f"🟡 Actualizado: {existing.Project_name}")
+                if existing:  # 2. Buscar si necesita cambios o queda igual.
+                    changes = {}
+                    for field, new_value in mapped.items():
+                        old_value = getattr(existing, field, None)
+
+                        # Detectar cambios reales
+                        if old_value != new_value and new_value is not None:
+                            changes[field] = new_value
+
+                    if not changes:
+                        print(
+                            f"⚪ Job {existing.ID_Jobs} ya existe — sin cambios")
+                        continue
+
+                    # Aplicar cambios
+                    for field, value in changes.items():
+                        setattr(existing, field, value)
+
+                    print(
+                        f"🟡 Actualizado Job {existing.ID_Jobs} → Campos cambiados: {list(changes.keys())}"
+                    )
+                    continue
 
                 else:
                     # 3. Crear
@@ -124,20 +141,6 @@ def sync_clients():
             mapped = map_podio_item_to_client(item)
 
             # ------------------------------------------------
-            # Generar ID interno si no existe
-            # ------------------------------------------------
-            id_field = "ID_Client"
-            Model = Client
-
-            if not mapped.get(id_field):
-                prefix = "CLI"
-                new_id = generate_custom_id(session, Model, id_field, prefix)
-                mapped[id_field] = str(new_id)
-                print(f"🆔 ID generado para Client: {mapped[id_field]}")
-            else:
-                mapped[id_field] = str(mapped[id_field])
-
-            # ------------------------------------------------
             # Buscar si ya existe por podio_item_id
             # ------------------------------------------------
             existing = session.exec(
@@ -145,9 +148,41 @@ def sync_clients():
             ).first()
 
             if existing:
-                pass
-            else:
-                # Crear nuevo registro
+
+                changes = {}
+                for field, new_value in mapped.items():
+                    old_value = getattr(existing, field, None)
+                    if old_value != new_value and new_value is not None:
+                        changes[field] = new_value
+                if not changes:
+                    print(
+                        f"⚪ Item {existing.ID_Client} ya existe — sin cambios")
+                    continue
+
+                # Aplicar cambios
+                for field, value in changes.items():
+                    setattr(existing, field, value)
+                print(
+                    f"🟡 Actualizado {existing.ID_Client} → Campos cambiados: {list(changes.keys())}")
+
+                continue
+
+            else:  # Crear nuevo registro
+                # ------------------------------------------------
+                # Generar ID interno si no existe
+                # ------------------------------------------------
+                id_field = "ID_Client"
+                Model = Client
+
+                if not mapped.get(id_field):
+                    prefix = "CLI"
+                    new_id = generate_custom_id(
+                        session, Model, id_field, prefix)
+                    mapped[id_field] = str(new_id)
+                    print(f"🆔 ID generado para Client: {mapped[id_field]}")
+                else:
+                    mapped[id_field] = str(mapped[id_field])
+
                 try:
                     # También guardamos el podio_item_id
                     mapped["podio_item_id"] = podio_item_id
@@ -198,20 +233,6 @@ def sync_tasks():
             print(f"Related Job: {job_ref}")
 
             # ------------------------------------------------
-            # Generar ID interno si no existe
-            # ------------------------------------------------
-            id_field = "ID_Tasks"  # Ajusta según tu modelo
-            Model = Tasks
-
-            if not mapped.get(id_field):
-                prefix = "TASK"
-                new_id = generate_custom_id(session, Model, id_field, prefix)
-                mapped[id_field] = str(new_id)
-                print(f"🆔 ID generado para Task: {mapped[id_field]}")
-            else:
-                mapped[id_field] = str(mapped[id_field])
-
-            # ------------------------------------------------
             # Buscar si ya existe por podio_item_id
             # ------------------------------------------------
             existing = session.exec(
@@ -219,9 +240,40 @@ def sync_tasks():
             ).first()
 
             if existing:
-                pass
-            else:
-                # Crear nuevo registro
+                changes = {}
+                for field, new_value in mapped.items():
+                    old_value = getattr(existing, field, None)
+                    if old_value != new_value and new_value is not None:
+                        changes[field] = new_value
+                if not changes:
+                    print(
+                        f"⚪ Item {existing.ID_Tasks} ya existe — sin cambios")
+                    continue
+
+                # Aplicar cambios
+                for field, value in changes.items():
+                    setattr(existing, field, value)
+                print(
+                    f"🟡 Actualizado {existing.ID_Tasks} → Campos cambiados: {list(changes.keys())}")
+
+                continue
+
+            else:  # Crear nuevo registro
+                # ------------------------------------------------
+                # Generar ID interno si no existe
+                # ------------------------------------------------
+                id_field = "ID_Tasks"  # Ajusta según tu modelo
+                Model = Tasks
+
+                if not mapped.get(id_field):
+                    prefix = "TASK"
+                    new_id = generate_custom_id(
+                        session, Model, id_field, prefix)
+                    mapped[id_field] = str(new_id)
+                    print(f"🆔 ID generado para Task: {mapped[id_field]}")
+                else:
+                    mapped[id_field] = str(mapped[id_field])
+
                 try:
                     mapped["podio_item_id"] = podio_item_id
                     new_task = Tasks(**mapped)

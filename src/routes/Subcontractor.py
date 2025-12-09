@@ -32,6 +32,7 @@ def list_subcontractors():
                     joinedload(Subcontractor.technicians)
                     .joinedload(Technician.tasks),
                     joinedload(Subcontractor.orders),
+                    joinedload(Subcontractor.jobs),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -41,7 +42,7 @@ def list_subcontractors():
 
             subcontr_data = [
                 add_relationships(
-                    subcontractor, ["technicians.tasks", "orders"])
+                    subcontractor, ["technicians.tasks", "orders", "jobs"])
                 for subcontractor in results
             ]
 
@@ -74,6 +75,7 @@ def get_subcontractor(id_subcontractor):
                     joinedload(Subcontractor.technicians)
                     .joinedload(Technician.tasks),
                     joinedload(Subcontractor.orders),
+                    joinedload(Subcontractor.jobs),
                 )
                 .where(Subcontractor.ID_Subcontractor == id_subcontractor)
             )
@@ -84,7 +86,7 @@ def get_subcontractor(id_subcontractor):
                 return jsonify({"error": "Subcontractor not found"}), 404
 
             subcontr_data = add_relationships(
-                obj, ["technicians.tasks", "orders"])
+                obj, ["technicians.tasks", "orders", "jobs"])
 
             return jsonify(subcontr_data), 200
 
