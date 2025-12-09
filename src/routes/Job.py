@@ -41,6 +41,7 @@ def list_jobs():
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
                     joinedload(Job.attachments),
+                    joinedload(Job.tasks),
                     joinedload(Job.subcontractors).joinedload(
                         Subcontractor.technicians),
                     joinedload(Job.subcontractors).joinedload(
@@ -55,7 +56,7 @@ def list_jobs():
             jobs_data = [
                 # se agrega la relacion FK
                 add_relationships(
-                    job, ["client", "members", "multipliers", "attachments", "subcontractors.technicians", "subcontractors.orders"])
+                    job, ["client", "members", "multipliers", "attachments", "subcontractors.technicians", "subcontractors.orders", "tasks"])
                 for job in results
             ]
 
