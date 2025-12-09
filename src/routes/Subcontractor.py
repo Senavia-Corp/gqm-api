@@ -294,9 +294,8 @@ def create_subcontractor():
             "code": "internal_error"
         }), 500
 
+
 # Ruta para actualizar un subcontratista
-
-
 @subcontractor_bp.patch("/<id_subcontractor>")
 def update_subcontractor(id_subcontractor):
     session = None  # Para que funcione except
@@ -354,9 +353,8 @@ def update_subcontractor(id_subcontractor):
             "code": "internal_error"
         }), 500
 
+
 # Ruta para eliminar un subcontratista
-
-
 @subcontractor_bp.delete("/<id_subcontractor>")
 def delete_subcontractor(id_subcontractor):
     session = None

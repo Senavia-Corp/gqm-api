@@ -9,7 +9,6 @@ TASKS_FIELD_MAP = {
     "Task_description": "description",
     "Task_status": "status",
     "Delivery_date": "deadline",
-    # REVISAR RELATED PROJECT (JOB)!!!!
 }
 
 

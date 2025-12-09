@@ -380,11 +380,11 @@ def create_job():
         with get_session() as session:
             # Mapeador segun Job type
             if obj.Job_type == "QID":
-                podio_fields = map_job_to_podio_qid(obj)
+                podio_fields = map_job_to_podio_qid(obj, session=session)
             elif obj.Job_type == "PTL":
-                podio_fields = map_job_to_podio_ptl(obj)
+                podio_fields = map_job_to_podio_ptl(obj, session=session)
             elif obj.Job_type == "PAR":
-                podio_fields = map_job_to_podio_par(obj)
+                podio_fields = map_job_to_podio_par(obj, session=session)
             else:
                 return jsonify({"error": f"Job_type inválido: {obj.Job_type}"}), 400
 
@@ -491,11 +491,11 @@ def update_job(podio_item_id):
 
             # Mapeador segun Job type
             if obj.Job_type == "QID":
-                podio_fields = map_job_to_podio_qid(obj)
+                podio_fields = map_job_to_podio_qid(obj, session=session)
             elif obj.Job_type == "PTL":
-                podio_fields = map_job_to_podio_ptl(obj)
+                podio_fields = map_job_to_podio_ptl(obj, session=session)
             elif obj.Job_type == "PAR":
-                podio_fields = map_job_to_podio_par(obj)
+                podio_fields = map_job_to_podio_par(obj, session=session)
             else:
                 return jsonify({"error": f"Job_type inválido: {obj.Job_type}"}), 400
 

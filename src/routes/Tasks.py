@@ -220,7 +220,7 @@ def update_tasks(podio_item_id):
                     register_event(obj.podio_item_id)
 
                     print(
-                        f"🧩 Client {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
+                        f"🧩 Task {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
 
                 else:
                     # Si no tiene podio_item_id, crearlo en Podio
@@ -230,11 +230,11 @@ def update_tasks(podio_item_id):
 
                         save_with_retry(session, obj)
                         print(
-                            f"✅ Client {podio_item_id} creado en Podio (item_id={obj.podio_item_id})")
+                            f"✅ Task {podio_item_id} creado en Podio (item_id={obj.podio_item_id})")
 
             except Exception as podio_error:
                 print(
-                    f"⚠️ Error al actualizar/crear Client en Podio: {podio_error}")
+                    f"⚠️ Error al actualizar/crear Task en Podio: {podio_error}")
 
             return jsonify(obj.model_dump()), 200
 

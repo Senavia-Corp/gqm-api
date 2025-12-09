@@ -165,22 +165,19 @@ def create_order():
         }), 500
 
 
-'''
 # Ruta para actualizar una order
-@order_bp.patch("/<podio_item_id>")
-def update_client(podio_item_id):
+@order_bp.patch("/<id_order>")
+def update_order(id_order):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.exec(
-                select(Client).where(Client.podio_item_id == podio_item_id)
-            ).first()
+            obj = session.get(Order, id_order)
             if not obj:
-                return jsonify({"error": "Client not found"}), 404
+                return jsonify({"error": "Order not found"}), 404
 
-            update_client = ClientUpdate.model_validate(data)
-            update_data_dict = update_client.model_dump(
+            update_order = OrderUpdate.model_validate(data)
+            update_data_dict = update_order.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
@@ -189,47 +186,27 @@ def update_client(podio_item_id):
             save_with_retry(session, obj)
 
             # Mapear a Podio
-            podio_service = podio_clients_router.get_service()
-            podio_fields = map_client_to_podio(obj)
-
-            try:
-                if obj.podio_item_id:
-                    podio_service.update_item(
-                        int(obj.podio_item_id), podio_fields)
-                    print(
-                        f"🧩 Client {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
-                else:
-                    # Si no tiene podio_item_id, crearlo en Podio
-                    podio_response = podio_service.create_item(podio_fields)
-                    if podio_response and podio_response.get("item_id"):
-                        obj.podio_item_id = podio_response["item_id"]
-                        save_with_retry(session, obj)
-                        print(
-                            f"✅ Client {podio_item_id} creado en Podio (item_id={obj.podio_item_id})")
-            except Exception as podio_error:
-                print(
-                    f"⚠️ Error al actualizar/crear Client en Podio: {podio_error}")
 
             return jsonify(obj.model_dump()), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
-            "detail": "Error de validación: Datos de cliente inválidos para la actualización.",
+            "detail": "Error de validación: Datos de order inválidos para la actualización.",
             "errors": e.errors()
         }), 400
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un cliente con estos valores únicos o faltan datos requeridos."
+        detail = "Error de integridad: Ya existe un order con estos valores únicos o faltan datos requeridos."
         print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al actualizar cliente: {db_error}")
+        print(f"Error de base de datos al actualizar order: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -241,50 +218,42 @@ def update_client(podio_item_id):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al actualizar cliente: {e}")
+        print(f"Error inesperado al actualizar order: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para eliminar un cliente
-@order_bp.delete("/<podio_item_id>")
-def delete_client(podio_item_id):
+# Ruta para eliminar una order
+@order_bp.delete("/<id_order>")
+def delete_order(id_order):
     session = None
     try:
         with get_session() as session:
-            obj = session.exec(
-                select(Client).where(Client.podio_item_id == podio_item_id)
-            ).first()
+            obj = session.get(Order, id_order)
             if not obj:
-                return jsonify({"error": "Client not found"}), 404
+                return jsonify({"error": "Order not found"}), 404
 
             # Eliminar en Podio
-            podio_service = podio_clients_router.get_service()
-            try:
-                podio_service.delete_item(obj.podio_item_id)
-                print(f"🗑️ Cliente eliminado en Podio: {obj.podio_item_id}")
-            except Exception as podio_error:
-                print(f"⚠️ Error borrando cliente en Podio: {podio_error}")
 
             # Eliminar en DB
             delete_with_retry(session, obj)
 
-            return jsonify({"message": f"Client {podio_item_id} eliminado correctamente"}), 200
+            return jsonify({"message": f"Deleted Order {id_order}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
+    except IntegrityError as e:  # En caso de borrar una order que tiene productos asociados con Foreign Key
         if session:
             session.rollback()
-        detail = "Error de integridad: No se puede eliminar el cliente porque tiene registros relacionados."
+        detail = "Error de integridad: No se puede eliminar el order porque tiene registros relacionados."
         print(f"Error de integridad (DELETE): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al eliminar cliente: {db_error}")
+        print(f"Error de base de datos al eliminar order: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -296,10 +265,8 @@ def delete_client(podio_item_id):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al eliminar cliente: {e}")
+        print(f"Error inesperado al eliminar order: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
-
-'''

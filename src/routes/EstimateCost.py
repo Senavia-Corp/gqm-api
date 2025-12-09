@@ -107,7 +107,7 @@ def get_estimates(id_estimate):
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear una order
+# Ruta para crear un estimate cost
 @estimate_bp.post("/")
 def create_estimate():
     try:
@@ -161,5 +161,113 @@ def create_estimate():
         print(f"Unexpected error during estimate cost creation: {e}")
         return jsonify({
             "detail": "An unexpected and uncontrolled error occurred on the server.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para actualizar un estimate cost
+@estimate_bp.patch("/<id_estimate>")
+def update_estimate(id_estimate):
+    session = None  # Para que funcione except
+    try:
+        data = request.get_json()
+        with get_session() as session:
+            obj = session.get(EstimateCost, id_estimate)
+            if not obj:
+                return jsonify({"error": "Estimate Cost not found"}), 404
+
+            update_estimate = EstimateUpdate.model_validate(data)
+            update_data_dict = update_estimate.model_dump(
+                exclude_unset=True)  # Crea dict limpio
+
+            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+                setattr(obj, key, value)
+
+            save_with_retry(session, obj)
+
+            # Mapear a Podio
+
+            return jsonify(obj.model_dump()), 200
+
+    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
+    except ValidationError as e:
+        return jsonify({
+            "detail": "Error de validación: Datos de estimate cost inválidos para la actualización.",
+            "errors": e.errors()
+        }), 400
+
+    except IntegrityError as e:
+        if session:
+            session.rollback()
+        detail = "Error de integridad: Ya existe un estimate cost con estos valores únicos o faltan datos requeridos."
+        print(f"Error de integridad (PATCH): {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:
+        if session:
+            session.rollback()
+        print(
+            f"Error de base de datos al actualizar estimate cost: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"Error inesperado al actualizar estimate cost: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para eliminar un estimate cost
+@estimate_bp.delete("/<id_estimate>")
+def delete_estimate(id_estimate):
+    session = None
+    try:
+        with get_session() as session:
+            obj = session.get(EstimateCost, id_estimate)
+            if not obj:
+                return jsonify({"error": "Estimate Cost not found"}), 404
+
+            # Eliminar en Podio
+
+            # Eliminar en DB
+            delete_with_retry(session, obj)
+
+            return jsonify({"message": f"Deleted Estimate Cost {id_estimate}"}), 200
+
+    # Exceptions de integridad, infraestructura e inesperado del servidor
+    except IntegrityError as e:  # En caso de borrar un estimate cost que tiene productos asociados con Foreign Key
+        if session:
+            session.rollback()
+        detail = "Error de integridad: No se puede eliminar el estimate cost porque tiene registros relacionados."
+        print(f"Error de integridad (DELETE): {e}")
+        return jsonify({"detail": detail}), 409
+
+    except SQLAlchemyError as db_error:
+        if session:
+            session.rollback()
+        print(f"Error de base de datos al eliminar estimate cost: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al interactuar con la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        if session:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"Error inesperado al eliminar estimate cost: {e}")
+        return jsonify({
+            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500

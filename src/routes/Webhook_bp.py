@@ -125,7 +125,7 @@ def podio_webhook(app_type):
             # -----------------------------
             if event_type == "item.create":
                 existing = session.exec(select(Model).where(
-                    getattr(Model, id_field) == item_unique_id)).first()
+                    getattr(Model, "podio_item_id") == str(item_id))).first()
                 if existing:
                     print(
                         f"⚠️ {Model.__name__} {item_unique_id} ya existe, omitido.")

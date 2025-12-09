@@ -4,7 +4,6 @@ from src.models.ClientModel import Client
 
 QID_FIELD_MAP = {
     # ----- De Jobs
-    # REVISAR CLIENT
     "Project_location": "project-location-2",
     "Job_status": "job-status-2",
     "Project_name": "project-name-2",
@@ -38,13 +37,19 @@ def map_job_to_podio_qid(job_obj, session=None):
         if value:
             payload[podio_field] = convert_value_for_podio(podio_field, value)
 
-    # --- Cliente relacionado ---
-    if session and job_obj.ID_Client:
-        client = session.get(Client, job_obj.ID_Client)
+    # Relación con Client (M:1)
+    client_internal_id = job_obj.ID_Client
+
+    if client_internal_id and session:
+        client = session.exec(
+            select(Client).where(Client.ID_Client == client_internal_id)
+        ).first()
+
         if client and client.podio_item_id:
-            payload["client-2"] = {
-                "value": {"item_id": int(client.podio_item_id)}
-            }
+            payload["client-2"] = convert_value_for_podio(
+                "client-2",
+                client.podio_item_id
+            )
 
     # Para debug
     print("🚀 Payload final para Podio:", payload)
