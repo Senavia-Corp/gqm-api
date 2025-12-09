@@ -41,9 +41,10 @@ def list_jobs():
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
                     joinedload(Job.attachments),
-                    joinedload(Job.subcontractors)
-                    .joinedload(Subcontractor.technicians)
-                    .joinedload(Subcontractor.orders)
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.technicians),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.orders)
                 )
             )
             results = session.exec(statement).unique().all()
