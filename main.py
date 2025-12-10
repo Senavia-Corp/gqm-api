@@ -20,6 +20,8 @@ from src.routes.Attachments import attachments_bp
 from src.routes.PropertyManager import property_manager_bp
 from src.routes.PropertyMgmtCo import property_mgmt_co_bp
 from src.routes.Links.ClientPrManager import client_pr_manager_bp
+from src.routes.EstimateCost import estimate_bp
+from src.routes.Order import order_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion masiva de Podio a Postgre:
@@ -62,6 +64,8 @@ def create_app():
     app.register_blueprint(property_manager_bp)
     app.register_blueprint(property_mgmt_co_bp)
     app.register_blueprint(client_pr_manager_bp)
+    app.register_blueprint(estimate_bp)
+    app.register_blueprint(order_bp)
 
     # Ruta para login
     app.register_blueprint(auth_bp)
