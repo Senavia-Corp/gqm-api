@@ -15,8 +15,6 @@ class TasksBase(SQLModel):
     Priority: Optional[str] = Field(default=None)
     Name: Optional[str] = Field(default=None)
 
-    job_podio_id: Optional[str] = Field(default=None)
-
 
 class Tasks(TasksBase, table=True):
     __tablename__ = "tasks"

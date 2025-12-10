@@ -42,8 +42,6 @@ class JobBase(SQLModel):
     Gqm_final_percentage: Optional[float] = Field(default=None)
     Gqm_total_change_orders: Optional[float] = Field(default=None)
 
-    client_podio_id: Optional[str] = Field(default=None)
-
 
 class Job(JobBase, table=True):
     __tablename__ = "jobs"
