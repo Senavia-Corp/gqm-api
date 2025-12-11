@@ -1,8 +1,10 @@
 # ======================================== Código para la Base de Datos en Postgresql =================================
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
+import json
 from ..database.db_sqlmodel import get_session
 from ..models.OrderModel import Order, OrderCreate, OrderUpdate
+from ..models.JobModel import Job
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
@@ -11,12 +13,8 @@ from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
-
 from ..podio.services.job_services import podio_jobs_router
-
-from ..utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
-from ..utils.mappers.to_podio.ptl_mapper import map_job_to_podio_ptl
-from ..utils.mappers.to_podio.par_mapper import map_job_to_podio_par
+from ..utils.mappers.to_podio.order_mapper import map_order_to_podio, map_order_patch_to_podio, map_order_delete_to_podio
 
 # Blueprint de Order:
 order_bp = Blueprint("order_blueprint", __name__, url_prefix="/order")
@@ -130,7 +128,31 @@ def create_order():
 
             save_with_retry(session, obj)
 
-            # Mapear a Podio
+            # =========== MAPEAR A PODIO
+            # 1. Encontrar el Job type para sber que mapeo usar
+            job = session.exec(
+                select(Job).where(Job.podio_item_id == obj.job_podio_id)
+            ).first()
+
+            if not job:
+                print("⚠️ Job no encontrado")
+                return jsonify(obj.model_dump()), 201
+
+            # 2. Crear payload usando el mapper
+            payload = map_order_to_podio(obj, job.Job_type, session)
+            save_with_retry(session, obj)
+
+            # 3. Seleccionar service según job type
+            podio_service = podio_jobs_router.get_service(job.Job_type)
+
+            # 4. Enviar Formula a Podio
+            print("🚀 Payload que se enviará a Podio:")
+            print(json.dumps(payload, indent=4))
+
+            try:
+                podio_service.update_item(obj.job_podio_id, payload)
+            except Exception as podio_err:
+                print(f"❗ Error enviando Order a Podio: {podio_err}")
 
             return jsonify(obj.model_dump()), 201
 
@@ -185,7 +207,21 @@ def update_order(id_order):
 
             save_with_retry(session, obj)
 
-            # Mapear a Podio
+            # =========== MAPEAR A PODIO
+            # 1. Crear payload para patch
+            payload = map_order_patch_to_podio(obj)
+
+            # 2. Encontrar job type para definir service
+            job = session.exec(
+                select(Job).where(Job.podio_item_id == obj.job_podio_id)
+            ).first()
+
+            if job:
+                podio_service = podio_jobs_router.get_service(job.Job_type)
+                try:
+                    podio_service.update_item(obj.job_podio_id, payload)
+                except Exception as podio_err:
+                    print("❗ Error enviando PATCH a Podio:", podio_err)
 
             return jsonify(obj.model_dump()), 200
 
@@ -236,6 +272,19 @@ def delete_order(id_order):
                 return jsonify({"error": "Order not found"}), 404
 
             # Eliminar en Podio
+            try:
+                payload = map_order_delete_to_podio(obj)
+                print(payload)
+
+                job = session.exec(
+                    select(Job).where(Job.podio_item_id == obj.job_podio_id)
+                ).first()
+
+                if job:
+                    podio_service = podio_jobs_router.get_service(job.Job_type)
+                    podio_service.update_item(obj.job_podio_id, payload)
+            except Exception as podio_err:
+                print("❗ Error eliminando campo TECH en Podio:", podio_err)
 
             # Eliminar en DB
             delete_with_retry(session, obj)

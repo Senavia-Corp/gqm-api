@@ -4,7 +4,6 @@ from src.models.ClientModel import Client
 
 PAR_FIELD_MAP = {
     # ----- De Jobs
-    # REVISAR CLIENT!!!!
     "Estimated_start_date": "week-assigned",
     "Job_status": "job-status",
     "Gqm_target_sold_pricing": "gqm-target-sold-par",

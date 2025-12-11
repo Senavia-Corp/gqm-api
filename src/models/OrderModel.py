@@ -12,6 +12,8 @@ class OrderBase(SQLModel):
     Adj_formula: Optional[float] = Field(default=None)
 
     job_podio_id: Optional[str] = Field(default=None)
+    # Para guardar el external id del campo TECH Formula de Podio
+    tech_field: Optional[str] = Field(default=None)
 
 
 class Order(OrderBase, table=True):

@@ -4,7 +4,6 @@ from src.models.ClientModel import Client
 
 PTL_FIELD_MAP = {
     # ----- De Jobs
-    # REVISAR CLIENT!!!!
     "Project_location": "location",
     "Job_status": "categoria",
     "Estimated_start_date": "estimated-start-date",
