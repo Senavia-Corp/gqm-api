@@ -9,6 +9,8 @@ from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 
 
 # Blueprint de Subcontractor
@@ -33,6 +35,7 @@ def list_subcontractors():
                     .joinedload(Technician.tasks),
                     joinedload(Subcontractor.orders),
                     joinedload(Subcontractor.jobs),
+                    joinedload(Subcontractor.attachments),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -42,7 +45,7 @@ def list_subcontractors():
 
             subcontr_data = [
                 add_relationships(
-                    subcontractor, ["technicians.tasks", "orders", "jobs"])
+                    subcontractor, ["technicians.tasks", "orders", "jobs", "attachments"])
                 for subcontractor in results
             ]
 
@@ -76,6 +79,7 @@ def get_subcontractor(id_subcontractor):
                     .joinedload(Technician.tasks),
                     joinedload(Subcontractor.orders),
                     joinedload(Subcontractor.jobs),
+                    joinedload(Subcontractor.attachments),
                 )
                 .where(Subcontractor.ID_Subcontractor == id_subcontractor)
             )
@@ -86,7 +90,7 @@ def get_subcontractor(id_subcontractor):
                 return jsonify({"error": "Subcontractor not found"}), 404
 
             subcontr_data = add_relationships(
-                obj, ["technicians.tasks", "orders", "jobs"])
+                obj, ["technicians.tasks", "orders", "jobs", "attachments"])
 
             return jsonify(subcontr_data), 200
 
@@ -116,8 +120,11 @@ def list_subcontractor_by_state(state):
             statement = (
                 select(Subcontractor)
                 .options(
-                    joinedload(Subcontractor.technicians),
+                    joinedload(Subcontractor.technicians)
+                    .joinedload(Technician.tasks),
                     joinedload(Subcontractor.orders),
+                    joinedload(Subcontractor.jobs),
+                    joinedload(Subcontractor.attachments),
                 )
                 .where(Subcontractor.State == state)
             )
@@ -127,7 +134,8 @@ def list_subcontractor_by_state(state):
                 return [], 404
 
             subcontr_data = [
-                add_relationships(subcontr, ["technicians"])
+                add_relationships(
+                    subcontr, ["technicians.tasks", "orders", "jobs", "attachments"])
                 for subcontr in results
             ]
 
@@ -159,8 +167,11 @@ def list_subcontractor_by_gqm_compliance(compliance):
             statement = (
                 select(Subcontractor)
                 .options(
-                    joinedload(Subcontractor.technicians),
+                    joinedload(Subcontractor.technicians)
+                    .joinedload(Technician.tasks),
                     joinedload(Subcontractor.orders),
+                    joinedload(Subcontractor.jobs),
+                    joinedload(Subcontractor.attachments),
                 )
                 .where(Subcontractor.Gqm_compliance == compliance)
             )
@@ -170,7 +181,8 @@ def list_subcontractor_by_gqm_compliance(compliance):
                 return [], 404
 
             subcontr_data = [
-                add_relationships(subcontr, ["technicians"])
+                add_relationships(
+                    subcontr, ["technicians.tasks", "orders", "jobs", "attachments"])
                 for subcontr in results
             ]
 
@@ -204,8 +216,10 @@ def list_subcontractor_by_gqm_bts(bts):
                 select(Subcontractor)
                 .options(
                     joinedload(Subcontractor.technicians)
-                    .joinedload(Technician.technicians),
+                    .joinedload(Technician.tasks),
                     joinedload(Subcontractor.orders),
+                    joinedload(Subcontractor.jobs),
+                    joinedload(Subcontractor.attachments),
                 )
                 .where(Subcontractor.Gqm_best_service_training == bts)
             )
@@ -215,7 +229,8 @@ def list_subcontractor_by_gqm_bts(bts):
                 return [], 404
 
             subcontr_data = [
-                add_relationships(subcontr, ["technicians"])
+                add_relationships(
+                    subcontr, ["technicians.tasks", "orders", "jobs", "attachments"])
                 for subcontr in results
             ]
 
@@ -259,9 +274,8 @@ def create_subcontractor():
                 session, Subcontractor, "ID_Subcontractor", "SUBC")
             obj.ID_Subcontractor = new_id
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
             return jsonify(obj.model_dump()), 201
 
     except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
@@ -313,9 +327,8 @@ def update_subcontractor(id_subcontractor):
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
             return jsonify(obj.model_dump()), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
@@ -363,8 +376,9 @@ def delete_subcontractor(id_subcontractor):
             obj = session.get(Subcontractor, id_subcontractor)
             if not obj:
                 return jsonify({"error": "Subcontractor not found"}), 404
-            session.delete(obj)
-            session.commit()
+
+            delete_with_retry(session, obj)
+
             return jsonify({"message": f"Deleted Subcontractor {id_subcontractor}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor

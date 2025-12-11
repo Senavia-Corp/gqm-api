@@ -8,6 +8,8 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.relationships import add_relationships
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 
 # Blueprint de Attachments:
 attachments_bp = Blueprint("attachments_blueprint",
@@ -26,7 +28,9 @@ def list_attachments():
             statement = (
                 select(Attachments)
                 .options(
-                    joinedload(Attachments.job)
+                    joinedload(Attachments.job),
+                    joinedload(Attachments.subcontractor),
+                    joinedload(Attachments.technician)
                 )
             )
             results = session.exec(statement).unique().all()
@@ -36,7 +40,8 @@ def list_attachments():
 
             attachments_data = [
                 # se agrega la relacion FK
-                add_relationships(attachments, ["job"])
+                add_relationships(
+                    attachments, ["job", "subcontractor", "technician"])
                 for attachments in results
             ]
 
@@ -66,7 +71,9 @@ def get_attachment_by_id(id_attachment):
             statement = (
                 select(Attachments)
                 .options(
-                    joinedload(Attachments.job)
+                    joinedload(Attachments.job),
+                    joinedload(Attachments.subcontractor),
+                    joinedload(Attachments.technician)
                 )
                 .where(Attachments.ID_Attachment == id_attachment)
             )
@@ -76,7 +83,7 @@ def get_attachment_by_id(id_attachment):
                 return jsonify({"error": "Attachment not found"}), 404
 
             attachment_data = add_relationships(
-                obj, ["job"])
+                obj, ["job", "subcontractor", "technician"])
 
             return jsonify(attachment_data), 200
 
@@ -117,9 +124,8 @@ def create_attachment():
                 session, Attachments, "ID_Attachment", "ATT")
             obj.ID_Attachment = new_id
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
             return jsonify(obj.model_dump()), 201
 
     except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
@@ -171,9 +177,8 @@ def update_attachment(id_attachment):
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
             return jsonify(obj.model_dump()), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
@@ -222,8 +227,9 @@ def delete_attachment(id_attachment):
             obj = session.get(Attachments, id_attachment)
             if not obj:
                 return jsonify({"error": "Attachment not found"}), 404
-            session.delete(obj)
-            session.commit()
+
+            delete_with_retry(session, obj)
+
             return jsonify({"message": f"Deleted Attachment {id_attachment}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor

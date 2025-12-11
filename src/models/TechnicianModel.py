@@ -29,6 +29,9 @@ class Technician(TechnicianBase, table=True):
     # Relaciones foráneas 1:M
     tasks: List["Tasks"] = Relationship(  # type: ignore
         back_populates="technician")
+    attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="technician",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
 
 class TechnicianCreate (TechnicianBase):

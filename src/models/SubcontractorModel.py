@@ -35,6 +35,9 @@ class Subcontractor(SubcontractorBase, table=True):
         back_populates="subcontractor")
     orders: List["Order"] = Relationship(  # type: ignore
         back_populates="subcontractor")
+    attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="subcontractor",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
 
 class SubcontractorCreate(SubcontractorBase):
