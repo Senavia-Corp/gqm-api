@@ -15,6 +15,8 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..podio.services.job_services import podio_jobs_router
 from ..utils.mappers.to_podio.order_mapper import map_order_to_podio, map_order_patch_to_podio, map_order_delete_to_podio
+from ..utils.mapper_aux_functions import register_event
+
 
 # Blueprint de Order:
 order_bp = Blueprint("order_blueprint", __name__, url_prefix="/order")
@@ -151,6 +153,8 @@ def create_order():
 
             try:
                 podio_service.update_item(obj.job_podio_id, payload)
+                # Anti-loop: registrar evento
+                register_event(obj.job_podio_id)
             except Exception as podio_err:
                 print(f"❗ Error enviando Order a Podio: {podio_err}")
 
@@ -220,6 +224,10 @@ def update_order(id_order):
                 podio_service = podio_jobs_router.get_service(job.Job_type)
                 try:
                     podio_service.update_item(obj.job_podio_id, payload)
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.job_podio_id)
+
                 except Exception as podio_err:
                     print("❗ Error enviando PATCH a Podio:", podio_err)
 
@@ -283,6 +291,10 @@ def delete_order(id_order):
                 if job:
                     podio_service = podio_jobs_router.get_service(job.Job_type)
                     podio_service.update_item(obj.job_podio_id, payload)
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.job_podio_id)
+
             except Exception as podio_err:
                 print("❗ Error eliminando campo TECH en Podio:", podio_err)
 

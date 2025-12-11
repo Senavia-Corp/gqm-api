@@ -4,10 +4,12 @@ from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job
 from ..models.ClientModel import Client
 from ..models.TasksModel import Tasks
+from ..models.OrderModel import Order
 from ..utils.get_podio_items import get_podio_item
 from ..utils.mappers.from_podio.job_mapper import map_podio_item_to_job
 from ..utils.mappers.from_podio.client_mapper import map_podio_item_to_client
 from ..utils.mappers.from_podio.tasks_mapper import map_podio_item_to_task
+from ..utils.mappers.from_podio.order_mapper import process_podio_order
 from ..podio.services.job_services import podio_jobs_router
 from ..podio.services.client_services import podio_clients_router
 from ..podio.services.tasks_services import podio_tasks_router
@@ -15,8 +17,7 @@ import requests
 from src.podio.podio_auth import get_podio_headers
 from src.utils.middleware.retries.retries import retry_api
 from src.utils.id_generator import generate_custom_id
-import time
-from ..utils.mapper_aux_functions import is_recent_event, register_event
+from ..utils.mapper_aux_functions import is_recent_event
 
 # Un solo Blueprint para todos los webhooks
 webhook_bp = Blueprint("webhook", __name__)
@@ -107,6 +108,9 @@ def podio_webhook(app_type):
                     "item") or get_podio_item(item_id, app_type)
                 item_data = mapper(podio_item, session)
 
+                if app_type in {"QID", "PTL", "PAR"}:
+                    process_podio_order(podio_item, session, event_type)
+
                 if app_type in APPS_SIN_ID and not podio_item.get("item_id"):
                     prefix = PREFIX_MAP[app_type]
                     new_id = generate_custom_id(
@@ -167,6 +171,16 @@ def podio_webhook(app_type):
 
                 else:
                     print(f"⚠️ {Model.__name__} {item_id} no existe")
+
+                # Eliminar Orders asociados
+                orders = session.exec(select(Order).where(
+                    Order.job_podio_id == item_id)).all()
+                for order in orders:
+                    session.delete(order)
+                session.commit()
+                if orders:
+                    print(
+                        f"🗑️ {len(orders)} Orders eliminados para Job {item_id}")
 
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
