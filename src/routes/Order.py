@@ -5,6 +5,7 @@ import json
 from ..database.db_sqlmodel import get_session
 from ..models.OrderModel import Order, OrderCreate, OrderUpdate
 from ..models.JobModel import Job
+from ..models.EstimateCostModel import EstimateCost
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
@@ -93,6 +94,56 @@ def get_order(id_order):
     except SQLAlchemyError as db_error:
         print(
             f"Database error while fetching order {id_order}: {db_error}")
+        return jsonify({
+            "detail": "Internal server error while querying the database.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Unexpected error while listing orders: {e}")
+        return jsonify({
+            "detail": "Unexpected internal server error.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir una order por subc y job
+@order_bp.get("/subcontractor/<id_subcontractor>/job/<id_job>")
+@paginate()
+def get_orders_by_subc_and_job(id_subcontractor, id_job):
+    try:
+        with get_session() as session:
+
+            statement = (
+                select(Order)
+                .join(Order.subcontractor)
+                .join(Order.estimate_costs)
+                .join(EstimateCost.job)
+                .options(
+                    joinedload(Order.estimate_costs).joinedload(
+                        EstimateCost.job),
+                    joinedload(Order.subcontractor)
+                )
+                .where(Order.ID_Subcontractor == id_subcontractor)
+                .where(EstimateCost.ID_Jobs == id_job)
+            )
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 404
+
+            orders_data = [
+                add_relationships(
+                    order, ["estimate_costs.job", "subcontractor"])
+                for order in results
+            ]
+
+            return orders_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Database error while fetching orders: {db_error}")
         return jsonify({
             "detail": "Internal server error while querying the database.",
             "code": "db_error"

@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
+from ..models.MemberModel import Member
 from ..models.SubcontractorModel import Subcontractor
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -234,6 +235,7 @@ def get_job_by_memberID(id_member):
         with get_session() as session:
             statement = (
                 select(Job)
+                .join(Job.members)
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.members),
@@ -242,7 +244,7 @@ def get_job_by_memberID(id_member):
                     joinedload(Job.subcontractors)
                     .joinedload(Subcontractor.technicians)
                 )
-                .where(Job.ID_Member == id_member)
+                .where(Member.ID_Member == id_member)
             )
             results = session.exec(statement).unique().all()
 
@@ -266,7 +268,55 @@ def get_job_by_memberID(id_member):
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar trabajos por cliente: {e}")
+        print(f"Error inesperado al listar trabajos por member: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un trabajo por ID_Subcontractor
+@job_bp.get("/subcontractor/<id_subcontractor>")
+@paginate()
+def get_job_by_subcontrID(id_subcontractor):
+    try:
+        with get_session() as session:
+            statement = (
+                select(Job)
+                .join(Job.subcontractors)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.members),
+                    joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
+                )
+                .where(Subcontractor.ID_Subcontractor == id_subcontractor)
+            )
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 404
+
+            jobs_data = [
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
+                for job in results
+            ]
+
+            return jobs_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar trabajo: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar trabajos por subcontratista: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"

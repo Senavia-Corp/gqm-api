@@ -103,6 +103,49 @@ def get_tasks(id_tasks):
         }), 500
 
 
+# Ruta para conseguir tareas por trabajo y tech
+@tasks_bp.get("/job/<id_jobs>/tech/<id_tech>")
+@paginate()
+def get_tasks_by_job(id_jobs, id_tech):
+    try:
+        with get_session() as session:
+            statement = (
+                select(Tasks)
+                .options(
+                    joinedload(Tasks.job),
+                    joinedload(Tasks.technician))
+                .where(Tasks.ID_Jobs == id_jobs)
+                .where(Tasks.ID_Technician == id_tech)
+            )
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 404
+
+            tasks_data = [
+                add_relationships(tasks, ["job", "technician"])
+                for tasks in results
+            ]
+
+            return tasks_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar la tarea: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar las tareas: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear una tarea
 @tasks_bp.post("/")
