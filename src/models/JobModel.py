@@ -3,13 +3,16 @@
 
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
-from datetime import date
+from sqlalchemy import Column, TIMESTAMP, func
+from datetime import datetime
 from enum import Enum
 from .ClientModel import Client
 from .link_models.JobMember import JobMemberLink
 from .MemberModel import Member
 from .link_models.JobMultiplierR import JobMultiplierRLink
 from .MultiplierRModel import MultiplierR
+from .link_models.JobSubcontractor import JobSubcontractorLink
+from .SubcontractorModel import Subcontractor
 
 
 class JobType(str, Enum):
@@ -21,13 +24,13 @@ class JobType(str, Enum):
 class JobBase(SQLModel):
 
     Job_type: JobType
-    Project_name: str
-    Project_location: str
-    Job_status: str
+    Project_name: Optional[str] = Field(default=None)
+    Project_location: Optional[str] = Field(default=None)
+    Job_status: Optional[str] = Field(default=None)
     Po_wtn_wo: Optional[str] = Field(default=None)
     Service_type: Optional[str] = Field(default=None)
-    Date_assigned: Optional[date] = Field(default=date.today)
-    Estimated_start_date: Optional[date] = Field(default=None)
+    Date_assigned: Optional[datetime] = Field(default_factory=datetime.now)
+    Estimated_start_date: Optional[datetime] = Field(default=None)
     Estimated_project_duration: Optional[str] = Field(default=None)
 
     Gqm_formula_pricing: Optional[float] = Field(default=None)
@@ -36,7 +39,6 @@ class JobBase(SQLModel):
     Gqm_target_return: Optional[float] = Field(default=None)
     Gqm_premium_in_money: Optional[float] = Field(default=None)
     Gqm_final_sold_pricing: Optional[float] = Field(default=None)
-    # Gqm_final_sold_pricing: float
     Gqm_final_percentage: Optional[float] = Field(default=None)
     Gqm_total_change_orders: Optional[float] = Field(default=None)
 
@@ -45,8 +47,10 @@ class Job(JobBase, table=True):
     __tablename__ = "jobs"
 
     ID_Jobs: Optional[str] = Field(default=None, primary_key=True)
+
+    # Referencias a Podio
     podio_item_id: Optional[str] = Field(
-        default=None, index=True)  # referencia a Podio
+        default=None, index=True)
 
     # Relaciones foráneas M:1
     ID_Client: Optional[str] = Field(
@@ -55,6 +59,11 @@ class Job(JobBase, table=True):
 
     # Relaciones foráneas 1:M
     attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="job",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+    tasks: List["Tasks"] = Relationship(  # type: ignore
+        back_populates="job")
+    estimate_costs: List["EstimateCost"] = Relationship(  # type: ignore
         back_populates="job")
 
     # Relaciones de muchos a muchos
@@ -66,29 +75,26 @@ class Job(JobBase, table=True):
         back_populates="jobs",
         link_model=JobMemberLink
     )
+    subcontractors: List[Subcontractor] = Relationship(
+        back_populates="jobs",
+        link_model=JobSubcontractorLink
+    )
+
+    # Timestamps automáticos
+    created_at: datetime = Field(
+        sa_column=Column(TIMESTAMP(timezone=True),
+                         server_default=func.now(), nullable=False)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(
+        ), onupdate=func.now(), nullable=False)
+    )
 
 
 class JobCreate(JobBase):
     ID_Client: Optional[str] = None
 
 
-class JobUpdate(SQLModel):
+class JobUpdate(JobBase):
     ID_Client: Optional[str] = None
-
-    Project_name: Optional[str] = Field(default=None)
-    Project_location: Optional[str] = Field(default=None)
-    Job_status: Optional[str] = Field(default=None)
-    Po_wtn_wo: Optional[str] = Field(default=None)
-    Service_type: Optional[str] = Field(default=None)
-    Date_assigned: Optional[str] = Field(default=None)
-    Estimated_start_date: Optional[date] = Field(default=None)
-    Estimated_project_duration: Optional[str] = Field(default=None)
-
-    Gqm_formula_pricing: Optional[float] = Field(default=None)
-    Gqm_adj_formula_pricing: Optional[float] = Field(default=None)
-    Gqm_target_sold_pricing: Optional[float] = Field(default=None)
-    Gqm_target_return: Optional[float] = Field(default=None)
-    Gqm_premium_in_money: Optional[float] = Field(default=None)
-    Gqm_final_sold_pricing: Optional[float] = Field(default=None)
-    Gqm_final_percentage: Optional[float] = Field(default=None)
-    Gqm_total_change_orders: Optional[float] = Field(default=None)
+    Job_type: Optional[str] = None

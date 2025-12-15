@@ -1,11 +1,11 @@
+
 from flask import Blueprint, jsonify
 from src.podio.services.sync_podio_to_db import sync_podio_to_db
 
 
 sync_bp = Blueprint("sync_bp", __name__)
 
-# ESTO ES SOLO JOBS!!!!
-# ============================================================
+
 # Sincronizar todos los datos desde Podio hacia PostgreSQL
 
 

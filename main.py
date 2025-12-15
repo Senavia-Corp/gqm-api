@@ -7,7 +7,7 @@ from src.utils.middleware.logs.request_logger import register_request_logger
 from src.database.db_sqlmodel import init_sqlmodel_db
 # Blueprints:
 from src.routes.Job import job_bp
-from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp
+from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp, job_subcontractor_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
 from src.routes.Supplier import supplier_bp
@@ -20,6 +20,8 @@ from src.routes.Attachments import attachments_bp
 from src.routes.PropertyManager import property_manager_bp
 from src.routes.PropertyMgmtCo import property_mgmt_co_bp
 from src.routes.Links.ClientPrManager import client_pr_manager_bp
+from src.routes.EstimateCost import estimate_bp
+from src.routes.Order import order_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion masiva de Podio a Postgre:
@@ -32,7 +34,7 @@ from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 
 # Test
-# from src.tests.debug_podio import debug_bp
+from src.tests.debug_podio import debug_bp
 
 
 def create_app():
@@ -49,6 +51,7 @@ def create_app():
     app.register_blueprint(job_bp)
     app.register_blueprint(job_multiplier_bp)
     app.register_blueprint(job_member_bp)
+    app.register_blueprint(job_subcontractor_bp)
     app.register_blueprint(client_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
@@ -61,22 +64,24 @@ def create_app():
     app.register_blueprint(property_manager_bp)
     app.register_blueprint(property_mgmt_co_bp)
     app.register_blueprint(client_pr_manager_bp)
+    app.register_blueprint(estimate_bp)
+    app.register_blueprint(order_bp)
 
     # Ruta para login
     app.register_blueprint(auth_bp)
 
     # Rutas relacionadas con Podio
-    # app.register_blueprint(sync_bp)  # Sincronización con Podio
-    # app.register_blueprint(webhook_bp)  # Para recibir todos los webhooks
+    app.register_blueprint(sync_bp)  # Sincronización con Podio
+    app.register_blueprint(webhook_bp)  # Para recibir todos los webhooks
     # Para crear o eliminar los hooks de Podio
     app.register_blueprint(admin_bp)
+
+    app.register_blueprint(debug_bp)  # test
 
     # Para conexión con Sandbox de Quickbooks
     # Test del sandbox que se volverá a producción
     app.register_blueprint(qbo_bp)
     app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
-
-    # app.register_blueprint(debug_bp)  # test
 
     # Ruta simple
 
@@ -99,12 +104,13 @@ def validate_public_url():
         # Puedes elegir: solo avisar o terminar el proceso local.
         sys.exit(1)
 
+
 app = create_app()
 
 if __name__ == "__main__":
     try:
         validate_public_url()
-        
+
         app.run(debug=True, port=80)
 
     except RuntimeError as e:

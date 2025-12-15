@@ -4,7 +4,8 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
-from ..utils.id_generator import generate_custom_id
+from ..models.MemberModel import Member
+from ..models.SubcontractorModel import Subcontractor
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -12,12 +13,13 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from ..podio.services.job_services import podio_jobs_router
+import time
+from ..utils.mapper_aux_functions import register_event
+from ..utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
+from ..utils.mappers.to_podio.ptl_mapper import map_job_to_podio_ptl
+from ..utils.mappers.to_podio.par_mapper import map_job_to_podio_par
 
-from ..podio.services.job_services import (
-    create_podio_job,
-    update_podio_job,
-    delete_podio_job
-)
 
 # Blueprint de Jobs:
 job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
@@ -32,14 +34,20 @@ job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
 def list_jobs():
     try:
         with get_session() as session:
-            # Trae los Jobs con sus clientes en una sola consulta
+            # Trae los Jobs con la información asociada en una sola consulta
             statement = (
                 select(Job)
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
-                    joinedload(Job.attachments)
+                    joinedload(Job.attachments),
+                    joinedload(Job.tasks),
+                    joinedload(Job.estimate_costs),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.technicians),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.orders),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -50,7 +58,9 @@ def list_jobs():
             jobs_data = [
                 # se agrega la relacion FK
                 add_relationships(
-                    job, ["client", "members", "multipliers", "attachments"])
+                    job, ["client", "members", "multipliers",
+                          "attachments", "subcontractors.technicians",
+                          "subcontractors.orders", "tasks", "estimate_costs"])
                 for job in results
             ]
 
@@ -82,7 +92,13 @@ def get_job_by_id(id_job):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
-                    joinedload(Job.attachments)
+                    joinedload(Job.attachments),
+                    joinedload(Job.tasks),
+                    joinedload(Job.estimate_costs),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.technicians),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.orders),
                 )
                 .where(Job.ID_Jobs == id_job)
             )
@@ -92,7 +108,9 @@ def get_job_by_id(id_job):
                 return jsonify({"error": "Job not found"}), 404
 
             job_data = add_relationships(
-                obj, ["client", "members", "multipliers", "attachments"])
+                obj,  ["client", "members", "multipliers",
+                       "attachments", "subcontractors.technicians",
+                       "subcontractors.orders", "tasks", "estimate_costs"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)
@@ -127,6 +145,9 @@ def list_jobs_by_status(status):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.Job_status == status)
             )
@@ -136,7 +157,8 @@ def list_jobs_by_status(status):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -170,6 +192,9 @@ def get_job_by_clientID(id_client):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.ID_Client == id_client)
             )
@@ -179,7 +204,8 @@ def get_job_by_clientID(id_client):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -209,12 +235,16 @@ def get_job_by_memberID(id_member):
         with get_session() as session:
             statement = (
                 select(Job)
+                .join(Job.members)
                 .options(
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
-                .where(Job.ID_Member == id_member)
+                .where(Member.ID_Member == id_member)
             )
             results = session.exec(statement).unique().all()
 
@@ -222,7 +252,8 @@ def get_job_by_memberID(id_member):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -237,7 +268,55 @@ def get_job_by_memberID(id_member):
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar trabajos por cliente: {e}")
+        print(f"Error inesperado al listar trabajos por member: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un trabajo por ID_Subcontractor
+@job_bp.get("/subcontractor/<id_subcontractor>")
+@paginate()
+def get_job_by_subcontrID(id_subcontractor):
+    try:
+        with get_session() as session:
+            statement = (
+                select(Job)
+                .join(Job.subcontractors)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.members),
+                    joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
+                )
+                .where(Subcontractor.ID_Subcontractor == id_subcontractor)
+            )
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 404
+
+            jobs_data = [
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
+                for job in results
+            ]
+
+            return jobs_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(
+            f"Error de base de datos al buscar trabajo: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar trabajos por subcontratista: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
@@ -256,6 +335,9 @@ def list_jobs_by_type(type):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.Job_type == type)
             )
@@ -265,7 +347,8 @@ def list_jobs_by_type(type):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -299,6 +382,9 @@ def list_jobs_by_date(date):
                     joinedload(Job.client),
                     joinedload(Job.members),
                     joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.subcontractors)
+                    .joinedload(Subcontractor.technicians)
                 )
                 .where(Job.Date_assigned == date)
             )
@@ -308,7 +394,8 @@ def list_jobs_by_date(date):
                 return [], 404
 
             jobs_data = [
-                add_relationships(job, ["client", "members", "multipliers"])
+                add_relationships(job, [
+                                  "client", "members", "multipliers", "attachments", "subcontractors.technicians"])
                 for job in results
             ]
 
@@ -341,47 +428,47 @@ def create_job():
         obj = Job(**job_data.model_dump(exclude_unset=False, exclude_none=False))
 
         with get_session() as session:
-            prefix = obj.Job_type.upper()
-            new_id = generate_custom_id(session, Job, "ID_Jobs", prefix)
-            obj.ID_Jobs = new_id
-
-            # Guardar en base de datos
-            save_with_retry(session, obj)
+            # Mapeador segun Job type
+            if obj.Job_type == "QID":
+                podio_fields = map_job_to_podio_qid(obj, session=session)
+            elif obj.Job_type == "PTL":
+                podio_fields = map_job_to_podio_ptl(obj, session=session)
+            elif obj.Job_type == "PAR":
+                podio_fields = map_job_to_podio_par(obj, session=session)
+            else:
+                return jsonify({"error": f"Job_type inválido: {obj.Job_type}"}), 400
 
             # Crear también en Podio
-            try:
-                podio_fields = {
-                    "id-projects-workorder": obj.ID_Jobs,                # ID Projects & Workorder
-                    "project-location": obj.Project_location,            # Project Location
-                    "job-status": obj.Job_status,                        # Job Status
-                    "project-name-2": obj.Project_name,                  # Project Name - Community
-                    "powtnwo": obj.Po_wtn_wo,                            # PO/WTN/WO#
-                    "service-type": obj.Service_type,                    # Service Type
-                    "date-assigned": obj.Date_assigned,                  # Date Assigned
-                    # GQM (Adj Formula) Pricing
-                    "gqm-adj-formula-pricing": obj.Gqm_adj_formula_pricing,
-                    # GQM (Target) Sold Pricing
-                    "gqm-target-sold-pricing": obj.Gqm_target_sold_pricing,
-                    # GQM (Target) Return %
-                    "gqm-target-return": obj.Gqm_target_return,
-                    # 2025 GQM (Premium in $)
-                    "2023-gqm-final": obj.Gqm_premium_in_money,
-                    # GQM (Final Sold) Pricing
-                    "2023-gqm-premium-in": obj.Gqm_final_sold_pricing,
-                    # GQM (Final) %
-                    "gqm-final-sold-pricing": obj.Gqm_final_percentage,
-                    "gqm-total-change-orders": obj.Gqm_total_change_orders,   # GQM Total Change Orders
-                }
+            podio_service = podio_jobs_router.get_service(obj.Job_type)
 
-                podio_response = create_podio_job(podio_fields)
+            try:
+                # 🔹 Loggear payload antes de enviarlo
+                import json
+                print("🚀 Payload que se enviará a Podio:")
+                print(json.dumps(podio_fields, indent=4))
+
+                podio_response = podio_service.create_item(podio_fields)
 
                 # Guardar el podio_item_id en PostgreSQL
                 if podio_response and podio_response.get("item_id"):
                     obj.podio_item_id = podio_response["item_id"]
+
+                    # Buscar y guardar el ID_Jobs
+                    item = podio_service.get_item(obj.podio_item_id)
+                    formatted_id = item.get("app_item_id_formatted")
+                    if formatted_id:
+                        obj.ID_Jobs = formatted_id
+                    else:
+                        raise ValueError(
+                            "No se pudo obtener app_item_id_formatted de Podio")
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
                     save_with_retry(session, obj)
-                    print(f"✅ Guardado podio_item_id: {obj.podio_item_id}")
+
                 else:
-                    print("⚠️ No se pudo obtener el item_id de Podio.")
+                    print("⚠️ No se pudo obtener los datos de Podio.")
 
             except Exception as podio_error:
                 print(f"⚠️ Error al crear item en Podio: {podio_error}")
@@ -452,34 +539,30 @@ def update_job(podio_item_id):
 
             save_with_retry(session, obj)
 
+            # Mapeador segun Job type
+            if obj.Job_type == "QID":
+                podio_fields = map_job_to_podio_qid(obj, session=session)
+            elif obj.Job_type == "PTL":
+                podio_fields = map_job_to_podio_ptl(obj, session=session)
+            elif obj.Job_type == "PAR":
+                podio_fields = map_job_to_podio_par(obj, session=session)
+            else:
+                return jsonify({"error": f"Job_type inválido: {obj.Job_type}"}), 400
+
+            podio_service = podio_jobs_router.get_service(obj.Job_type)
+
             # Actualizar también en Podio
             try:
-                podio_fields = {
-                    "id-projects-workorder": obj.ID_Jobs,                # ID Projects & Workorder
-                    "project-location": obj.Project_location,            # Project Location
-                    "job-status": obj.Job_status,                        # Job Status
-                    "project-name-2": obj.Project_name,                  # Project Name - Community
-                    "powtnwo": obj.Po_wtn_wo,                            # PO/WTN/WO#
-                    "service-type": obj.Service_type,                    # Service Type
-                    "date-assigned": obj.Date_assigned,                  # Date Assigned
-                    # GQM (Adj Formula) Pricing
-                    "gqm-adj-formula-pricing": obj.Gqm_adj_formula_pricing,
-                    # GQM (Target) Sold Pricing
-                    "gqm-target-sold-pricing": obj.Gqm_target_sold_pricing,
-                    # GQM (Target) Return %
-                    "gqm-target-return": obj.Gqm_target_return,
-                    # 2025 GQM (Premium in $)
-                    "2023-gqm-final": obj.Gqm_premium_in_money,
-                    # GQM (Final Sold) Pricing
-                    "2023-gqm-premium-in": obj.Gqm_final_sold_pricing,
-                    # GQM (Final) %
-                    "gqm-final-sold-pricing": obj.Gqm_final_percentage,
-                    "gqm-total-change-orders": obj.Gqm_total_change_orders,   # GQM Total Change Orderss
-                }
                 if obj.podio_item_id:
-                    update_podio_job(int(obj.podio_item_id), podio_fields)
+                    podio_service.update_item(
+                        int(obj.podio_item_id), podio_fields)
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
+                    save_with_retry(session, obj)
                     print(
                         f"🧩 Job {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
+
                 else:
                     print(
                         f"⚠️ Job {podio_item_id} no tiene podio_item_id, se omitió actualización en Podio")
@@ -536,12 +619,16 @@ def delete_job(podio_item_id):
             if not obj:
                 return jsonify({"error": "Job not found"}), 404
 
+            podio_service = podio_jobs_router.get_service(obj.Job_type)
+
             # Eliminar también en Podio
-            if obj.podio_item_id:
-                try:
-                    delete_podio_job(obj.podio_item_id)
-                except Exception as podio_error:
-                    print(f"⚠️ Error al eliminar item en Podio: {podio_error}")
+            try:
+                podio_service.delete_item(obj.podio_item_id)
+                # Anti-loop: registrar evento
+                register_event(obj.podio_item_id)
+
+            except Exception as e:
+                print("⚠️ Error borrando en Podio:", e)
 
             delete_with_retry(session, obj)
 

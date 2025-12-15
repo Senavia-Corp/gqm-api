@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.TechnicianModel import Technician, TechnicianCreate, TechnicianUpdate
+from ..models.SubcontractorModel import Subcontractor
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -11,6 +12,8 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.auth.password_hashing import hash_password
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 
 # Blueprint de Technician:
 technician_bp = Blueprint("technician_blueprint",
@@ -29,9 +32,14 @@ def list_technicians():
         with get_session() as session:
             statement = (
                 select(Technician)
-                .options(joinedload(Technician.subcontractor))
+                .options(
+                    joinedload(Technician.subcontractor).joinedload(
+                        Subcontractor.jobs),
+                    joinedload(Technician.tasks),
+                    joinedload(Technician.attachments),
+                )
             )
-            results = session.exec(statement).all()
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404   # El decorador se encarga del formato final
@@ -39,8 +47,8 @@ def list_technicians():
             technician_data = []
 
             for tech in results:
-                data = add_relationships(tech, ["subcontractor"])
-                data.pop("Password", None)
+                data = add_relationships(
+                    tech, ["subcontractor", "subcontractor.jobs", "tasks", "attachments"])
                 technician_data.append(data)
 
             return technician_data, 200
@@ -67,20 +75,23 @@ def get_tech_by_id(id_technician):
         with get_session() as session:
             statement = (
                 select(Technician)
-                .options(joinedload(Technician.subcontractor))
+                .options(
+                    joinedload(Technician.subcontractor).joinedload(
+                        Subcontractor.jobs),
+                    joinedload(Technician.tasks),
+                    joinedload(Technician.attachments),
+                )
                 .where(Technician.ID_Technician == id_technician)
             )
 
-            obj = session.exec(statement).first()
+            obj = session.exec(statement).unique().first()
 
             if not obj:
                 return jsonify({"error": "Technician not found"}), 404
 
             # Construir JSON limpio con la info del cliente
-            technician_data = obj.model_dump()
-            technician_data.pop("Password", None)
-            technician_data["ID_Subcontractor"] = obj.subcontractor.model_dump(
-            ) if obj.subcontractor else None
+            technician_data = add_relationships(
+                obj, ["subcontractor", "subcontractor.jobs", "tasks", "attachments"])
 
             return jsonify(technician_data), 200
 
@@ -124,9 +135,7 @@ def create_techician():
                 session, Technician, "ID_Technician", "TEC")
             obj.ID_Technician = new_id
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
 
             response = obj.model_dump()
             response.pop("Password", None)
@@ -188,9 +197,7 @@ def update_technician(id_technician):
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
 
             response = obj.model_dump()
             response.pop("Password", None)
@@ -242,8 +249,9 @@ def delete_technician(id_technician):
             obj = session.get(Technician, id_technician)
             if not obj:
                 return jsonify({"error": "Technician not found"}), 404
-            session.delete(obj)
-            session.commit()
+
+            delete_with_retry(session, obj)
+
             return jsonify({"message": f"Deleted Technician {id_technician}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor

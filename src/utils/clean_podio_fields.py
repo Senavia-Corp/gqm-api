@@ -10,7 +10,12 @@ def clean_podio_fields(fields: dict) -> dict:
 
     for k, v in fields.items():
         # Ignorar campos vacíos
-        if v in [None, "", [], {}]:
+        if v == []:
+            cleaned[k] = v
+            continue
+
+        # Ignorar los demás valores vacíos
+        if v in [None, "", {}]:
             continue
 
         # Convertir fechas a string ISO
