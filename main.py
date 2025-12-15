@@ -1,5 +1,6 @@
 from src.config import PUBLIC_URL
 from flask import Flask
+from flask_cors import CORS
 import sys
 # Middleware de logs para todos los request:
 from src.utils.middleware.logs.request_logger import register_request_logger
@@ -42,6 +43,9 @@ def create_app():
 
     # Middleware de logs para todas las rutas
     register_request_logger(app)
+
+    # Habilitar CORS
+    CORS(app)
 
     #  Crea tablas que no existan (NO borra nada).
     with app.app_context():
