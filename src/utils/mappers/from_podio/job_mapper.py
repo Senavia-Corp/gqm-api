@@ -41,11 +41,20 @@ def map_podio_item_to_job(item: dict, session=None) -> dict:
             for f in fields:
                 if f.get("external_id") == alias:
                     v = f.get("values", f.get("value"))
+
                     if isinstance(v, list) and v:
                         v = v[0].get("value", v[0]) if isinstance(
                             v[0], dict) else v[0]
+
                     if isinstance(v, dict) and "text" in v:
                         v = v["text"]
+
+                    if f.get("type") == "calculation" and v is not None:
+                        try:
+                            v = float(v)
+                        except (TypeError, ValueError):
+                            v = None
+
                     return clean_html(v)
         return None
 
@@ -73,6 +82,7 @@ def map_podio_item_to_job(item: dict, session=None) -> dict:
 
     job_type = extract_job_type_from_id(app_item_id_formatted)
 
+    # AGREGAR LOS CAMPOS DE CALCULATION !!!!!!!!!!
     job_dict = {
         "podio_item_id": str(item.get("item_id")),
         "ID_Jobs": app_item_id_formatted,

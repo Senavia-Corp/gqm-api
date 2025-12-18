@@ -1,5 +1,5 @@
 import requests
-from .qbo_auth import get_valid_access_token
+from ..quickbooks.qbo_auth import get_valid_access_token
 
 
 def get_company_info(realm_id):

@@ -30,7 +30,7 @@ from src.routes.podio_routes.MasiveSync import sync_bp
 # Rutas de webhooks:
 from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
-# Rutas de Quickbooks sandbox
+# Rutas de Quickbooks
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 
@@ -82,8 +82,7 @@ def create_app():
 
     app.register_blueprint(debug_bp)  # test
 
-    # Para conexión con Sandbox de Quickbooks
-    # Test del sandbox que se volverá a producción
+    # Para conexión con Quickbooks
     app.register_blueprint(qbo_bp)
     app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
 
