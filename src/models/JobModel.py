@@ -13,6 +13,8 @@ from .link_models.JobMultiplierR import JobMultiplierRLink
 from .MultiplierRModel import MultiplierR
 from .link_models.JobSubcontractor import JobSubcontractorLink
 from .SubcontractorModel import Subcontractor
+from .link_models.JobPaymentU import JobPaymentULink
+from .PaymentUnitModel import PaymentUnit
 
 
 class JobType(str, Enum):
@@ -78,6 +80,10 @@ class Job(JobBase, table=True):
     subcontractors: List[Subcontractor] = Relationship(
         back_populates="jobs",
         link_model=JobSubcontractorLink
+    )
+    payment_units: List[PaymentUnit] = Relationship(
+        back_populates="jobs",
+        link_model=JobPaymentULink
     )
 
     # Timestamps automáticos

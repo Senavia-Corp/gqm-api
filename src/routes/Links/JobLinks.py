@@ -7,6 +7,8 @@ from ...models.MultiplierRModel import MultiplierR
 from ...models.link_models.JobMultiplierR import JobMultiplierRLink
 from ...models.SubcontractorModel import Subcontractor
 from ...models.link_models.JobSubcontractor import JobSubcontractorLink
+from ...models.PaymentUnitModel import PaymentUnit
+from ...models.link_models.JobPaymentU import JobPaymentULink
 
 
 # ------------------- Link entre Job y Member -------------------#
@@ -189,4 +191,65 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
             "status": "Unlinked ✖️",
             "job_id": job_id,
             "subcontr_id": subcontr_id
+        }), 200
+
+
+# ------------------- Link entre Job y Payment Unit -------------------#
+job_payment_unit_bp = Blueprint(
+    "job_payment_unit", __name__, url_prefix="/job_payment_unit")
+
+
+# Vincular un trabajo con un payment unit
+@job_payment_unit_bp.post("/jobs/<job_id>/payment_units/<payment_unit_id>")
+def assign_paymentU_to_job(job_id, payment_unit_id):
+    with get_session() as session:
+        job = session.get(Job, job_id)
+        payment_unit = session.get(PaymentUnit, payment_unit_id)
+
+        if not job or not payment_unit:
+            return jsonify({"error": "Job or Payment Unit not found"}), 404
+
+        existing_link = session.get(
+            JobPaymentULink, (job_id, payment_unit_id))
+        if existing_link:
+            return jsonify({"status": "Already linked ✔️"}), 200
+
+        link = JobPaymentULink(
+            job_id=job_id,
+            payment_unit_id=payment_unit_id
+        )
+
+        session.add(link)
+        session.commit()
+
+        return jsonify({
+            "status": "Linked 🔗",
+            "job_id": job_id,
+            "subcontr_id": payment_unit_id
+        }), 201
+
+
+# Desvincular un trabajo de un payment unit
+@job_payment_unit_bp.delete("/jobs/<job_id>/payment_units/<payment_unit_id>")
+def remove_paymentU_from_job(job_id, payment_unit_id):
+    with get_session() as session:
+
+        # Buscar si existe el link
+        link = session.get(
+            JobPaymentULink,
+            (job_id, payment_unit_id)  # Clave primaria compuesta
+        )
+
+        if not link:
+            return jsonify({
+                "error": "Relationship does not exist"
+            }), 404
+
+        session.delete(link)
+        session.commit()
+
+        return jsonify({
+            "status": "Unlinked ✖️",
+            "job_id": job_id,
+            "payment_unit_id": payment_unit_id
         }), 200

@@ -8,7 +8,7 @@ from src.utils.middleware.logs.request_logger import register_request_logger
 from src.database.db_sqlmodel import init_sqlmodel_db
 # Blueprints:
 from src.routes.Job import job_bp
-from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp, job_subcontractor_bp
+from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp, job_subcontractor_bp, job_payment_unit_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
 from src.routes.Supplier import supplier_bp
@@ -19,8 +19,9 @@ from src.routes.Skills import skills_bp
 from src.routes.MultiplierR import multiplier_bp
 from src.routes.Attachments import attachments_bp
 from src.routes.PropertyManager import property_manager_bp
-from src.routes.PropertyMgmtCo import property_mgmt_co_bp
-from src.routes.Links.ClientPrManager import client_pr_manager_bp
+from src.routes.ParentMgmtCo import parent_mgmt_co_bp
+from src.routes.PaymentUnit import payment_unit_bp
+from src.routes.Links.ClientLinks import client_pr_manager_bp, client_member_bp
 from src.routes.EstimateCost import estimate_bp
 from src.routes.Order import order_bp
 # Rutas de login:
@@ -52,24 +53,27 @@ def create_app():
         init_sqlmodel_db()
 
     # Registrar blueprints
+    app.register_blueprint(attachments_bp)
+    app.register_blueprint(client_bp)
+    app.register_blueprint(client_pr_manager_bp)
+    app.register_blueprint(client_member_bp)
+    app.register_blueprint(estimate_bp)
     app.register_blueprint(job_bp)
     app.register_blueprint(job_multiplier_bp)
     app.register_blueprint(job_member_bp)
     app.register_blueprint(job_subcontractor_bp)
-    app.register_blueprint(client_bp)
+    app.register_blueprint(job_payment_unit_bp)
+    app.register_blueprint(member_bp)
+    app.register_blueprint(multiplier_bp)
+    app.register_blueprint(order_bp)
+    app.register_blueprint(payment_unit_bp)
+    app.register_blueprint(parent_mgmt_co_bp)
+    app.register_blueprint(property_manager_bp)
+    app.register_blueprint(skills_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
     app.register_blueprint(tasks_bp)
-    app.register_blueprint(member_bp)
     app.register_blueprint(technician_bp)
-    app.register_blueprint(skills_bp)
-    app.register_blueprint(multiplier_bp)
-    app.register_blueprint(attachments_bp)
-    app.register_blueprint(property_manager_bp)
-    app.register_blueprint(property_mgmt_co_bp)
-    app.register_blueprint(client_pr_manager_bp)
-    app.register_blueprint(estimate_bp)
-    app.register_blueprint(order_bp)
 
     # Ruta para login
     app.register_blueprint(auth_bp)
