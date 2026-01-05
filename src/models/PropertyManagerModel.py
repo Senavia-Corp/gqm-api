@@ -1,7 +1,7 @@
 
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
-from .PropertyMgmtCoModel import PropertyMgmtCo
+from .ParentMgmtCoModel import ParentMgmtCo
 from .link_models.ClientPManager import ClientPrManagerLink
 from .ClientModel import Client
 
@@ -22,8 +22,8 @@ class PropertyManager(PropertyManagerBase, table=True):
 
     # Relación foráneas M:1
     ID_Community_Tracking: Optional[str] = Field(
-        default=None, foreign_key="property_mgmt_co.ID_Community_Tracking")
-    property_mgmt_co: Optional["PropertyMgmtCo"] = Relationship(
+        default=None, foreign_key="parent_mgmt_co.ID_Community_Tracking")
+    parent_mgmt_co: Optional["ParentMgmtCo"] = Relationship(
         back_populates="property_managers")
 
     # Relación de muchos a muchos

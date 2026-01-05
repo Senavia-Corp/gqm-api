@@ -36,6 +36,7 @@ def list_subcontractors():
                     joinedload(Subcontractor.orders),
                     joinedload(Subcontractor.jobs),
                     joinedload(Subcontractor.attachments),
+                    joinedload(Subcontractor.payment_units),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -45,7 +46,7 @@ def list_subcontractors():
 
             subcontr_data = [
                 add_relationships(
-                    subcontractor, ["technicians.tasks", "orders", "jobs", "attachments"])
+                    subcontractor, ["technicians.tasks", "orders", "jobs", "attachments", "payment_units"])
                 for subcontractor in results
             ]
 
@@ -80,6 +81,7 @@ def get_subcontractor(id_subcontractor):
                     joinedload(Subcontractor.orders),
                     joinedload(Subcontractor.jobs),
                     joinedload(Subcontractor.attachments),
+                    joinedload(Subcontractor.payment_units),
                 )
                 .where(Subcontractor.ID_Subcontractor == id_subcontractor)
             )
@@ -90,7 +92,7 @@ def get_subcontractor(id_subcontractor):
                 return jsonify({"error": "Subcontractor not found"}), 404
 
             subcontr_data = add_relationships(
-                obj, ["technicians.tasks", "orders", "jobs", "attachments"])
+                obj, ["technicians.tasks", "orders", "jobs", "attachments", "payment_units"])
 
             return jsonify(subcontr_data), 200
 
@@ -282,7 +284,7 @@ def create_subcontractor():
         session.rollback()  # Deshace los cambios realizados
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un proveedor con este valor único."
+            detail = "Ya existe un subcontratista con este valor único."
         else:
             detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
         print(f"Error de integridad: {e}")
@@ -290,7 +292,7 @@ def create_subcontractor():
 
     except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
         session.rollback()
-        print(f"Error de base de datos al crear proveedor: {db_error}")
+        print(f"Error de base de datos al crear subcontratista: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -302,7 +304,7 @@ def create_subcontractor():
         except Exception:
             pass
 
-        print(f"Error inesperado durante la creación de proveedor: {e}")
+        print(f"Error inesperado durante la creación de subcontratista: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
@@ -334,21 +336,22 @@ def update_subcontractor(id_subcontractor):
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
-            "detail": "Error de validación: Datos de proveedor inválidos para la actualización.",
+            "detail": "Error de validación: Datos de subcontratista inválidos para la actualización.",
             "errors": e.errors()
         }), 400
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un proveedor con estos valores únicos o faltan datos requeridos."
+        detail = "Error de integridad: Ya existe un subcontratista con estos valores únicos o faltan datos requeridos."
         print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al actualizar proveedor: {db_error}")
+        print(
+            f"Error de base de datos al actualizar subcontratista: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -360,7 +363,7 @@ def update_subcontractor(id_subcontractor):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al actualizar proveedor: {e}")
+        print(f"Error inesperado al actualizar subcontratista: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
@@ -382,17 +385,17 @@ def delete_subcontractor(id_subcontractor):
             return jsonify({"message": f"Deleted Subcontractor {id_subcontractor}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un proveedor que tiene productos asociados con Foreign Key
+    except IntegrityError as e:  # En caso de borrar un subcontratista que tiene productos asociados con Foreign Key
         if session:
             session.rollback()
-        detail = "Error de integridad: No se puede eliminar el proveedor porque tiene registros relacionados."
+        detail = "Error de integridad: No se puede eliminar el subcontratista porque tiene registros relacionados."
         print(f"Error de integridad (DELETE): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al eliminar proveedor: {db_error}")
+        print(f"Error de base de datos al eliminar subcontratista: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -404,7 +407,7 @@ def delete_subcontractor(id_subcontractor):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al eliminar proveedor: {e}")
+        print(f"Error inesperado al eliminar subcontratista: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"

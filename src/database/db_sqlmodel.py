@@ -11,8 +11,9 @@ from src.models.JobModel import Job
 from src.models.MemberModel import Member
 from src.models.MultiplierRModel import MultiplierR
 from src.models.OrderModel import Order
+from src.models.ParentMgmtCoModel import ParentMgmtCo
+from src.models.PaymentUnitModel import PaymentUnit
 from src.models.PropertyManagerModel import PropertyManager
-from src.models.PropertyMgmtCoModel import PropertyMgmtCo
 from src.models.SkillsModel import Skills
 from src.models.SubcontractorModel import Subcontractor
 from src.models.SupplierModel import Supplier
@@ -20,9 +21,11 @@ from src.models.TasksModel import Tasks
 from src.models.TechnicianModel import Technician
 # Modelos de links de las relaciones N:M
 from src.models.link_models.ClientPManager import ClientPrManagerLink
+from src.models.link_models.ClientMember import ClientMemberLink
 from src.models.link_models.JobMember import JobMemberLink
 from src.models.link_models.JobMultiplierR import JobMultiplierRLink
 from src.models.link_models.JobSubcontractor import JobSubcontractorLink
+from src.models.link_models.JobPaymentU import JobPaymentULink
 
 # Configuración para PostgreSQL
 DATABASE_URL = config("DATABASE_URL")
