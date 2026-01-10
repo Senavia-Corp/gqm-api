@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional, List
+from typing import Optional
 from .JobModel import Job
 from .SubcontractorModel import Subcontractor
 from .TechnicianModel import Technician
@@ -35,7 +35,11 @@ class Attachments(AttachmentsBase, table=True):
 
 class AttachmentsCreate(AttachmentsBase):
     ID_Jobs: Optional[str] = None
+    ID_Subcontractor: Optional[str] = None
+    ID_Technician: Optional[str] = None
 
 
 class AttachmentsUpdate(AttachmentsBase):
     ID_Jobs: Optional[str] = None
+    ID_Subcontractor: Optional[str] = None
+    ID_Technician: Optional[str] = None

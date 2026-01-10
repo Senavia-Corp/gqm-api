@@ -34,6 +34,8 @@ class JobBase(SQLModel):
     Date_assigned: Optional[datetime] = Field(default_factory=datetime.now)
     Estimated_start_date: Optional[datetime] = Field(default=None)
     Estimated_project_duration: Optional[str] = Field(default=None)
+    Date_Received: Optional[datetime] = Field(default=None)
+    Estimated_completion_date: Optional[datetime] = Field(default=None)
 
     Gqm_formula_pricing: Optional[float] = Field(default=None)
     Gqm_adj_formula_pricing: Optional[float] = Field(default=None)
@@ -66,6 +68,13 @@ class Job(JobBase, table=True):
     tasks: List["Tasks"] = Relationship(  # type: ignore
         back_populates="job")
     estimate_costs: List["EstimateCost"] = Relationship(  # type: ignore
+        back_populates="job")
+    tlactivity: List["TLActivity"] = Relationship(  # type: ignore
+        back_populates="job",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+    opportunities: List["Opportunities"] = Relationship(  # type: ignore
+        back_populates="job")
+    change_orders: List["ChangeOrder"] = Relationship(  # type: ignore
         back_populates="job")
 
     # Relaciones de muchos a muchos

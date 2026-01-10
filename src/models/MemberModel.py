@@ -3,9 +3,10 @@
 
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
-# agregar modelo de Rol cuando se cree
 from .link_models.JobMember import JobMemberLink
-from .link_models.ClientMember import ClientMemberLink
+from .link_models.ClientLinks import ClientMemberLink
+from .RoleModel import Role
+from .link_models.PermissionLinks import PermissionMemberLink
 
 
 class MemberBase(SQLModel):
@@ -21,9 +22,15 @@ class Member(MemberBase, table=True):
 
     ID_Member: Optional[str] = Field(default=None, primary_key=True)
 
-    # Relaciones foráneas
-    # ID_Rol: Optional[str] = Field(default=None, foreign_key="rol.ID_Rol")
-    # rol: Optional["Rol"] = Relationship()
+    # Relaciones foráneas M:1
+    ID_Role: Optional[str] = Field(
+        default=None, foreign_key="role.ID_Role")
+    role: Optional[Role] = Relationship(back_populates="members")
+
+    # Relaciones foráneas 1:M
+    tlactivity: List["TLActivity"] = Relationship(  # type: ignore
+        back_populates="member",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
     # Relación de muchos a muchos
     jobs: List["Job"] = Relationship(  # type: ignore
@@ -34,16 +41,17 @@ class Member(MemberBase, table=True):
         back_populates="members",
         link_model=ClientMemberLink
     )
+    permissions: List["Permission"] = Relationship(  # type: ignore
+        back_populates="members",
+        link_model=PermissionMemberLink
+    )
 
 
 class MemberCreate(MemberBase):
-    pass
-    # ID_Rol: Optional[str] = None
+    ID_Role: Optional[str] = None
 
 
 class MemberUpdate(MemberBase):
-    # ID_Rol: Optional[str] = None
+    ID_Role: Optional[str] = None
     Email_Address: Optional[str] = Field(default=None)
     Password: Optional[str] = Field(default=None)
-
-# Info relacionadas con Rol estan comentadas hasta crear tabla

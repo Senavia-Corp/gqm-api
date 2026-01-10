@@ -37,6 +37,10 @@ def list_subcontractors():
                     joinedload(Subcontractor.jobs),
                     joinedload(Subcontractor.attachments),
                     joinedload(Subcontractor.payment_units),
+                    joinedload(Subcontractor.role),
+                    joinedload(Subcontractor.tlactivity),
+                    joinedload(Subcontractor.skills),
+                    joinedload(Subcontractor.opportunities),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -46,7 +50,8 @@ def list_subcontractors():
 
             subcontr_data = [
                 add_relationships(
-                    subcontractor, ["technicians.tasks", "orders", "jobs", "attachments", "payment_units"])
+                    subcontractor, ["technicians.tasks", "orders", "jobs", "attachments",
+                                    "payment_units", "role", "tlactivity", "skills", "opportunities"])
                 for subcontractor in results
             ]
 
@@ -82,6 +87,10 @@ def get_subcontractor(id_subcontractor):
                     joinedload(Subcontractor.jobs),
                     joinedload(Subcontractor.attachments),
                     joinedload(Subcontractor.payment_units),
+                    joinedload(Subcontractor.role),
+                    joinedload(Subcontractor.tlactivity),
+                    joinedload(Subcontractor.skills),
+                    joinedload(Subcontractor.opportunities),
                 )
                 .where(Subcontractor.ID_Subcontractor == id_subcontractor)
             )
@@ -92,7 +101,8 @@ def get_subcontractor(id_subcontractor):
                 return jsonify({"error": "Subcontractor not found"}), 404
 
             subcontr_data = add_relationships(
-                obj, ["technicians.tasks", "orders", "jobs", "attachments", "payment_units"])
+                obj, ["technicians.tasks", "orders", "jobs", "attachments",
+                      "payment_units", "role", "tlactivity", "skills", "opportunities"])
 
             return jsonify(subcontr_data), 200
 
@@ -113,9 +123,9 @@ def get_subcontractor(id_subcontractor):
 
 
 # Ruta para conseguir un subcontratista por estado
-@subcontractor_bp.get("/state/<state>")
+@subcontractor_bp.get("/status/<status>")
 @paginate()
-def list_subcontractor_by_state(state):
+def list_subcontractor_by_state(status):
     try:
         with get_session() as session:
 
@@ -128,7 +138,7 @@ def list_subcontractor_by_state(state):
                     joinedload(Subcontractor.jobs),
                     joinedload(Subcontractor.attachments),
                 )
-                .where(Subcontractor.State == state)
+                .where(Subcontractor.Status == status)
             )
             results = session.exec(statement).unique().all()
 

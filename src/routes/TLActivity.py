@@ -3,104 +3,106 @@
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from ..models.MemberModel import Member, MemberCreate, MemberUpdate
+from ..models.TLActivityModel import TLActivity, TLActivityCreate, TLActivityUpdate
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
-from ..utils.middleware.auth.password_hashing import hash_password
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 
-# Blueprint de Member:
-member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
+
+# Blueprint de TLActivity:
+tlactivity_bp = Blueprint("tlactivity_blueprint",
+                          __name__, url_prefix="/tlactivity")
 
 # -------------------RUTAS CRUD-------------------#
 
 
 # --------------------RUTAS GET-------------------#
-# Ruta para conseguir la lista de todos los miembros GQM
-@member_bp.get("/")
-@paginate()  # decorador de paginación
-def list_members():
+# Ruta para conseguir la lista de todos los tlactivity
+@tlactivity_bp.get("/")
+@paginate()
+def list_tlactivities():
     try:
         with get_session() as session:
-            # Trae los miembros GQM con sus trabajos en una sola consulta
+
             statement = (
-                select(Member)
+                select(TLActivity)
                 .options(
-                    joinedload(Member.jobs),
-                    joinedload(Member.permissions),
-                    joinedload(Member.role),
-                    joinedload(Member.tlactivity),
+                    joinedload(TLActivity.job),
+                    joinedload(TLActivity.member),
+                    joinedload(TLActivity.technician),
+                    joinedload(TLActivity.subcontractor),
                 )
             )
             results = session.exec(statement).unique().all()
 
             if not results:
-                return [], 404   # El decorador se encarga del formato final
+                return [], 404
 
-            member_data = []
+            tla_data = [
+                add_relationships(
+                    tla, ["job", "member", "technician", "subcontractor"])
+                for tla in results
+            ]
 
-            for member in results:
-                data = add_relationships(
-                    member, ["jobs", "permissions", "role", "tlactivity"])
-                member_data.append(data)
-
-            return member_data, 200
+            return tla_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar miembros GQM: {db_error}")
+        print(f"Error de base de datos al listar tlactivities: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar miembros GQM: {e}")
+        print(f"Error inesperado al listar tlactivities: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para conseguir un miembro GQM por ID_Member
-@member_bp.get("/<id_member>")
-def get_member_by_id(id_member):
+# Ruta para conseguir un tlactivity por ID
+@tlactivity_bp.get("/<id_tlactivity>")
+def get_tlactivity(id_tlactivity):
     try:
         with get_session() as session:
+
             statement = (
-                select(Member)
+                select(TLActivity)
                 .options(
-                    joinedload(Member.jobs),
-                    joinedload(Member.permissions),
-                    joinedload(Member.role),
-                    joinedload(Member.tlactivity),
+                    joinedload(TLActivity.job),
+                    joinedload(TLActivity.member),
+                    joinedload(TLActivity.technician),
+                    joinedload(TLActivity.subcontractor),
                 )
-                .where(Member.ID_Member == id_member)
+                .where(TLActivity.ID_TLActivity == id_tlactivity)
             )
 
             obj = session.exec(statement).unique().first()
 
             if not obj:
-                return jsonify({"error": "Member not found"}), 404
+                return jsonify({"error": "TLActivity not found"}), 404
 
-            # Construir JSON limpio con la info de los jobs
-            member_data = add_relationships(
-                obj, ["jobs", "permissions", "role", "tlactivity"])
+            tla_data = add_relationships(
+                obj, ["job", "member", "technician", "subcontractor"])
 
-            return jsonify(member_data), 200
+            return jsonify(tla_data), 200
 
     except SQLAlchemyError as db_error:
         print(
-            f"Error de base de datos al buscar miembro GQM {id_member}: {db_error}")
+            f"Error de base de datos al buscar tlactivity {id_tlactivity}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar miembros GQM: {e}")
+        print(f"Error inesperado al listar tlactivity: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
@@ -108,13 +110,13 @@ def get_member_by_id(id_member):
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear un miembro GQM
-@member_bp.post("/")
-def create_member():
+# Ruta para crear un tlactivity
+@tlactivity_bp.post("/")
+def create_tlactivity():
     try:
         data = request.get_json()
-        create_member = MemberCreate.model_validate(data)
-        obj = Member.model_validate(create_member)
+        create_tlactivity = TLActivityCreate.model_validate(data)
+        obj = TLActivity.model_validate(create_tlactivity)
 
     except ValidationError as e:
         if 'JSON' in str(e):
@@ -124,27 +126,19 @@ def create_member():
 
     try:
         with get_session() as session:
-
-            obj.Password = hash_password(obj.Password)  # Hash al password
-
             new_id = generate_custom_id(
-                session, Member, "ID_Member", "MEM")
-            obj.ID_Member = new_id
+                session, TLActivity, "ID_TLActivity", "TLA")
+            obj.ID_TLActivity = new_id
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
 
-            response = obj.model_dump()
-            response.pop("Password", None)
+            return jsonify(obj.model_dump()), 201
 
-            return jsonify(response), 201
-
-    except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
+    except IntegrityError as e:  # Cuando viola una restricción UNIQUE o NOT NULL
         session.rollback()  # Deshace los cambios realizados
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un miembro GQM con este valor único."
+            detail = "Ya existe un tlactivity con este valor único."
         else:
             detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
         print(f"Error de integridad: {e}")
@@ -152,7 +146,7 @@ def create_member():
 
     except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
         session.rollback()
-        print(f"Error de base de datos al crear miembro GQM: {db_error}")
+        print(f"Error de base de datos al crear tlactivity: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -164,64 +158,54 @@ def create_member():
         except Exception:
             pass
 
-        print(f"Error inesperado durante la creación de miembro GQM: {e}")
+        print(f"Error inesperado durante la creación de tlactivity: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para actualizar un miembro GQM
-@member_bp.patch("/<id_member>")
-def update_member(id_member):
+# Ruta para actualizar un tlactivity
+@tlactivity_bp.patch("/<id_tlactivity>")
+def update_tlactivity(id_tlactivity):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.get(Member, id_member)
+            obj = session.get(TLActivity, id_tlactivity)
             if not obj:
-                return jsonify({"error": "GQM Member not found"}), 404
+                return jsonify({"error": "TLActivity not found"}), 404
 
-            update_member = MemberUpdate.model_validate(data)
-            update_data_dict = update_member.model_dump(
+            update_tlactivity = TLActivityUpdate.model_validate(data)
+            update_data_dict = update_tlactivity.model_dump(
                 exclude_unset=True)  # Crea dict limpio
-
-            # Hash al passsword si se actualiza
-            if "Password" in update_data_dict:
-                update_data_dict["Password"] = hash_password(
-                    update_data_dict["Password"]
-                )
 
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
 
-            response = obj.model_dump()
-            response.pop("Password", None)
-
-            return jsonify(response), 200
+            return jsonify(obj.model_dump()), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
-            "detail": "Error de validación: Datos de miembro GQM inválidos para la actualización.",
+            "detail": "Error de validación: Datos de tlactivity inválidos para la actualización.",
             "errors": e.errors()
         }), 400
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un miembro GQM con estos valores únicos o faltan datos requeridos."
+        detail = "Error de integridad: Ya existe un tlactivity con estos valores únicos o faltan datos requeridos."
         print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al actualizar miembro GQM: {db_error}")
+        print(
+            f"Error de base de datos al actualizar tlactivity: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -233,38 +217,39 @@ def update_member(id_member):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al actualizar miembro GQM: {e}")
+        print(f"Error inesperado al actualizar tlactivity: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para eliminar un miembro GQM
-@member_bp.delete("/<id_member>")
-def delete_member(id_member):
+# Ruta para eliminar un tlactivity
+@tlactivity_bp.delete("/<id_tlactivity>")
+def delete_tlactivity(id_tlactivity):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(Member, id_member)
+            obj = session.get(TLActivity, id_tlactivity)
             if not obj:
-                return jsonify({"error": "GQM Member not found"}), 404
-            session.delete(obj)
-            session.commit()
-            return jsonify({"message": f"Deleted GQM Member {id_member}"}), 200
+                return jsonify({"error": "TLActivity not found"}), 404
+
+            delete_with_retry(session, obj)
+
+            return jsonify({"message": f"Deleted TLActivity {id_tlactivity}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un miembro GQM que tiene productos asociados con Foreign Key
+    except IntegrityError as e:  # En caso de borrar un tlactivity que tiene productos asociados con Foreign Key
         if session:
             session.rollback()
-        detail = "Error de integridad: No se puede eliminar el miembro GQM porque tiene registros relacionados."
+        detail = "Error de integridad: No se puede eliminar el tlactivity porque tiene registros relacionados."
         print(f"Error de integridad (DELETE): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al eliminar miembro GQM: {db_error}")
+        print(f"Error de base de datos al eliminar tlactivity: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -276,7 +261,7 @@ def delete_member(id_member):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al eliminar miembro GQM: {e}")
+        print(f"Error inesperado al eliminar tlactivity: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"

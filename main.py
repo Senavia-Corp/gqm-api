@@ -24,6 +24,12 @@ from src.routes.PaymentUnit import payment_unit_bp
 from src.routes.Links.ClientLinks import client_pr_manager_bp, client_member_bp
 from src.routes.EstimateCost import estimate_bp
 from src.routes.Order import order_bp
+from src.routes.Role import role_bp
+from src.routes.Permission import permission_bp
+from src.routes.Links.PermissionLinks import permission_role_bp, permission_member_bp, permission_tech_bp
+from src.routes.ChangeOrder import change_order_bp
+from src.routes.Opportunities import opportunities_bp
+from src.routes.TLActivity import tlactivity_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion masiva de Podio a Postgre:
@@ -54,6 +60,7 @@ def create_app():
 
     # Registrar blueprints
     app.register_blueprint(attachments_bp)
+    app.register_blueprint(change_order_bp)
     app.register_blueprint(client_bp)
     app.register_blueprint(client_pr_manager_bp)
     app.register_blueprint(client_member_bp)
@@ -65,15 +72,22 @@ def create_app():
     app.register_blueprint(job_payment_unit_bp)
     app.register_blueprint(member_bp)
     app.register_blueprint(multiplier_bp)
+    app.register_blueprint(opportunities_bp)
     app.register_blueprint(order_bp)
     app.register_blueprint(payment_unit_bp)
     app.register_blueprint(parent_mgmt_co_bp)
     app.register_blueprint(property_manager_bp)
+    app.register_blueprint(permission_bp)
+    app.register_blueprint(permission_role_bp)
+    app.register_blueprint(permission_member_bp)
+    app.register_blueprint(permission_tech_bp)
+    app.register_blueprint(role_bp)
     app.register_blueprint(skills_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
     app.register_blueprint(tasks_bp)
     app.register_blueprint(technician_bp)
+    app.register_blueprint(tlactivity_bp)
 
     # Ruta para login
     app.register_blueprint(auth_bp)

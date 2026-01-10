@@ -6,6 +6,9 @@ from typing import Optional, List
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSON
 from .link_models.JobSubcontractor import JobSubcontractorLink
+from .RoleModel import Role
+from .link_models.OpportunitiesLinks import OpportSubcLink
+from .link_models.SkillsSubcontractor import SkillsSubcLink
 
 
 class SubcontractorBase(SQLModel):
@@ -35,6 +38,19 @@ class Subcontractor(SubcontractorBase, table=True):
         back_populates="subcontractors",
         link_model=JobSubcontractorLink
     )
+    opportunities: List["Opportunities"] = Relationship(  # type: ignore
+        back_populates="subcontractors",
+        link_model=OpportSubcLink
+    )
+    skills: List["Skills"] = Relationship(  # type: ignore
+        back_populates="subcontractors",
+        link_model=SkillsSubcLink
+    )
+
+    # Relaciones foráneas M:1
+    ID_Role: Optional[str] = Field(
+        default=None, foreign_key="role.ID_Role")
+    role: Optional[Role] = Relationship(back_populates="subcontractors")
 
     # Relaciones foráneas 1:M
     technicians: List["Technician"] = Relationship(  # type: ignore
@@ -46,13 +62,14 @@ class Subcontractor(SubcontractorBase, table=True):
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
     payment_units: List["PaymentUnit"] = Relationship(  # type: ignore
         back_populates="subcontractor")
+    tlactivity: List["TLActivity"] = Relationship(  # type: ignore
+        back_populates="subcontractor",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
 
 class SubcontractorCreate(SubcontractorBase):
-    pass
-    # ID_Rol: Optional[str] = None
+    ID_Role: Optional[str] = None
 
 
 class SubcontractorUpdate(SubcontractorBase):
-    pass
-    # ID_Rol: Optional[str] = None
+    ID_Role: Optional[str] = None

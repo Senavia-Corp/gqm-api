@@ -3,8 +3,7 @@ from ...database.db_sqlmodel import get_session
 from ...models.ClientModel import Client
 from ...models.PropertyManagerModel import PropertyManager
 from ...models.MemberModel import Member
-from ...models.link_models.ClientPManager import ClientPrManagerLink
-from ...models.link_models.ClientMember import ClientMemberLink
+from ...models.link_models.ClientLinks import ClientMemberLink, ClientPrManagerLink
 
 # ------------------- Link entre Client y Property Manager -------------------
 client_pr_manager_bp = Blueprint(
