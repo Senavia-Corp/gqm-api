@@ -37,6 +37,7 @@ def list_technicians():
                         Subcontractor.jobs),
                     joinedload(Technician.tasks),
                     joinedload(Technician.attachments),
+                    joinedload(Technician.permissions),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -48,7 +49,7 @@ def list_technicians():
 
             for tech in results:
                 data = add_relationships(
-                    tech, ["subcontractor", "subcontractor.jobs", "tasks", "attachments"])
+                    tech, ["subcontractor", "subcontractor.jobs", "tasks", "attachments", "permissions"])
                 technician_data.append(data)
 
             return technician_data, 200
@@ -80,6 +81,7 @@ def get_tech_by_id(id_technician):
                         Subcontractor.jobs),
                     joinedload(Technician.tasks),
                     joinedload(Technician.attachments),
+                    joinedload(Technician.permissions),
                 )
                 .where(Technician.ID_Technician == id_technician)
             )
@@ -91,7 +93,7 @@ def get_tech_by_id(id_technician):
 
             # Construir JSON limpio con la info del cliente
             technician_data = add_relationships(
-                obj, ["subcontractor", "subcontractor.jobs", "tasks", "attachments"])
+                obj, ["subcontractor", "subcontractor.jobs", "tasks", "attachments", "permissions"])
 
             return jsonify(technician_data), 200
 

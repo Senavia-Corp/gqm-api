@@ -49,6 +49,8 @@ def list_jobs():
                         Subcontractor.technicians),
                     joinedload(Job.subcontractors).joinedload(
                         Subcontractor.orders),
+                    joinedload(Job.tlactivity),
+                    joinedload(Job.change_orders),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -61,7 +63,7 @@ def list_jobs():
                 add_relationships(
                     job, ["client", "members", "multipliers",
                           "attachments", "subcontractors.technicians",
-                          "subcontractors.orders", "tasks", "estimate_costs", "payment_units"])
+                          "subcontractors.orders", "tasks", "estimate_costs", "payment_units", "tlactivity", "change_orders"])
                 for job in results
             ]
 
@@ -101,6 +103,8 @@ def get_job_by_id(id_job):
                         Subcontractor.technicians),
                     joinedload(Job.subcontractors).joinedload(
                         Subcontractor.orders),
+                    joinedload(Job.tlactivity),
+                    joinedload(Job.change_orders),
                 )
                 .where(Job.ID_Jobs == id_job)
             )
@@ -112,7 +116,7 @@ def get_job_by_id(id_job):
             job_data = add_relationships(
                 obj,  ["client", "members", "multipliers",
                        "attachments", "subcontractors.technicians",
-                       "subcontractors.orders", "tasks", "estimate_costs", "payment_units"])
+                       "subcontractors.orders", "tasks", "estimate_costs", "payment_units", "tlactivity", "change_orders"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)

@@ -4,6 +4,7 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from .SubcontractorModel import Subcontractor
+from .link_models.PermissionLinks import PermissionTechLink
 
 
 class TechnicianBase(SQLModel):
@@ -32,6 +33,15 @@ class Technician(TechnicianBase, table=True):
     attachments: List["Attachments"] = Relationship(  # type: ignore
         back_populates="technician",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+    tlactivity: List["TLActivity"] = Relationship(  # type: ignore
+        back_populates="technician",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+
+    # Relación de muchos a muchos
+    permissions: List["Permission"] = Relationship(  # type: ignore
+        back_populates="technicians",
+        link_model=PermissionTechLink
+    )
 
 
 class TechnicianCreate (TechnicianBase):

@@ -17,6 +17,7 @@ class MultiplierR(MultiplierRBase, table=True):
 
     ID_MultiplierR: Optional[str] = Field(default=None, primary_key=True)
 
+    # Relaciones de muchos a muchos
     jobs: List["Job"] = Relationship(  # type: ignore
         back_populates="multipliers",
         link_model=JobMultiplierRLink

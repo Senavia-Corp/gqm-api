@@ -2,7 +2,7 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from .ParentMgmtCoModel import ParentMgmtCo
-from .link_models.ClientPManager import ClientPrManagerLink
+from .link_models.ClientLinks import ClientPrManagerLink
 from .ClientModel import Client
 
 # ==================================== Modelos para PostgreSQL ====================================#

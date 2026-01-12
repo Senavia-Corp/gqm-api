@@ -4,7 +4,7 @@ from decouple import config
 
 # Todos los modelos (para evitar problemas con las relaciones en la creación de las tablas en la db)
 from src.models.AttachmentsModel import Attachments
-# from src.models.ChangeOrderModel import ChangeOrder
+from src.models.ChangeOrderModel import ChangeOrder
 from src.models.ClientModel import Client
 from src.models.EstimateCostModel import EstimateCost
 from src.models.JobModel import Job
@@ -13,19 +13,24 @@ from src.models.MultiplierRModel import MultiplierR
 from src.models.OrderModel import Order
 from src.models.ParentMgmtCoModel import ParentMgmtCo
 from src.models.PaymentUnitModel import PaymentUnit
+from src.models.PermissionModel import Permission
 from src.models.PropertyManagerModel import PropertyManager
+from src.models.RoleModel import Role
 from src.models.SkillsModel import Skills
 from src.models.SubcontractorModel import Subcontractor
 from src.models.SupplierModel import Supplier
 from src.models.TasksModel import Tasks
 from src.models.TechnicianModel import Technician
+from src.models.TLActivityModel import TLActivity
 # Modelos de links de las relaciones N:M
-from src.models.link_models.ClientPManager import ClientPrManagerLink
-from src.models.link_models.ClientMember import ClientMemberLink
+from src.models.link_models.ClientLinks import ClientMemberLink, ClientPrManagerLink
 from src.models.link_models.JobMember import JobMemberLink
 from src.models.link_models.JobMultiplierR import JobMultiplierRLink
 from src.models.link_models.JobSubcontractor import JobSubcontractorLink
 from src.models.link_models.JobPaymentU import JobPaymentULink
+from src.models.link_models.OpportunitiesLinks import OpportSkillsLink, OpportSubcLink
+from src.models.link_models.PermissionLinks import PermissionRoleLink, PermissionMemberLink, PermissionTechLink
+from src.models.link_models.SkillsSubcontractor import SkillsSubcLink
 
 # Configuración para PostgreSQL
 DATABASE_URL = config("DATABASE_URL")
