@@ -6,6 +6,8 @@ from flask import Blueprint, redirect
 from ...tests.test_sandbox import get_company_info
 from ...quickbooks.services.invoices_services import get_invoices, get_invoices_by_job
 from ...quickbooks.services.payments_services import get_money_received
+from ...quickbooks.services.bills_services import get_bills, get_bill_payments
+from ...quickbooks.services.vendors_services import get_vendors
 
 from src.database.db_sqlmodel import get_session
 from src.quickbooks.TokensModel import QuickBooksToken
@@ -107,4 +109,25 @@ def fetch_invoices_by_job(realm_id, job_code):
 @qbo_bp.get("/money_received/<realm_id>")
 def fetch_payments(realm_id):
     data = get_money_received(realm_id)
+    return data, 200
+
+
+# Endpoint para conseguir info de vendors reales
+@qbo_bp.get("/vendors/<realm_id>")
+def fetch_vendors(realm_id):
+    data = get_vendors(realm_id)
+    return data, 200
+
+
+# Endpoint para conseguir info de bills reales
+@qbo_bp.get("/bills/<realm_id>")
+def fetch_bills(realm_id):
+    data = get_bills(realm_id)
+    return data, 200
+
+
+# Endpoint para conseguir info de bill payments reales
+@qbo_bp.get("/bill_payments/<realm_id>")
+def fetch_bill_payments(realm_id):
+    data = get_bill_payments(realm_id)
     return data, 200

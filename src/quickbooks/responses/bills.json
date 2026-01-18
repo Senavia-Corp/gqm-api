@@ -1,0 +1,104 @@
+{
+    "APAccountRef": {
+        "name": "Accounts Payable",
+        "value": "56"
+    },
+    "Balance": 0,
+    "CurrencyRef": {
+        "name": "United States Dollar",
+        "value": "USD"
+    },
+    "DocNumber": "PAR5131-0002",
+    "DueDate": "2025-12-01",
+    "Id": "150802",
+    "Line": [
+        {
+            "Amount": 210.0,
+            "CustomExtensions": [],
+            "Description": "Refinishing Master Tub and Walls\n8-109",
+            "DetailType": "ItemBasedExpenseLineDetail",
+            "Id": "1",
+            "ItemBasedExpenseLineDetail": {
+                "BillableStatus": "NotBillable",
+                "CustomerRef": {
+                    "name": "Maxx - The Upton Apartment Homes",
+                    "value": "46"
+                },
+                "ItemRef": {
+                    "name": "Refinish Bathtub and walls",
+                    "value": "650"
+                },
+                "Qty": 1,
+                "TaxCodeRef": {
+                    "value": "NON"
+                },
+                "UnitPrice": 210
+            },
+            "LineNum": 1,
+            "LinkedTxn": []
+        },
+        {
+            "Amount": 170.0,
+            "CustomExtensions": [],
+            "Description": "Refinishing Guest Tub & Soap Dish\n1-104",
+            "DetailType": "ItemBasedExpenseLineDetail",
+            "Id": "2",
+            "ItemBasedExpenseLineDetail": {
+                "BillableStatus": "NotBillable",
+                "CustomerRef": {
+                    "name": "Maxx - The Upton Apartment Homes",
+                    "value": "46"
+                },
+                "ItemRef": {
+                    "name": "Refinish Bathtub and walls",
+                    "value": "650"
+                },
+                "Qty": 1,
+                "TaxCodeRef": {
+                    "value": "NON"
+                },
+                "UnitPrice": 170
+            },
+            "LineNum": 2,
+            "LinkedTxn": []
+        }
+    ],
+    "LinkedTxn": [
+        {
+            "TxnId": "153561",
+            "TxnType": "BillPaymentCheck"
+        },
+        {
+            "TxnId": "152944",
+            "TxnType": "BillPaymentCheck"
+        }
+    ],
+    "MetaData": {
+        "CreateTime": "2025-11-25T08:01:23-08:00",
+        "LastModifiedByRef": {
+            "value": "9130354460288676"
+        },
+        "LastUpdatedTime": "2026-01-05T08:49:59-08:00"
+    },
+    "PrivateNote": "PO: Refinishing Nov PAR5131-0001, Bill: PAR5131-0001 - Refinishing Nov 0002, Vendor: Multipro Refinish Services LLC",
+    "SalesTermRef": {
+        "value": "5"
+    },
+    "SyncToken": "2",
+    "TotalAmt": 380.0,
+    "TxnDate": "2025-11-25",
+    "VendorAddr": {
+        "City": "Fort Lauderdale",
+        "Country": "US",
+        "CountrySubDivisionCode": "Fl",
+        "Id": "28753",
+        "Line1": "1301 NW 24TH AVE",
+        "PostalCode": "33311"
+    },
+    "VendorRef": {
+        "name": "Multipro Refinish Services LLC",
+        "value": "3315"
+    },
+    "domain": "QBO",
+    "sparse": false
+}

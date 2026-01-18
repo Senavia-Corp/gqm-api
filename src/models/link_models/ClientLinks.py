@@ -19,16 +19,16 @@ class ClientMemberLink(SQLModel, table=True):
     rol: Optional[str] = Field(default=None)
 
 
-# Tabla intermedia con Property Manager
-class ClientPrManagerLink(SQLModel, table=True):
-    __tablename__ = "client_property_manager"
+# Tabla intermedia con Manager
+class ClientManagerLink(SQLModel, table=True):
+    __tablename__ = "client_manager"
 
     clients_id: str = Field(
         foreign_key="client.ID_Client",
         primary_key=True
     )
 
-    property_manager_id: str = Field(
-        foreign_key="property_manager.ID_PropertyManager",
+    manager_id: str = Field(
+        foreign_key="manager.ID_Manager",
         primary_key=True
     )

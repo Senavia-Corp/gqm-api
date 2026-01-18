@@ -28,7 +28,7 @@ def list_managers_co():
             statement = (
                 select(ParentMgmtCo)
                 .options(
-                    joinedload(ParentMgmtCo.property_managers),
+                    joinedload(ParentMgmtCo.managers),
                     joinedload(ParentMgmtCo.clients)
                 )
             )
@@ -38,7 +38,7 @@ def list_managers_co():
                 return [], 404
 
             pro_mgmt_co_data = [
-                add_relationships(manager, ["property_managers", "clients"])
+                add_relationships(manager, ["managers", "clients"])
                 for manager in results
             ]
 
@@ -69,7 +69,7 @@ def get_manager_co(pa_mgmt_co_id):
             statement = (
                 select(ParentMgmtCo)
                 .options(
-                    joinedload(ParentMgmtCo.property_managers),
+                    joinedload(ParentMgmtCo.managers),
                     joinedload(ParentMgmtCo.clients)
                 )
                 .where(ParentMgmtCo.ID_Community_Tracking == pa_mgmt_co_id)
@@ -81,7 +81,7 @@ def get_manager_co(pa_mgmt_co_id):
                 return jsonify({"error": "Parent Mgmt Co not found"}), 404
 
             pa_mgmt_co_data = add_relationships(
-                results, ["property_mgmt_co", "client"])
+                results, ["managers", "client"])
 
             return jsonify(pa_mgmt_co_data), 200
 

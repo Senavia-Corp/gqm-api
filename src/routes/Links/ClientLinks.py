@@ -1,33 +1,33 @@
 from flask import Blueprint, jsonify, request
 from ...database.db_sqlmodel import get_session
 from ...models.ClientModel import Client
-from ...models.PropertyManagerModel import PropertyManager
+from ...models.ManagerModel import Manager
 from ...models.MemberModel import Member
-from ...models.link_models.ClientLinks import ClientMemberLink, ClientPrManagerLink
+from ...models.link_models.ClientLinks import ClientMemberLink, ClientManagerLink
 
-# ------------------- Link entre Client y Property Manager -------------------
-client_pr_manager_bp = Blueprint(
-    "client_pr_manager_blueprint", __name__, url_prefix="/client_pr_manager")
+# ------------------- Link entre Client y Manager -------------------
+client_manager_bp = Blueprint(
+    "client_manager_blueprint", __name__, url_prefix="/client_manager")
 
 
-# Vincular un cliente con un property manager
-@client_pr_manager_bp.post("/client/<clients_id>/manager/<property_manager_id>")
-def assign_client_to_manager(clients_id, property_manager_id):
+# Vincular un cliente con un manager
+@client_manager_bp.post("/client/<clients_id>/manager/<manager_id>")
+def assign_client_to_manager(clients_id, manager_id):
     with get_session() as session:
         client = session.get(Client, clients_id)
-        prmanager = session.get(PropertyManager, property_manager_id)
+        prmanager = session.get(Manager, manager_id)
 
         if not client or not prmanager:
-            return jsonify({"error": "Client or Property Manager not found"}), 404
+            return jsonify({"error": "Client or Manager not found"}), 404
 
         existing_link = session.get(
-            ClientPrManagerLink, (clients_id, property_manager_id))
+            ClientManagerLink, (clients_id, manager_id))
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
 
-        link = ClientPrManagerLink(
+        link = ClientManagerLink(
             clients_id=clients_id,
-            property_manager_id=property_manager_id
+            manager_id=manager_id
         )
 
         session.add(link)
@@ -36,19 +36,19 @@ def assign_client_to_manager(clients_id, property_manager_id):
         return jsonify({
             "status": "Linked 🔗",
             "clients_id": clients_id,
-            "property_manager_id": property_manager_id
+            "manager_id": manager_id
         }), 201
 
 
-# Desvincular un cliente de un property manager
-@client_pr_manager_bp.delete("/client/<clients_id>/manager/<property_manager_id>")
-def remove_client_from_manager(clients_id, property_manager_id):
+# Desvincular un cliente de un manager
+@client_manager_bp.delete("/client/<clients_id>/manager/<manager_id>")
+def remove_client_from_manager(clients_id, manager_id):
     with get_session() as session:
 
         # Buscar si existe el link
         link = session.get(
-            ClientPrManagerLink,
-            (clients_id, property_manager_id)  # Clave primaria compuesta
+            ClientManagerLink,
+            (clients_id, manager_id)  # Clave primaria compuesta
         )
 
         if not link:
@@ -62,7 +62,7 @@ def remove_client_from_manager(clients_id, property_manager_id):
         return jsonify({
             "status": "Unlinked ✖️",
             "clients_id": clients_id,
-            "property_manager_id": property_manager_id
+            "manager_id": manager_id
         }), 200
 
 

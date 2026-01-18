@@ -36,7 +36,6 @@ def list_subcontractors():
                     joinedload(Subcontractor.orders),
                     joinedload(Subcontractor.jobs),
                     joinedload(Subcontractor.attachments),
-                    joinedload(Subcontractor.payment_units),
                     joinedload(Subcontractor.role),
                     joinedload(Subcontractor.tlactivity),
                     joinedload(Subcontractor.skills),
@@ -51,7 +50,7 @@ def list_subcontractors():
             subcontr_data = [
                 add_relationships(
                     subcontractor, ["technicians.tasks", "orders", "jobs", "attachments",
-                                    "payment_units", "role", "tlactivity", "skills", "opportunities"])
+                                    "role", "tlactivity", "skills", "opportunities"])
                 for subcontractor in results
             ]
 
@@ -86,7 +85,6 @@ def get_subcontractor(id_subcontractor):
                     joinedload(Subcontractor.orders),
                     joinedload(Subcontractor.jobs),
                     joinedload(Subcontractor.attachments),
-                    joinedload(Subcontractor.payment_units),
                     joinedload(Subcontractor.role),
                     joinedload(Subcontractor.tlactivity),
                     joinedload(Subcontractor.skills),
@@ -102,7 +100,7 @@ def get_subcontractor(id_subcontractor):
 
             subcontr_data = add_relationships(
                 obj, ["technicians.tasks", "orders", "jobs", "attachments",
-                      "payment_units", "role", "tlactivity", "skills", "opportunities"])
+                      "role", "tlactivity", "skills", "opportunities"])
 
             return jsonify(subcontr_data), 200
 

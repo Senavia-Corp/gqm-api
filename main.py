@@ -18,10 +18,10 @@ from src.routes.Technician import technician_bp
 from src.routes.Skills import skills_bp
 from src.routes.MultiplierR import multiplier_bp
 from src.routes.Attachments import attachments_bp
-from src.routes.PropertyManager import property_manager_bp
+from src.routes.Manager import manager_bp
 from src.routes.ParentMgmtCo import parent_mgmt_co_bp
 from src.routes.PaymentUnit import payment_unit_bp
-from src.routes.Links.ClientLinks import client_pr_manager_bp, client_member_bp
+from src.routes.Links.ClientLinks import client_manager_bp, client_member_bp
 from src.routes.EstimateCost import estimate_bp
 from src.routes.Order import order_bp
 from src.routes.Role import role_bp
@@ -30,6 +30,10 @@ from src.routes.Links.PermissionLinks import permission_role_bp, permission_memb
 from src.routes.ChangeOrder import change_order_bp
 from src.routes.Opportunities import opportunities_bp
 from src.routes.TLActivity import tlactivity_bp
+from src.routes.FinancialDocItem import fdoc_item_bp
+from src.routes.FinancialDocument import fdocument_bp
+from src.routes.FinancialTransaction import ftransaction_bp
+from src.routes.Links.FinancialLinks import fdocument_ftransaction_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion masiva de Podio a Postgre:
@@ -62,9 +66,13 @@ def create_app():
     app.register_blueprint(attachments_bp)
     app.register_blueprint(change_order_bp)
     app.register_blueprint(client_bp)
-    app.register_blueprint(client_pr_manager_bp)
+    app.register_blueprint(client_manager_bp)
     app.register_blueprint(client_member_bp)
     app.register_blueprint(estimate_bp)
+    app.register_blueprint(fdoc_item_bp)
+    app.register_blueprint(fdocument_bp)
+    app.register_blueprint(ftransaction_bp)
+    app.register_blueprint(fdocument_ftransaction_bp)
     app.register_blueprint(job_bp)
     app.register_blueprint(job_multiplier_bp)
     app.register_blueprint(job_member_bp)
@@ -76,7 +84,7 @@ def create_app():
     app.register_blueprint(order_bp)
     app.register_blueprint(payment_unit_bp)
     app.register_blueprint(parent_mgmt_co_bp)
-    app.register_blueprint(property_manager_bp)
+    app.register_blueprint(manager_bp)
     app.register_blueprint(permission_bp)
     app.register_blueprint(permission_role_bp)
     app.register_blueprint(permission_member_bp)

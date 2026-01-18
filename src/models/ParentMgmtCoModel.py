@@ -23,7 +23,7 @@ class ParentMgmtCo(PaMgmtCoBase, table=True):
     # Relaciones foráneas 1:M
     clients: List["Client"] = Relationship(  # type: ignore
         back_populates="parent_mgmt_co")
-    property_managers: List["PropertyManager"] = Relationship(  # type: ignore
+    managers: List["Manager"] = Relationship(  # type: ignore
         back_populates="parent_mgmt_co")
 
 
