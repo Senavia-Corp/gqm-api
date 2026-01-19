@@ -1,7 +1,6 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from datetime import datetime
-from .SubcontractorModel import Subcontractor
 from .link_models.JobPaymentU import JobPaymentULink
 
 # ==================================== Modelos para PostgreSQL ====================================#
@@ -28,15 +27,11 @@ class PaymentUnit(PaymentUBase, table=True):
     )
 
     # Relaciones foráneas M:1
-    ID_Subcontractor: Optional[str] = Field(
-        default=None, foreign_key="subcontractor.ID_Subcontractor")
-    subcontractor: Optional[Subcontractor] = Relationship(
-        back_populates="payment_units")
 
 
 class PaymentUCreate(PaymentUBase):
-    ID_Subcontractor: Optional[str] = None
+    pass
 
 
 class PaymentUUpdate(PaymentUBase):
-    ID_Subcontractor: Optional[str] = None
+    pass

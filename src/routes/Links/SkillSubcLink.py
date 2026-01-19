@@ -10,7 +10,7 @@ skills_subcontractors_bp = Blueprint(
     "skills_subcontractors_blueprint", __name__, url_prefix="/skills_subcontractors")
 
 
-# Vincular un opportunity con un subcontractor
+# Vincular una skill con un subcontractor
 @skills_subcontractors_bp.post("/skills/<skills_id>/subcontractors/<subcon_id>")
 def assign_skill_to_subc(skills_id, subcon_id):
     with get_session() as session:
@@ -40,7 +40,7 @@ def assign_skill_to_subc(skills_id, subcon_id):
         }), 201
 
 
-# Desvincular un skill de un subcontractor
+# Desvincular una skill de un subcontractor
 @skills_subcontractors_bp.delete("/skills/<skills_id>/subcontractors/<subcon_id>")
 def remove_skill_from_subc(skills_id, subcon_id):
     with get_session() as session:

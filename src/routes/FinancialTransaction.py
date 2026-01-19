@@ -1,7 +1,9 @@
+# ============ Lógica de rutas =================
+
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from ..models.PaymentUnitModel import PaymentUnit, PaymentUCreate, PaymentUUpdate
+from ..models.FinancialTransModel import FinancialTransaction, FTransactionCreate, FTransactionUpdate
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -12,25 +14,25 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 
 
-# Blueprint de Payment Unit
-payment_unit_bp = Blueprint(
-    "payment_unit_blueprint", __name__, url_prefix="/payment_unit")
+# Blueprint de FinancialTransaction:
+ftransaction_bp = Blueprint("ftransaction_blueprint",
+                            __name__, url_prefix="/ftransaction")
 
 # -------------------RUTAS CRUD-------------------#
 
 
 # --------------------RUTAS GET-------------------#
-# Ruta para conseguir la lista de todos los payment units
-@payment_unit_bp.get("/")
+# Ruta para conseguir la lista de todos los ftransaction
+@ftransaction_bp.get("/")
 @paginate()
-def list_payment_units():
+def list_ftransactions():
     try:
         with get_session() as session:
 
             statement = (
-                select(PaymentUnit)
+                select(FinancialTransaction)
                 .options(
-                    joinedload(PaymentUnit.jobs),
+                    joinedload(FinancialTransaction.financial_documents)
                 )
             )
             results = session.exec(statement).unique().all()
@@ -38,76 +40,79 @@ def list_payment_units():
             if not results:
                 return [], 404
 
-            paymentU_data = [
+            ft_data = [
                 add_relationships(
-                    payment_u, ["jobs"])
-                for payment_u in results
+                    ft, ["financial_documents"])
+                for ft in results
             ]
 
-            return paymentU_data, 200
+            return ft_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar payment units: {db_error}")
+        print(f"Error de base de datos al listar ftransactions: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar payment units: {e}")
+        print(f"Error inesperado al listar ftransactions: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para conseguir payment unit por ID
-@payment_unit_bp.get("/<id_payment_unit>")
-def get_payment_unit(id_payment_unit):
+# Ruta para conseguir un ftransaction por ID
+@ftransaction_bp.get("/<id_ftransaction>")
+def get_ftransaction(id_ftransaction):
     try:
         with get_session() as session:
 
             statement = (
-                select(PaymentUnit)
+                select(FinancialTransaction)
                 .options(
-                    joinedload(PaymentUnit.jobs),
+                    joinedload(FinancialTransaction.financial_documents)
                 )
-                .where(PaymentUnit.ID_PaymentU == id_payment_unit)
+                .where(FinancialTransaction.ID_FTransaction == id_ftransaction)
             )
 
             obj = session.exec(statement).unique().first()
 
             if not obj:
-                return jsonify({"error": "Payment Unit not found"}), 404
+                return jsonify({"error": "Financial Transaction not found"}), 404
 
-            paymentU_data = add_relationships(obj, ["jobs"])
+            ft_data = add_relationships(
+                obj, ["financial_documents"])
 
-            return jsonify(paymentU_data), 200
+            return jsonify(ft_data), 200
 
     except SQLAlchemyError as db_error:
         print(
-            f"Error de base de datos al buscar payment unit {id_payment_unit}: {db_error}")
+            f"Error de base de datos al buscar ftransaction {id_ftransaction}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
     except Exception as e:
-        print(f"Error inesperado al listar payment units: {e}")
+        print(f"Error inesperado al listar ftransaction: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
         }), 500
 
 
+# AGREGAR GETS POSIBLEMENTE POR CLIENT, JOB, ORDER Y SUBCONTRACTOR
+
 # --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear un payment unit
-@payment_unit_bp.post("/")
-def create_paymentU():
+# Ruta para crear un ftransaction
+@ftransaction_bp.post("/")
+def create_ftransaction():
     try:
         data = request.get_json()
-        create_paymentU = PaymentUCreate.model_validate(data)
-        obj = PaymentUnit.model_validate(create_paymentU)
+        create_ftransaction = FTransactionCreate.model_validate(data)
+        obj = FinancialTransaction.model_validate(create_ftransaction)
 
     except ValidationError as e:
         if 'JSON' in str(e):
@@ -118,18 +123,18 @@ def create_paymentU():
     try:
         with get_session() as session:
             new_id = generate_custom_id(
-                session, PaymentUnit, "ID_PaymentU", "PayU")
-            obj.ID_PaymentU = new_id
+                session, FinancialTransaction, "ID_FTransaction", "FT")
+            obj.ID_FTransaction = new_id
 
             save_with_retry(session, obj)
 
             return jsonify(obj.model_dump()), 201
 
-    except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
+    except IntegrityError as e:  # Cuando viola una restricción UNIQUE o NOT NULL
         session.rollback()  # Deshace los cambios realizados
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un payment unit con este valor único."
+            detail = "Ya existe un ftransaction con este valor único."
         else:
             detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
         print(f"Error de integridad: {e}")
@@ -137,7 +142,7 @@ def create_paymentU():
 
     except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
         session.rollback()
-        print(f"Error de base de datos al crear payment unit: {db_error}")
+        print(f"Error de base de datos al crear ftransaction: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -149,26 +154,26 @@ def create_paymentU():
         except Exception:
             pass
 
-        print(f"Error inesperado durante la creación de payment unit: {e}")
+        print(f"Error inesperado durante la creación de ftransaction: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para actualizar un payment unit
-@payment_unit_bp.patch("/<id_payment_unit>")
-def update_paymentU(id_payment_unit):
+# Ruta para actualizar un ftransaction
+@ftransaction_bp.patch("/<id_ftransaction>")
+def update_ftransaction(id_ftransaction):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.get(PaymentUnit, id_payment_unit)
+            obj = session.get(FinancialTransaction, id_ftransaction)
             if not obj:
-                return jsonify({"error": "Payment Unit not found"}), 404
+                return jsonify({"error": "Financial Transaction not found"}), 404
 
-            update_paymentU = PaymentUUpdate.model_validate(data)
-            update_data_dict = update_paymentU.model_dump(
+            update_ftransaction = FTransactionUpdate.model_validate(data)
+            update_data_dict = update_ftransaction.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
@@ -181,14 +186,14 @@ def update_paymentU(id_payment_unit):
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
-            "detail": "Error de validación: Datos de payment unit inválidos para la actualización.",
+            "detail": "Error de validación: Datos de ftransaction inválidos para la actualización.",
             "errors": e.errors()
         }), 400
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un payment unit con estos valores únicos o faltan datos requeridos."
+        detail = "Error de integridad: Ya existe un ftransaction con estos valores únicos o faltan datos requeridos."
         print(f"Error de integridad (PATCH): {e}")
         return jsonify({"detail": detail}), 409
 
@@ -196,7 +201,7 @@ def update_paymentU(id_payment_unit):
         if session:
             session.rollback()
         print(
-            f"Error de base de datos al actualizar payment unit: {db_error}")
+            f"Error de base de datos al actualizar ftransaction: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -208,39 +213,39 @@ def update_paymentU(id_payment_unit):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al actualizar payment unit: {e}")
+        print(f"Error inesperado al actualizar ftransaction: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"
         }), 500
 
 
-# Ruta para eliminar un subcontratista
-@payment_unit_bp.delete("/<id_payment_unit>")
-def delete_subcontractor(id_payment_unit):
+# Ruta para eliminar un ftransaction
+@ftransaction_bp.delete("/<id_ftransaction>")
+def delete_ftransaction(id_ftransaction):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(PaymentUnit, id_payment_unit)
+            obj = session.get(FinancialTransaction, id_ftransaction)
             if not obj:
-                return jsonify({"error": "Payment Unit not found"}), 404
+                return jsonify({"error": "Financial Transaction not found"}), 404
 
             delete_with_retry(session, obj)
 
-            return jsonify({"message": f"Deleted Payment Unit {id_payment_unit}"}), 200
+            return jsonify({"message": f"Deleted Financial Transaction {id_ftransaction}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un payment unit que tiene productos asociados con Foreign Key
+    except IntegrityError as e:  # En caso de borrar un ftransaction que tiene productos asociados con Foreign Key
         if session:
             session.rollback()
-        detail = "Error de integridad: No se puede eliminar el payment unit porque tiene registros relacionados."
+        detail = "Error de integridad: No se puede eliminar el ftransaction porque tiene registros relacionados."
         print(f"Error de integridad (DELETE): {e}")
         return jsonify({"detail": detail}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(f"Error de base de datos al eliminar payment unit: {db_error}")
+        print(f"Error de base de datos al eliminar ftransaction: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -252,7 +257,7 @@ def delete_subcontractor(id_payment_unit):
                 session.rollback()
             except Exception:
                 pass
-        print(f"Error inesperado al eliminar payment unit: {e}")
+        print(f"Error inesperado al eliminar ftransaction: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
             "code": "internal_error"

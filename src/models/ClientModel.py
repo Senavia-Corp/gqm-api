@@ -3,7 +3,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from .ParentMgmtCoModel import ParentMgmtCo
 from .MemberModel import Member
-from .link_models.ClientLinks import ClientPrManagerLink, ClientMemberLink
+from .link_models.ClientLinks import ClientManagerLink, ClientMemberLink
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -16,12 +16,13 @@ class ClientBase(SQLModel):
     Invoice_Collection: Optional[str] = Field(default=None)
     Compliance_Partner: Optional[str] = Field(default=None)
     Risk_Value: Optional[str] = Field(default=None)
-    Prop_Manager: Optional[str] = Field(default=None)
     Maintenance_Sup: Optional[str] = Field(default=None)
     Email_Address: Optional[str] = Field(default=None)
     Phone_Number: Optional[str] = Field(default=None)
     Client_Status: Optional[str] = Field(default=None)
     Services_interested_in: Optional[str] = Field(default=None)
+    Collection_Process: Optional[str] = Field(default=None)
+    Payment_Collection: Optional[str] = Field(default=None)
     Text: Optional[str] = Field(default=None)
 
 
@@ -35,7 +36,10 @@ class Client(ClientBase, table=True):
         default=None, index=True)
 
     # Relaciones foráneas 1:M
-    jobs: List["Job"] = Relationship(back_populates="client")  # type: ignore
+    jobs: List["Job"] = Relationship(  # type: ignore
+        back_populates="client")
+    financial_docs: List["FinancialDocument"] = Relationship(  # type: ignore
+        back_populates="client")
 
     # Relaciones foráneas M:1
     ID_Community_Tracking: Optional[str] = Field(
@@ -44,9 +48,9 @@ class Client(ClientBase, table=True):
         back_populates="clients")
 
     # Relación de muchos a muchos
-    property_manager: List["PropertyManager"] = Relationship(  # type: ignore
+    manager: List["Manager"] = Relationship(  # type: ignore
         back_populates="client",
-        link_model=ClientPrManagerLink
+        link_model=ClientManagerLink
     )
     members: List[Member] = Relationship(
         back_populates="clients",
