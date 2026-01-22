@@ -1,5 +1,6 @@
 
 from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import Column, JSON
 from typing import Optional, List
 from .ParentMgmtCoModel import ParentMgmtCo
 from .MemberModel import Member
@@ -10,15 +11,14 @@ from .link_models.ClientLinks import ClientManagerLink, ClientMemberLink
 
 class ClientBase(SQLModel):
     Client_Community: Optional[str] = Field(default=None)
-    Parent_Mgmt_Company: Optional[str] = Field(default=None)
     Address: Optional[str] = Field(default=None)
     Website: Optional[str] = Field(default=None)
     Invoice_Collection: Optional[str] = Field(default=None)
     Compliance_Partner: Optional[str] = Field(default=None)
     Risk_Value: Optional[str] = Field(default=None)
     Maintenance_Sup: Optional[str] = Field(default=None)
-    Email_Address: Optional[str] = Field(default=None)
-    Phone_Number: Optional[str] = Field(default=None)
+    Email_Address: Optional[list] = Field(default=None, sa_column=Column(JSON))
+    Phone_Number: Optional[list] = Field(default=None, sa_column=Column(JSON))
     Client_Status: Optional[str] = Field(default=None)
     Services_interested_in: Optional[str] = Field(default=None)
     Collection_Process: Optional[str] = Field(default=None)

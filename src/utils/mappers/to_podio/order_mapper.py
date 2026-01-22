@@ -1,4 +1,4 @@
-from ...convert_value_podio import convert_value_for_podio
+from ..convert_value_podio import convert_value_for_podio
 from src.podio.services.order_services import get_next_available_tech_field
 
 

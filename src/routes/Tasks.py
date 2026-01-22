@@ -12,8 +12,7 @@ from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..podio.services.tasks_services import podio_tasks_router
-import time
-from ..utils.mapper_aux_functions import register_event
+from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.tasks_mapper import map_task_to_podio
 
 

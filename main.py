@@ -4,8 +4,6 @@ from flask_cors import CORS
 import sys
 # Middleware de logs para todos los request:
 from src.utils.middleware.logs.request_logger import register_request_logger
-# Conexion con base de datos:
-from src.database.db_sqlmodel import init_sqlmodel_db
 # Blueprints:
 from src.routes.Job import job_bp
 from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp, job_subcontractor_bp, job_payment_unit_bp
@@ -36,8 +34,9 @@ from src.routes.FinancialTransaction import ftransaction_bp
 from src.routes.Links.FinancialLinks import fdocument_ftransaction_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
-# Sincronizacion masiva de Podio a Postgre:
-from src.routes.podio_routes.MasiveSync import sync_bp
+# Sincronizacion de Podio a Postgre (datos antiguos):
+from src.routes.podio_routes.sync_routes import sync_bp
+# from src.routes.podio_routes.MasiveSync import sync_bp
 # Rutas de webhooks:
 from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
@@ -57,10 +56,6 @@ def create_app():
 
     # Habilitar CORS
     CORS(app)
-
-    #  Crea tablas que no existan (NO borra nada).
-    with app.app_context():
-        init_sqlmodel_db()
 
     # Registrar blueprints
     app.register_blueprint(attachments_bp)

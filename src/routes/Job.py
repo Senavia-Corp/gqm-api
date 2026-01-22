@@ -14,8 +14,7 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..podio.services.job_services import podio_jobs_router
-import time
-from ..utils.mapper_aux_functions import register_event
+from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
 from ..utils.mappers.to_podio.ptl_mapper import map_job_to_podio_ptl
 from ..utils.mappers.to_podio.par_mapper import map_job_to_podio_par

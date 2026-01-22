@@ -1,4 +1,4 @@
-from ...convert_value_podio import convert_value_for_podio
+from ..convert_value_podio import convert_value_for_podio
 from sqlmodel import select
 from src.models.ClientModel import Client
 

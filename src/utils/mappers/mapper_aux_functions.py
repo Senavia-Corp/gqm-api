@@ -31,12 +31,31 @@ def parse_date(value: Optional[str]) -> Optional[datetime.date]:
         return None
 
 
-def clean_html(value: Optional[str]) -> Optional[str]:
+def has_html(text: str) -> bool:
+    """
+    Detecta si un texto contiene HTML
+    """
+    return "<" in text and ">" in text
 
-    # Elimina etiquetas HTML y espacios innecesarios.
+
+def clean_html(value: Optional[str]) -> Optional[str]:
+    """
+    Limpia HTML preservando saltos de línea entre párrafos
+    """
     if not value:
         return None
-    return re.sub(r"<.*?>", "", str(value)).strip()
+
+    text = str(value)
+
+    # Convertir párrafos y <br> en saltos de línea
+    text = re.sub(r"</p\s*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+
+    # Eliminar cualquier otra etiqueta HTML
+    text = re.sub(r"<.*?>", "", text)
+
+    # Limpiar espacios
+    return text.strip()
 
 
 # Para ignorar el webhook si el evento es local:

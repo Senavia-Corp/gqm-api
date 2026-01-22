@@ -1,4 +1,4 @@
-from ...convert_value_podio import convert_value_for_podio
+from ..convert_value_podio import convert_value_for_podio
 
 CLIENT_FIELD_MAP = {
     "Client_Community": "titulo",

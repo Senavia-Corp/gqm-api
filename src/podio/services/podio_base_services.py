@@ -1,7 +1,7 @@
 import requests
 from src.podio.podio_auth import get_podio_headers
 from src.config import BASE_URL
-from src.utils.clean_podio_fields import clean_podio_fields
+from src.utils.mappers.clean_podio_fields import clean_podio_fields
 from src.utils.middleware.retries.retries import retry_api
 
 

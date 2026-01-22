@@ -1,5 +1,5 @@
 
-from src.utils.mapper_aux_functions import parse_date, clean_html
+from src.utils.mappers.mapper_aux_functions import parse_date, clean_html
 from sqlmodel import select
 from src.models.JobModel import Job
 from .job_fields_map import FIELD_ALIASES

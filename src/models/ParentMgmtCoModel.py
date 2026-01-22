@@ -20,6 +20,10 @@ class ParentMgmtCo(PaMgmtCoBase, table=True):
     ID_Community_Tracking: Optional[str] = Field(
         default=None, primary_key=True)
 
+    # Referencias a Podio
+    podio_item_id: Optional[str] = Field(
+        default=None, index=True)
+
     # Relaciones foráneas 1:M
     clients: List["Client"] = Relationship(  # type: ignore
         back_populates="parent_mgmt_co")

@@ -3,38 +3,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from decouple import config
 
 # Todos los modelos (para evitar problemas con las relaciones en la creación de las tablas en la db)
-from src.models.AttachmentsModel import Attachments
-from src.models.ChangeOrderModel import ChangeOrder
-from src.models.ClientModel import Client
-from src.models.EstimateCostModel import EstimateCost
-from src.models.FinancialDocItemModel import FinancialDoc_Item
-from src.models.FinancialDocModel import FinancialDocument
-from src.models.FinancialTransModel import FinancialTransaction
-from src.models.JobModel import Job
-from src.models.MemberModel import Member
-from src.models.MultiplierRModel import MultiplierR
-from src.models.OrderModel import Order
-from src.models.ParentMgmtCoModel import ParentMgmtCo
-from src.models.PaymentUnitModel import PaymentUnit
-from src.models.PermissionModel import Permission
-from src.models.ManagerModel import Manager
-from src.models.RoleModel import Role
-from src.models.SkillsModel import Skills
-from src.models.SubcontractorModel import Subcontractor
-from src.models.SupplierModel import Supplier
-from src.models.TasksModel import Tasks
-from src.models.TechnicianModel import Technician
-from src.models.TLActivityModel import TLActivity
-# Modelos de links de las relaciones N:M
-from src.models.link_models.ClientLinks import ClientMemberLink, ClientManagerLink
-from src.models.link_models.FinancialLink import FinancialLink
-from src.models.link_models.JobMember import JobMemberLink
-from src.models.link_models.JobMultiplierR import JobMultiplierRLink
-from src.models.link_models.JobSubcontractor import JobSubcontractorLink
-from src.models.link_models.JobPaymentU import JobPaymentULink
-from src.models.link_models.OpportunitiesLinks import OpportSkillsLink, OpportSubcLink
-from src.models.link_models.PermissionLinks import PermissionRoleLink, PermissionMemberLink, PermissionTechLink
-from src.models.link_models.SkillsSubcontractor import SkillsSubcLink
+from src.models import *  # noqa
 
 # Configuración para PostgreSQL
 DATABASE_URL = config("DATABASE_URL")
@@ -43,23 +12,6 @@ if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL no está definida en el .env")
 
 engine = create_engine(DATABASE_URL, echo=False)
-
-
-def init_sqlmodel_db(app=None):
-    try:
-        # Crea las tablas en la db
-        SQLModel.metadata.create_all(engine)
-
-    except SQLAlchemyError as e:  # Si la db no responde o no conecta
-        print("Error CRÍTICO: Fallo al inicializar o conectar con la base de datos.")
-        print(f"Detalle del error: {e}")
-        raise RuntimeError(
-            "No se pudo establecer una conexión inicial con la base de datos."
-        ) from e  # Útil para depurar
-
-    except Exception as e:  # Captura cualquier otro error inesperado
-        print(f"Error inesperado durante la inicialización de la DB: {e}")
-        raise  # raise al final del except para que la aplicación se detenga
 
 
 def get_session():
