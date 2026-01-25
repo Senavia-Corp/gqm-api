@@ -1,5 +1,5 @@
 from typing import Optional
-from src.utils.mapper_aux_functions import parse_date, clean_html
+from src.utils.mappers.mapper_aux_functions import parse_date, clean_html
 
 
 # Mapeo de los datos de Podio a PostgreSQL para Subcontractor

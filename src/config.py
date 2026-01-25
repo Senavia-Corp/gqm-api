@@ -45,6 +45,15 @@ CLI_TAP_APP_TOKEN = os.getenv("CLI_TAP_APP_TOKEN")
 TAS_TAP_APP_ID = os.getenv("TAS_TAP_APP_ID")
 TAS_TAP_APP_TOKEN = os.getenv("TAS_TAP_APP_TOKEN")
 
+# CREDENCIALES REALES:
+# Credenciales de la App Clients
+PODIO_CLIENTS_APP_ID = os.getenv("PODIO_CLIENTS_APP_ID")
+PODIO_CLIENTS_APP_TOKEN = os.getenv("PODIO_CLIENTS_APP_TOKEN")
+# Credenciales de la App Property Mgmt Co.
+PODIO_PAMGMTCO_APP_ID = os.getenv("PODIO_PAMGMTCO_APP_ID")
+PODIO_PAMGMTCO_APP_TOKEN = os.getenv("PODIO_PAMGMTCO_APP_TOKEN")
+
+
 # Verificar que las credenciales esten en .env
 _missing = [k for k, v in {
     "PODIO_CLIENT_ID": PODIO_CLIENT_ID,
@@ -58,7 +67,13 @@ _missing = [k for k, v in {
     "CLI_TAP_APP_ID": CLI_TAP_APP_ID,
     "CLI_TAP_APP_TOKEN": CLI_TAP_APP_TOKEN,
     "TAS_TAP_APP_ID": TAS_TAP_APP_ID,
-    "TAS_TAP_APP_TOKEN": TAS_TAP_APP_TOKEN
+    "TAS_TAP_APP_TOKEN": TAS_TAP_APP_TOKEN,
+
+    "PODIO_CLIENTS_APP_ID": PODIO_CLIENTS_APP_ID,
+    "PODIO_CLIENTS_APP_TOKEN": PODIO_CLIENTS_APP_TOKEN,
+    "PODIO_PAMGMTCO_APP_ID": PODIO_PAMGMTCO_APP_ID,
+    "PODIO_PAMGMTCO_APP_TOKEN": PODIO_PAMGMTCO_APP_TOKEN
+
 }.items() if not v]
 
 if _missing:
@@ -80,14 +95,20 @@ PODIO_APPS = {
         "APP_ID": PAR_TAP_APP_ID,
         "APP_TOKEN": PAR_TAP_APP_TOKEN,
     },
-    "CLI": {
-        "APP_ID": CLI_TAP_APP_ID,
-        "APP_TOKEN": CLI_TAP_APP_TOKEN,
-    },
     "TASK": {
         "APP_ID": TAS_TAP_APP_ID,
         "APP_TOKEN": TAS_TAP_APP_TOKEN,
-    }
+    },
+
+    # Credencials reales
+    "CLI": {
+        "APP_ID": PODIO_CLIENTS_APP_ID,
+        "APP_TOKEN": PODIO_CLIENTS_APP_TOKEN,
+    },
+    "PMC": {
+        "APP_ID": PODIO_PAMGMTCO_APP_ID,
+        "APP_TOKEN": PODIO_PAMGMTCO_APP_TOKEN,
+    },
 }
 
 

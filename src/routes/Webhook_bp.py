@@ -17,7 +17,7 @@ import requests
 from src.podio.podio_auth import get_podio_headers
 from src.utils.middleware.retries.retries import retry_api
 from src.utils.id_generator import generate_custom_id
-from ..utils.mapper_aux_functions import is_recent_event
+from ..utils.mappers.mapper_aux_functions import is_recent_event
 
 # Un solo Blueprint para todos los webhooks
 webhook_bp = Blueprint("webhook", __name__)

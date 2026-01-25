@@ -16,7 +16,7 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..podio.services.job_services import podio_jobs_router
 from ..utils.mappers.to_podio.order_mapper import map_order_to_podio, map_order_patch_to_podio, map_order_delete_to_podio
-from ..utils.mapper_aux_functions import register_event
+from ..utils.mappers.mapper_aux_functions import register_event
 
 
 # Blueprint de Order:

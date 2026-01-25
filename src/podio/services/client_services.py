@@ -1,11 +1,11 @@
-from src.config import CLI_TAP_APP_ID
+from src.config import PODIO_CLIENTS_APP_ID
 from .podio_base_services import PodioBaseService
 
 
 class PodioClientsRouter:
 
     def __init__(self):
-        self.service = PodioBaseService("CLI", CLI_TAP_APP_ID)
+        self.service = PodioBaseService("CLI", PODIO_CLIENTS_APP_ID)
 
     def get_service(self) -> PodioBaseService:
         """
