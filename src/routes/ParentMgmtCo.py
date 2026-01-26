@@ -81,7 +81,7 @@ def get_manager_co(pa_mgmt_co_id):
                 return jsonify({"error": "Parent Mgmt Co not found"}), 404
 
             pa_mgmt_co_data = add_relationships(
-                results, ["managers", "client"])
+                results, ["managers", "clients"])
 
             return jsonify(pa_mgmt_co_data), 200
 
