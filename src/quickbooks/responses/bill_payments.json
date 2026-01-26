@@ -1,0 +1,109 @@
+{
+    "CheckPayment": {
+        "BankAccountRef": {
+            "name": "PNC Checking 9172",
+            "value": "236"
+        },
+        "PrintStatus": "NotSet"
+    },
+    "CurrencyRef": {
+        "name": "United States Dollar",
+        "value": "USD"
+    },
+    "DocNumber": "202601005364168",
+    "Id": "153561",
+    "Line": [
+        {
+            "Amount": 335.0,
+            "LinkedTxn": [
+                {
+                    "TxnId": "150802",
+                    "TxnType": "Bill"
+                }
+            ]
+        },
+        {
+            "Amount": 830.0,
+            "LinkedTxn": [
+                {
+                    "TxnId": "151267",
+                    "TxnType": "Bill"
+                }
+            ]
+        },
+        {
+            "Amount": 765.0,
+            "LinkedTxn": [
+                {
+                    "TxnId": "150934",
+                    "TxnType": "Bill"
+                }
+            ]
+        }
+    ],
+    "MetaData": {
+        "CreateTime": "2026-01-05T08:49:59-08:00",
+        "LastUpdatedTime": "2026-01-05T08:49:59-08:00"
+    },
+    "PayType": "Check",
+    "PrivateNote": "315987887",
+    "SyncToken": "0",
+    "TotalAmt": 1930.0,
+    "TxnDate": "2026-01-02",
+    "VendorRef": {
+        "name": "Multipro Refinish Services LLC",
+        "value": "3315"
+    },
+    "domain": "QBO",
+    "sparse": false
+}
+{
+    "CheckPayment": {
+        "BankAccountRef": {
+            "name": "PNC Checking 9172",
+            "value": "236"
+        },
+        "PrintStatus": "NotSet"
+    },
+    "CurrencyRef": {
+        "name": "United States Dollar",
+        "value": "USD"
+    },
+    "DocNumber": "202512005284589",
+    "Id": "152944",
+    "Line": [
+        {
+            "Amount": 45.0,
+            "LinkedTxn": [
+                {
+                    "TxnId": "150802",
+                    "TxnType": "Bill"
+                }
+            ]
+        },
+        {
+            "Amount": 345.0,
+            "LinkedTxn": [
+                {
+                    "TxnId": "150400",
+                    "TxnType": "Bill"
+                }
+            ]
+        }
+    ],
+    "MetaData": {
+        "CreateTime": "2025-12-19T12:07:10-08:00",
+        "LastUpdatedTime": "2025-12-19T12:07:10-08:00"
+    },
+    "PayType": "Check",
+    "PrivateNote": "315987887",
+    "SyncToken": "0",
+    "TotalAmt": 390.0,
+    "TxnDate": "2025-12-19",
+    "VendorRef": {
+        "name": "Multipro Refinish Services LLC",
+        "value": "3315"
+    },
+    "domain": "QBO",
+    "sparse": false
+}

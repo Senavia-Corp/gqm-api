@@ -1,0 +1,173 @@
+{
+    "AllowIPNPayment": false,
+    "AllowOnlineACHPayment": true,
+    "AllowOnlineCreditCardPayment": true,
+    "AllowOnlinePayment": false,
+    "ApplyTaxAfterDiscount": false,
+    "Balance": 0,
+    "BillAddr": {
+        "City": "Hollywood",
+        "Country": "United States",
+        "CountrySubDivisionCode": "Fl",
+        "Id": "46305",
+        "Line1": "911 S Park Rd",
+        "PostalCode": "33021"
+    },
+    "CurrencyRef": {
+        "name": "United States Dollar",
+        "value": "USD"
+    },
+    "CustomField": [
+        {
+            "DefinitionId": "1",
+            "Name": "P.O. Number",
+            "Type": "StringType"
+        },
+        {
+            "DefinitionId": "2",
+            "Name": "Sales Rep",
+            "Type": "StringType"
+        }
+    ],
+    "CustomerRef": {
+        "name": "Maxx - The Upton Apartment Homes",
+        "value": "46"
+    },
+    "DocNumber": "PAR5131-0002",
+    "DueDate": "2025-12-20",
+    "EmailStatus": "NotSet",
+    "FreeFormAddress": false,
+    "Id": "150402",
+    "Line": [
+        {
+            "Amount": 375.0,
+            "CustomExtensions": [],
+            "Description": "Refinishing Master Tub and Walls\n6-312",
+            "DetailType": "SalesItemLineDetail",
+            "Id": "1",
+            "LineNum": 1,
+            "SalesItemLineDetail": {
+                "ItemAccountRef": {
+                    "name": "Services",
+                    "value": "30"
+                },
+                "ItemRef": {
+                    "name": "Refinish sink",
+                    "value": "450"
+                },
+                "Qty": 1,
+                "TaxCodeRef": {
+                    "value": "NON"
+                },
+                "UnitPrice": 375
+            }
+        },
+        {
+            "Amount": 265.0,
+            "CustomExtensions": [],
+            "Description": "Refinishing Master Tub & Soap Dish\n1-104",
+            "DetailType": "SalesItemLineDetail",
+            "Id": "2",
+            "LineNum": 2,
+            "SalesItemLineDetail": {
+                "ItemAccountRef": {
+                    "name": "Services",
+                    "value": "30"
+                },
+                "ItemRef": {
+                    "name": "Refinish Bathtub and walls",
+                    "value": "650"
+                },
+                "Qty": 1,
+                "TaxCodeRef": {
+                    "value": "NON"
+                },
+                "UnitPrice": 265
+            }
+        },
+        {
+            "Amount": 375.0,
+            "CustomExtensions": [],
+            "Description": "Refinishing Tub and Walls\n6-306",
+            "DetailType": "SalesItemLineDetail",
+            "Id": "3",
+            "LineNum": 3,
+            "SalesItemLineDetail": {
+                "ItemAccountRef": {
+                    "name": "Services",
+                    "value": "30"
+                },
+                "ItemRef": {
+                    "name": "Refinish Bathtub and walls",
+                    "value": "650"
+                },
+                "Qty": 1,
+                "TaxCodeRef": {
+                    "value": "NON"
+                },
+                "UnitPrice": 375
+            }
+        },
+        {
+            "Amount": 375.0,
+            "CustomExtensions": [],
+            "Description": "Refinishing Tub and Walls\n5-207",
+            "DetailType": "SalesItemLineDetail",
+            "Id": "4",
+            "LineNum": 4,
+            "SalesItemLineDetail": {
+                "ItemAccountRef": {
+                    "name": "Services",
+                    "value": "30"
+                },
+                "ItemRef": {
+                    "name": "Refinish Bathtub and walls",
+                    "value": "650"
+                },
+                "Qty": 1,
+                "TaxCodeRef": {
+                    "value": "NON"
+                },
+                "UnitPrice": 375
+            }
+        },
+        {
+            "Amount": 1390.0,
+            "DetailType": "SubTotalLineDetail",
+            "SubTotalLineDetail": {}
+        }
+    ],
+    "LinkedTxn": [
+        {
+            "TxnId": "151806",
+            "TxnType": "Payment"
+        }
+    ],
+    "MetaData": {
+        "CreateTime": "2025-11-20T11:12:04-08:00",
+        "LastModifiedByRef": {
+            "value": "9130354460288676"
+        },
+        "LastUpdatedTime": "2025-12-09T13:19:32-08:00"
+    },
+    "PrintStatus": "NeedToPrint",
+    "PrivateNote": "Invoice ID PAR5131-0002: PAR5131 - Unit Refinish PO# 350621",
+    "ShipAddr": {
+        "City": "Hollywood",
+        "Country": "US",
+        "CountrySubDivisionCode": "FL",
+        "Id": "46306",
+        "Line1": "911 South Park Road",
+        "PostalCode": "33021"
+    },
+    "ShipFromAddr": {
+        "Id": "124610",
+        "Line1": "10496 50th St",
+        "Line2": "Sunrise, FL  33351 USA"
+    },
+    "SyncToken": "1",
+    "TotalAmt": 1390.0,
+    "TxnDate": "2025-11-20",
+    "domain": "QBO",
+    "sparse": false
+}

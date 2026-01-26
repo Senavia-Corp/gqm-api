@@ -1,0 +1,80 @@
+{
+    "CurrencyRef": {
+        "name": "United States Dollar",
+        "value": "USD"
+    },
+    "CustomerRef": {
+        "name": "Maxx - The Upton Apartment Homes",
+        "value": "46"
+    },
+    "DepositToAccountRef": {
+        "value": "236"
+    },
+    "Id": "151806",
+    "Line": [
+        {
+            "Amount": 1390.0,
+            "LineEx": {
+                "any": [
+                    {
+                        "declaredType": "com.intuit.schema.finance.v3.NameValue",
+                        "globalScope": true,
+                        "name": "{http://schema.intuit.com/finance/v3}NameValue",
+                        "nil": false,
+                        "scope": "javax.xml.bind.JAXBElement$GlobalScope",
+                        "typeSubstituted": false,
+                        "value": {
+                            "Name": "txnId",
+                            "Value": "150402"
+                        }
+                    },
+                    {
+                        "declaredType": "com.intuit.schema.finance.v3.NameValue",
+                        "globalScope": true,
+                        "name": "{http://schema.intuit.com/finance/v3}NameValue",
+                        "nil": false,
+                        "scope": "javax.xml.bind.JAXBElement$GlobalScope",
+                        "typeSubstituted": false,
+                        "value": {
+                            "Name": "txnOpenBalance",
+                            "Value": "1390.00"
+                        }
+                    },
+                    {
+                        "declaredType": "com.intuit.schema.finance.v3.NameValue",
+                        "globalScope": true,
+                        "name": "{http://schema.intuit.com/finance/v3}NameValue",
+                        "nil": false,
+                        "scope": "javax.xml.bind.JAXBElement$GlobalScope",
+                        "typeSubstituted": false,
+                        "value": {
+                            "Name": "txnReferenceNumber",
+                            "Value": "PAR5131-0002"
+                        }
+                    }
+                ]
+            },
+            "LinkedTxn": [
+                {
+                    "TxnId": "150402",
+                    "TxnType": "Invoice"
+                }
+            ]
+        }
+    ],
+    "MetaData": {
+        "CreateTime": "2025-12-09T13:19:32-08:00",
+        "LastUpdatedTime": "2025-12-09T13:19:32-08:00"
+    },
+    "PaymentMethodRef": {
+        "value": "5"
+    },
+    "PaymentRefNum": "37372",
+    "ProcessPayment": false,
+    "SyncToken": "0",
+    "TotalAmt": 15950.0,
+    "TxnDate": "2025-12-09",
+    "UnappliedAmt": 0,
+    "domain": "QBO",
+    "sparse": false
+}

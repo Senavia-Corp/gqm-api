@@ -28,7 +28,12 @@ def list_members():
             # Trae los miembros GQM con sus trabajos en una sola consulta
             statement = (
                 select(Member)
-                .options(joinedload(Member.jobs))  # agregar rol
+                .options(
+                    joinedload(Member.jobs),
+                    joinedload(Member.permissions),
+                    joinedload(Member.role),
+                    joinedload(Member.tlactivity),
+                )
             )
             results = session.exec(statement).unique().all()
 
@@ -38,8 +43,8 @@ def list_members():
             member_data = []
 
             for member in results:
-                data = add_relationships(member, ["jobs"])  # agregar fk rol
-                data.pop("Password", None)
+                data = add_relationships(
+                    member, ["jobs", "permissions", "role", "tlactivity"])
                 member_data.append(data)
 
             return member_data, 200
@@ -66,7 +71,12 @@ def get_member_by_id(id_member):
         with get_session() as session:
             statement = (
                 select(Member)
-                .options(joinedload(Member.jobs))
+                .options(
+                    joinedload(Member.jobs),
+                    joinedload(Member.permissions),
+                    joinedload(Member.role),
+                    joinedload(Member.tlactivity),
+                )
                 .where(Member.ID_Member == id_member)
             )
 
@@ -76,8 +86,8 @@ def get_member_by_id(id_member):
                 return jsonify({"error": "Member not found"}), 404
 
             # Construir JSON limpio con la info de los jobs
-            member_data = add_relationships(obj, ["jobs"])
-            member_data.pop("Password", None)
+            member_data = add_relationships(
+                obj, ["jobs", "permissions", "role", "tlactivity"])
 
             return jsonify(member_data), 200
 
