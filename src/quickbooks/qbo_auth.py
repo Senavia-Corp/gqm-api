@@ -5,7 +5,7 @@ import requests
 from datetime import datetime, timedelta
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from .TokensModel import QuickBooksToken
+from ..models.QBOTokensModel import QuickBooksToken
 
 
 # Blueprint

@@ -33,3 +33,6 @@ from src.models.link_models.JobPaymentU import JobPaymentULink
 from src.models.link_models.OpportunitiesLinks import OpportSkillsLink, OpportSubcLink
 from src.models.link_models.PermissionLinks import PermissionRoleLink, PermissionMemberLink, PermissionTechLink
 from src.models.link_models.SkillsSubcontractor import SkillsSubcLink
+
+# Modelo para guardar autenticación de QBO
+from src.models.QBOTokensModel import QuickBooksToken
