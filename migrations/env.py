@@ -55,6 +55,9 @@ def run_migrations_offline():
 def run_migrations_online():
     connectable = engine
 
+    # 👇 DEBUG: ver a qué base de datos apunta Alembic
+    print(f"[Alembic] Running migrations on: {engine.url}")
+
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
