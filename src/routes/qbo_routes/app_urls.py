@@ -10,7 +10,7 @@ from ...quickbooks.services.bills_services import get_bills, get_bill_payments
 from ...quickbooks.services.vendors_services import get_vendors
 
 from src.database.db_sqlmodel import get_session
-from src.quickbooks.TokensModel import QuickBooksToken
+from src.models.QBOTokensModel import QuickBooksToken
 from ...quickbooks.qbo_auth import get_qbo_basic_auth
 
 qbo_bp = Blueprint("qbo_bp", __name__, url_prefix="/qbo")

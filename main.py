@@ -36,7 +36,8 @@ from src.routes.Links.FinancialLinks import fdocument_ftransaction_bp
 from src.routes.Login_auth import auth_bp
 # Sincronizacion de Podio a Postgre (datos antiguos):
 from src.routes.podio_routes.sync_routes import sync_bp
-# from src.routes.podio_routes.MasiveSync import sync_bp
+# Revisión de registros
+from src.routes.podio_routes.revision_route import sync_revision_bp
 # Rutas de webhooks:
 from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
@@ -95,9 +96,13 @@ def create_app():
     # Ruta para login
     app.register_blueprint(auth_bp)
 
-    # Rutas relacionadas con Podio
-    app.register_blueprint(sync_bp)  # Sincronización con Podio
-    app.register_blueprint(webhook_bp)  # Para recibir todos los webhooks
+    # RUTAS DE PODIO
+    # Sincronización con Podio
+    app.register_blueprint(sync_bp)
+    # Revisión de registros ya migrados de Podio
+    app.register_blueprint(sync_revision_bp)
+    # Para recibir todos los webhooks
+    app.register_blueprint(webhook_bp)
     # Para crear o eliminar los hooks de Podio
     app.register_blueprint(admin_bp)
 
