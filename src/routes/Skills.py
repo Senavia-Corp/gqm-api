@@ -3,34 +3,48 @@
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from ..models.SkillsModel import Skills, SkillsBase
+from ..models.SkillsModel import Skills, SkillsCreate, SkillsUpdate
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+
 
 # Blueprint de Skill:
 skills_bp = Blueprint("skills_blueprint", __name__, url_prefix="/skills")
 
 # -------------------RUTAS CRUD-------------------#
 
+
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todas las habilidades
-
-
 @skills_bp.get("/")
 @paginate()  # decorador de paginación
 def list_skills():
     try:
         with get_session() as session:
-            results = session.exec(select(Skills)).all()
+
+            statement = (
+                select(Skills)
+                .options(
+                    joinedload(Skills.subcontractors),
+                    joinedload(Skills.opportunities)
+                )
+            )
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
-            skills_data = [obj.model_dump() for obj in results]
+            skills_data = [
+                add_relationships(
+                    skills, ["subcontractors", "opportunities"])
+                for skills in results]
+
             return skills_data, 200
 
     except SQLAlchemyError as db_error:  # Para un fallo de db
@@ -53,13 +67,24 @@ def list_skills():
 def get_skill_by_id(id_skill):
     try:
         with get_session() as session:
-            obj = session.get(Skills, id_skill)
+
+            statement = (
+                select(Skills)
+                .options(
+                    joinedload(Skills.subcontractors),
+                    joinedload(Skills.opportunities)
+                )
+                .where(Skills.ID_Skill == id_skill)
+            )
+
+            obj = session.exec(statement).unique().first()
 
             if not obj:
                 return jsonify({"error": "Skill not found"}), 404
 
-            # Construir JSON limpio con la info del cliente
-            skill_data = obj.model_dump()
+            # Construir JSON limpio con la info
+            skill_data = add_relationships(
+                obj, ["subcontractors", "opportunities"])
 
             return jsonify(skill_data), 200
 
@@ -85,7 +110,7 @@ def get_skill_by_id(id_skill):
 def create_skill():
     try:
         data = request.get_json()
-        create_skill = SkillsBase.model_validate(data)
+        create_skill = SkillsCreate.model_validate(data)
         obj = Skills.model_validate(create_skill)
 
     except ValidationError as e:
@@ -100,9 +125,8 @@ def create_skill():
                 session, Skills, "ID_Skill", "SKI")
             obj.ID_Skill = new_id
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
             return jsonify(obj.model_dump()), 201
 
     except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
@@ -147,16 +171,15 @@ def update_skill(id_skill):
             if not obj:
                 return jsonify({"error": "Skill not found"}), 404
 
-            update_skill = SkillsBase.model_validate(data)
+            update_skill = SkillsUpdate.model_validate(data)
             update_data_dict = update_skill.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
             return jsonify(obj.model_dump()), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
@@ -204,8 +227,9 @@ def delete_skill(id_skill):
             obj = session.get(Skills, id_skill)
             if not obj:
                 return jsonify({"error": "Skill not found"}), 404
-            session.delete(obj)
-            session.commit()
+
+            delete_with_retry(session, obj)
+
             return jsonify({"message": f"Deleted Skill {id_skill}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
