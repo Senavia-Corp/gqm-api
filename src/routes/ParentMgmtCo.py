@@ -9,6 +9,12 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from ..podio.services.pa_mgmt_co_services import podio_pa_mgmt_co_router
+from ..utils.mappers.mapper_aux_functions import register_event
+from ..utils.mappers.to_podio.pa_mgmt_co_mapper import map_parent_to_podio
+
 
 # Blueprint de Parent Mgmt Co:
 parent_mgmt_co_bp = Blueprint(
@@ -21,7 +27,7 @@ parent_mgmt_co_bp = Blueprint(
 # Ruta para conseguir la lista de todos las parent mgmt communities
 @parent_mgmt_co_bp.get("/")
 @paginate()
-def list_managers_co():
+def list_parent_co():
     try:
         with get_session() as session:
             # Trae todas las parent mgmt communities con info anidada
@@ -105,11 +111,12 @@ def get_manager_co(pa_mgmt_co_id):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un parent mgmt co
 @parent_mgmt_co_bp.post("/")
-def create_manager_co():
+def create_parent_co():
     try:
         data = request.get_json()
-        create_manager = PaMgmtCoCreate.model_validate(data)
-        obj = ParentMgmtCo.model_validate(create_manager)
+        create_parent_co = PaMgmtCoCreate.model_validate(data)
+        obj = ParentMgmtCo(
+            **create_parent_co.model_dump(exclude_unset=False, exclude_none=False))
 
     except ValidationError as e:
         if 'JSON' in str(e):
@@ -119,14 +126,46 @@ def create_manager_co():
 
     try:
         with get_session() as session:
-            new_id = generate_custom_id(
-                session, ParentMgmtCo, "ID_Community_Tracking", "PMC")
-            obj.ID_Community_Tracking = new_id
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            # Mapear a Podio
+            podio_fields = map_parent_to_podio(obj, session)
+            podio_service = podio_pa_mgmt_co_router.get_service()
+
+            try:
+                podio_response = podio_service.create_item(podio_fields)
+
+                # Guardar el podio_item_id en PostgreSQL
+                if podio_response and podio_response.get("item_id"):
+                    obj.podio_item_id = podio_response["item_id"]
+
+                    # Buscar y guardar el ID_Community_Tracking
+                    item = podio_service.get_item(obj.podio_item_id)
+                    formatted_id = item.get("app_item_id_formatted")
+                    if formatted_id:
+                        obj.ID_Community_Tracking = formatted_id
+                    else:
+                        raise ValueError(
+                            "No se pudo obtener app_item_id_formatted de Podio")
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
+                    save_with_retry(session, obj)
+
+                else:
+                    print("⚠️ No se pudo obtener los datos de Podio.")
+
+            except Exception as podio_error:
+                print(f"⚠️ Error al crear item en Podio: {podio_error}")
+
             return jsonify(obj.model_dump()), 201
+
+    except ValidationError as e:
+        # Error en otros campos o JSON.
+        if 'JSON' in str(e):
+            return jsonify({"detail": "La solicitud debe contener un JSON válido."}), 400
+        print(f"Error inesperado en preparación de datos: {e}")
+        return jsonify({"detail": "Error inesperado del servidor."}), 500
 
     except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
         session.rollback()  # Deshace los cambios realizados
@@ -162,26 +201,56 @@ def create_manager_co():
 
 
 # Ruta para actualizar un parent mgmt co
-@parent_mgmt_co_bp.patch("/<pa_mgmt_co_id>")
-def update_manager_co(pa_mgmt_co_id):
+@parent_mgmt_co_bp.patch("/<podio_item_id>")
+def update_parent_co(podio_item_id):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.get(ParentMgmtCo, pa_mgmt_co_id)
+            obj = session.exec(
+                select(ParentMgmtCo).where(
+                    ParentMgmtCo.podio_item_id == podio_item_id)
+            ).first()
             if not obj:
-                return jsonify({"error": "Parent Mgmt Co not found"}), 404
+                return jsonify({"error": "ParentMgmtCo not found"}), 404
 
-            update_manager_co = PaMgmtCoUpdate.model_validate(data)
-            update_data_dict = update_manager_co.model_dump(
+            update_parent_co = PaMgmtCoUpdate.model_validate(data)
+            update_data_dict = update_parent_co.model_dump(
                 exclude_unset=True)  # Crea dict limpio
 
             for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
                 setattr(obj, key, value)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+            save_with_retry(session, obj)
+
+            # Mapear a Podio
+            podio_service = podio_pa_mgmt_co_router.get_service()
+            podio_fields = map_parent_to_podio(obj)
+
+            try:
+                if obj.podio_item_id:
+                    podio_service.update_item(
+                        int(obj.podio_item_id), podio_fields)
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
+                    print(
+                        f"🧩 ParentMgmtCo {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
+                else:
+                    # Si no tiene podio_item_id, crearlo en Podio
+                    podio_response = podio_service.create_item(podio_fields)
+                    if podio_response and podio_response.get("item_id"):
+                        obj.podio_item_id = podio_response["item_id"]
+
+                        save_with_retry(session, obj)
+                        print(
+                            f"✅ ParentMgmtCo {podio_item_id} creado en Podio (item_id={obj.podio_item_id})")
+
+            except Exception as podio_error:
+                print(
+                    f"⚠️ Error al actualizar/crear ParentMgmtCo en Podio: {podio_error}")
+
             return jsonify(obj.model_dump()), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
@@ -222,17 +291,34 @@ def update_manager_co(pa_mgmt_co_id):
 
 
 # Ruta para eliminar un parent manager co
-@parent_mgmt_co_bp.delete("/<pa_mgmt_co_id>")
-def delete_manager_co(pa_mgmt_co_id):
+@parent_mgmt_co_bp.delete("/<podio_item_id>")
+def delete_parent_co(podio_item_id):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(ParentMgmtCo, pa_mgmt_co_id)
+            obj = session.exec(
+                select(ParentMgmtCo).where(
+                    ParentMgmtCo.podio_item_id == podio_item_id)
+            ).first()
             if not obj:
-                return jsonify({"error": "Parent MaMgmtnager Co not found"}), 404
-            session.delete(obj)
-            session.commit()
-            return jsonify({"message": f"Deleted Parent Mgmt Co {pa_mgmt_co_id}"}), 200
+                return jsonify({"error": "ParentMgmtCo not found"}), 404
+
+            # Eliminar en Podio
+            podio_service = podio_pa_mgmt_co_router.get_service()
+            try:
+                podio_service.delete_item(obj.podio_item_id)
+                # Anti-loop: registrar evento
+                register_event(obj.podio_item_id)
+                print(
+                    f"🗑️ ParentMgmtCo eliminado en Podio: {obj.podio_item_id}")
+            except Exception as podio_error:
+                print(
+                    f"⚠️ Error borrando ParentMgmtCo en Podio: {podio_error}")
+
+            # Eliminar en DB
+            delete_with_retry(session, obj)
+
+            return jsonify({"message": f"ParentMgmtCo {podio_item_id} eliminado correctamente"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
     except IntegrityError as e:

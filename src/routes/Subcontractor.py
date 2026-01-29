@@ -11,6 +11,9 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from ..podio.services.subcontractor_services import podio_subc_router
+from ..utils.mappers.mapper_aux_functions import register_event
+from ..utils.mappers.to_podio.subcontractor_mapper import map_subc_to_podio
 
 
 # Blueprint de Subcontractor
@@ -270,7 +273,8 @@ def create_subcontractor():
     try:
         data = request.get_json()
         create_subcontractor = SubcontractorCreate.model_validate(data)
-        obj = Subcontractor.model_validate(create_subcontractor)
+        obj = Subcontractor(
+            **create_subcontractor.model_dump(exclude_unset=False, exclude_none=False))
 
     except ValidationError as e:
         if 'JSON' in str(e):
@@ -285,6 +289,28 @@ def create_subcontractor():
             obj.ID_Subcontractor = new_id
 
             save_with_retry(session, obj)
+
+            # Mapear a Podio
+            podio_fields = map_subc_to_podio(obj)
+            podio_service = podio_subc_router.get_service()
+
+            try:
+                podio_response = podio_service.create_item(podio_fields)
+
+                # Guardar el podio_item_id en PostgreSQL
+                if podio_response and podio_response.get("item_id"):
+                    obj.podio_item_id = podio_response["item_id"]
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
+                    save_with_retry(session, obj)
+                    print(f"✅ Guardado Subcontractor en DB.")
+
+                else:
+                    print("⚠️ No se pudo obtener los datos de Podio.")
+
+            except Exception as podio_error:
+                print(f"⚠️ Error al crear item en Podio: {podio_error}")
 
             return jsonify(obj.model_dump()), 201
 
@@ -320,13 +346,13 @@ def create_subcontractor():
 
 
 # Ruta para actualizar un subcontratista
-@subcontractor_bp.patch("/<id_subcontractor>")
-def update_subcontractor(id_subcontractor):
+@subcontractor_bp.patch("/<podio_item_id>")
+def update_subcontractor(podio_item_id):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
         with get_session() as session:
-            obj = session.get(Subcontractor, id_subcontractor)
+            obj = session.get(Subcontractor, podio_item_id)
             if not obj:
                 return jsonify({"error": "Subcontractor not found"}), 404
 
@@ -338,6 +364,34 @@ def update_subcontractor(id_subcontractor):
                 setattr(obj, key, value)
 
             save_with_retry(session, obj)
+
+            # Mapear a Podio
+            podio_service = podio_subc_router.get_service()
+            podio_fields = map_subc_to_podio(obj)
+
+            try:
+                if obj.podio_item_id:
+                    podio_service.update_item(
+                        int(obj.podio_item_id), podio_fields)
+
+                    # Anti-loop: registrar evento
+                    register_event(obj.podio_item_id)
+
+                    print(
+                        f"🧩 Subcontractor {podio_item_id} actualizado en Podio (item_id={obj.podio_item_id})")
+                else:
+                    # Si no tiene podio_item_id, crearlo en Podio
+                    podio_response = podio_service.create_item(podio_fields)
+                    if podio_response and podio_response.get("item_id"):
+                        obj.podio_item_id = podio_response["item_id"]
+
+                        save_with_retry(session, obj)
+                        print(
+                            f"✅ Subcontractor {podio_item_id} creado en Podio (item_id={obj.podio_item_id})")
+
+            except Exception as podio_error:
+                print(
+                    f"⚠️ Error al actualizar/crear Subcontractor en Podio: {podio_error}")
 
             return jsonify(obj.model_dump()), 200
 
@@ -379,18 +433,31 @@ def update_subcontractor(id_subcontractor):
 
 
 # Ruta para eliminar un subcontratista
-@subcontractor_bp.delete("/<id_subcontractor>")
-def delete_subcontractor(id_subcontractor):
+@subcontractor_bp.delete("/<podio_item_id>")
+def delete_subcontractor(podio_item_id):
     session = None
     try:
         with get_session() as session:
-            obj = session.get(Subcontractor, id_subcontractor)
+            obj = session.get(Subcontractor, podio_item_id)
             if not obj:
                 return jsonify({"error": "Subcontractor not found"}), 404
 
+            # Eliminar en Podio
+            podio_service = podio_subc_router.get_service()
+            try:
+                podio_service.delete_item(obj.podio_item_id)
+                # Anti-loop: registrar evento
+                register_event(obj.podio_item_id)
+                print(
+                    f"🗑️ Subcontractor eliminado en Podio: {obj.podio_item_id}")
+            except Exception as podio_error:
+                print(
+                    f"⚠️ Error borrando subcontractor en Podio: {podio_error}")
+
+            # Eliminar en DB
             delete_with_retry(session, obj)
 
-            return jsonify({"message": f"Deleted Subcontractor {id_subcontractor}"}), 200
+            return jsonify({"message": f"Deleted Subcontractor {podio_item_id}"}), 200
 
     # Exceptions de integridad, infraestructura e inesperado del servidor
     except IntegrityError as e:  # En caso de borrar un subcontratista que tiene productos asociados con Foreign Key

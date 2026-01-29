@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 PODIO_FIELD_TYPES = {
-    # Campos de QID
+    # Campos de QID --- DE TEST ADMIN PANEL
     # ----- De Jobs
     "client-2": "app",
     "project-location-2": "location",
@@ -30,7 +30,7 @@ PODIO_FIELD_TYPES = {
     "": "money",
 
 
-    # Campos de PTL
+    # Campos de PTL --- DE TEST ADMIN PANEL
     # ----- De Jobs
     "client": "app",
     "location": "location",
@@ -50,7 +50,7 @@ PODIO_FIELD_TYPES = {
     "": "money",
 
 
-    # Campos de PAR
+    # Campos de PAR --- DE TEST ADMIN PANEL
     # ----- De Jobs
     "client": "app",
     "week-assigned": "date",
@@ -60,22 +60,27 @@ PODIO_FIELD_TYPES = {
     "tech-1-formula": "money",
     "tech-2-formula": "money",
 
-    # Campos de Clients
-    "titulo": "text",
+    # Campos de Clients --- REALES
+    "title": "text",
+    "relationship": "app",
     "address": "location",
-    "parent-company": "text",
-    "website-2": "embed",
-    "invoicecollection": "text",
+    "website": "embed",
+    "processing": "text",
     "compliance-partner": "category",
-    "risk-value": "category",
+    "engagement-letter-signed": "category",
     "prop-manager": "text",
+    "maintenance-sup": "text",
     "email": "email",
     "phone": "phone",
-    "client-status": "category",
+    "contact-status": "category",
+    "collection-process": "text",
+    "payment-coolection": "embed",
     "services-interested-in": "category",
-    # FALTA LA RELACION CON parent-mgmt-company!!!
 
-    # Campos de Tasks
+    # Campos Parent Mgmt Company (Property en Podio) --- REALES
+
+
+    # Campos de Tasks --- DE TEST ADMIN PANEL
     "titulo": "text",  # Name en mi modelo
     "description": "text",
     "status": "category",
