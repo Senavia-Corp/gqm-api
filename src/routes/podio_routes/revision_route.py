@@ -1,9 +1,21 @@
 from flask import Blueprint, request, jsonify
 from sqlmodel import select
-
+from ...utils.id_generator import generate_custom_id
 from src.database.db_sqlmodel import get_session
 from src.podio.services.podio_base_services import PodioBaseService
 from src.podio.sync.sync_revision import PODIO_SYNC_REGISTRY
+
+APPS_SIN_ID = {
+    "client": {
+        "field": "ID_Client",
+        "prefix": "CLI"
+    },
+    "subcontractors": {
+        "field": "ID_Subcontractor",
+        "prefix": "SUBC"
+    }
+}
+
 
 sync_revision_bp = Blueprint(
     "sync_revision", __name__, url_prefix="/sync_revision")
@@ -64,7 +76,25 @@ def reconcile_podio():
                 print("   🟢 NO EXISTE en DB → CREATE")
 
                 if not dry_run:
-                    session.add(cfg["model"](**mapped))
+                    model_cls = cfg["model"]
+
+                    # 🔹 Replicar lógica del webhook
+                    if model_key in APPS_SIN_ID:
+                        id_cfg = APPS_SIN_ID[model_key]
+                        id_field = id_cfg["field"]
+
+                        if not mapped.get(id_field):
+                            new_id = generate_custom_id(
+                                session,
+                                model_cls,
+                                id_field,
+                                id_cfg["prefix"]
+                            )
+                            mapped[id_field] = new_id
+                            print(f"   🆔 ID generado: {new_id}")
+
+                    session.add(model_cls(**mapped))
+
                 continue
 
             # ---------------- COMPARE ----------------
