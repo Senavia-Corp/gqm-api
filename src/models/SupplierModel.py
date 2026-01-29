@@ -1,21 +1,22 @@
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
-from sqlmodel import SQLModel, Field
-from typing import Optional
+from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, List
+from .link_models.PurchaseSupplier import PurchaseSupplierLink
 
 
 class SupplierBase(SQLModel):
 
-    Company_Name: str
-    Company_Website: str
+    Company_Name: Optional[str] = Field(default=None)
+    Company_Website: Optional[str] = Field(default=None)
     Description: Optional[str] = Field(default=None)
-    Acc_Status: str
-    Acc_Rep: str
+    Acc_Status: Optional[str] = Field(default=None)
+    Acc_Rep: Optional[str] = Field(default=None)
     Speciality: Optional[str] = Field(default=None)
-    Email_Address: str
-    Coverage_Area: str
-    Phone_Number: str
+    Email_Address: Optional[str] = Field(default=None)
+    Coverage_Area: Optional[str] = Field(default=None)
+    Phone_Number: Optional[str] = Field(default=None)
     Address: Optional[str] = Field(default=None)
 
 
@@ -24,16 +25,20 @@ class Supplier(SupplierBase, table=True):
 
     ID_Supplier: Optional[str] = Field(default=None, primary_key=True)
 
+    # Referencias a Podio
+    podio_item_id: Optional[str] = Field(
+        default=None, index=True)
+
+    # Relación de muchos a muchos
+    purchases: List["Purchase"] = Relationship(  # type: ignore
+        back_populates="suppliers",
+        link_model=PurchaseSupplierLink
+    )
+
 
 class SupplierCreate(SupplierBase):
     pass
 
 
 class SupplierUpdate(SupplierBase):
-    Company_Name: Optional[str] = Field(default=None)
-    Company_Website: Optional[str] = Field(default=None)
-    Acc_Status: Optional[str] = Field(default=None)
-    Acc_Rep: Optional[str] = Field(default=None)
-    Email_Address: Optional[str] = Field(default=None)
-    Coverage_Area: Optional[str] = Field(default=None)
-    Phone_Number: Optional[str] = Field(default=None)
+    pass

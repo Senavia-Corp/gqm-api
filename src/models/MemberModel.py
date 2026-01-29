@@ -31,6 +31,8 @@ class Member(MemberBase, table=True):
     tlactivity: List["TLActivity"] = Relationship(  # type: ignore
         back_populates="member",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+    purchases: List["Purchase"] = Relationship(  # type: ignore
+        back_populates="member")
 
     # Relación de muchos a muchos
     jobs: List["Job"] = Relationship(  # type: ignore

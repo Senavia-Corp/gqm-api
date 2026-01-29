@@ -78,6 +78,8 @@ class Job(JobBase, table=True):
         back_populates="job")
     financial_docs: List["FinancialDocument"] = Relationship(  # type: ignore
         back_populates="job")
+    purchases: List["Purchase"] = Relationship(  # type: ignore
+        back_populates="job")
 
     # Relaciones de muchos a muchos
     multipliers: List[MultiplierR] = Relationship(

@@ -78,7 +78,6 @@ def reconcile_podio():
                 if not dry_run:
                     model_cls = cfg["model"]
 
-                    # 🔹 Replicar lógica del webhook
                     if model_key in APPS_SIN_ID:
                         id_cfg = APPS_SIN_ID[model_key]
                         id_field = id_cfg["field"]
