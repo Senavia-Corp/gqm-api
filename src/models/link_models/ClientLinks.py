@@ -32,3 +32,5 @@ class ClientManagerLink(SQLModel, table=True):
         foreign_key="manager.ID_Manager",
         primary_key=True
     )
+
+    rol: Optional[str] = Field(default=None)

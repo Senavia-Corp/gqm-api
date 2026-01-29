@@ -2,7 +2,7 @@ from ..podio_value_extractor import get_podio_field_value
 
 
 # FASE 1: sin relaciones
-def map_podio_item_to_client(item: dict) -> dict:
+def map_podio_item_to_client(item: dict, session=None) -> dict:
     """
     Transforma un item de Podio de Client para PostgreSQL.
     """
