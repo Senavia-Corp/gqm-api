@@ -52,6 +52,9 @@ PODIO_CLIENTS_APP_TOKEN = os.getenv("PODIO_CLIENTS_APP_TOKEN")
 # Credenciales de la App Property Mgmt Co.
 PODIO_PAMGMTCO_APP_ID = os.getenv("PODIO_PAMGMTCO_APP_ID")
 PODIO_PAMGMTCO_APP_TOKEN = os.getenv("PODIO_PAMGMTCO_APP_TOKEN")
+# Credenciales de la App Subcontractors
+PODIO_SUBCONTRACTOR_APP_ID = os.getenv("PODIO_SUBCONTRACTOR_APP_ID")
+PODIO_SUBCONTRACTOR_APP_TOKEN = os.getenv("PODIO_SUBCONTRACTOR_APP_TOKEN")
 
 
 # Verificar que las credenciales esten en .env
@@ -72,7 +75,9 @@ _missing = [k for k, v in {
     "PODIO_CLIENTS_APP_ID": PODIO_CLIENTS_APP_ID,
     "PODIO_CLIENTS_APP_TOKEN": PODIO_CLIENTS_APP_TOKEN,
     "PODIO_PAMGMTCO_APP_ID": PODIO_PAMGMTCO_APP_ID,
-    "PODIO_PAMGMTCO_APP_TOKEN": PODIO_PAMGMTCO_APP_TOKEN
+    "PODIO_PAMGMTCO_APP_TOKEN": PODIO_PAMGMTCO_APP_TOKEN,
+    "PODIO_SUBCONTRACTOR_APP_ID": PODIO_SUBCONTRACTOR_APP_ID,
+    "PODIO_SUBCONTRACTOR_APP_TOKEN": PODIO_SUBCONTRACTOR_APP_TOKEN
 
 }.items() if not v]
 
@@ -109,12 +114,16 @@ PODIO_APPS = {
         "APP_ID": PODIO_PAMGMTCO_APP_ID,
         "APP_TOKEN": PODIO_PAMGMTCO_APP_TOKEN,
     },
+    "SUBC": {
+        "APP_ID": PODIO_SUBCONTRACTOR_APP_ID,
+        "APP_TOKEN": PODIO_SUBCONTRACTOR_APP_TOKEN,
+    },
 }
 
 
 def get_podio_app_credentials(app_type: str):
     """
-    Devuelve APP_ID y APP_TOKEN según app_type (QID, PTL, PAR, CLI).
+    Devuelve APP_ID y APP_TOKEN según app_type.
     """
     app_type = app_type.upper()
     if app_type not in PODIO_APPS:

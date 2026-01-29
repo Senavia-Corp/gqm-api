@@ -9,7 +9,7 @@ class PodioBaseService:
 
     # Servicio genérico para interactuar con cualquier App de Podio.
     def __init__(self, app_type: str, app_id: str):
-        self.app_type = app_type    # QID, PTL, PAR
+        self.app_type = app_type    # QID, CLI, PMC, etc..
         self.app_id = app_id        # ID numérica del App en Podio
 
     def _headers(self):

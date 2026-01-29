@@ -144,7 +144,7 @@ def create_client():
                     register_event(obj.podio_item_id)
 
                     save_with_retry(session, obj)
-                    print(f"✅ Guardado Job en DB.")
+                    print(f"✅ Guardado Client en DB.")
 
                 else:
                     print("⚠️ No se pudo obtener los datos de Podio.")

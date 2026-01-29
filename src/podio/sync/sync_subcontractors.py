@@ -2,29 +2,29 @@ from sqlmodel import select
 from src.database.db_sqlmodel import get_session
 from src.utils.middleware.retries.retries import retry_db
 from src.utils.id_generator import generate_custom_id
-from src.podio.services.client_services import podio_clients_router
-from src.utils.mappers.from_podio.client_mapper import map_podio_item_to_client
-from src.models.ClientModel import Client
+from src.podio.services.subcontractor_services import podio_subc_router
+from src.utils.mappers.from_podio.subcontractor_mapper import map_podio_item_to_subc
+from src.models.SubcontractorModel import Subcontractor
 
 
 # ===============================
 # ----------- FASE 1 -----------
 # ===============================
 
-# SYNC Clients
+# SYNC Subcontractors
 @retry_db(max_retries=3, delay=1)
-def sync_clients(limit: int = 30, offset: int = 0, dry_run: bool = False):
+def sync_subc(limit: int = 30, offset: int = 0, dry_run: bool = False):
     """
-    Sincronzación de Clients desde Podio a PostgreSQL.
+    Sincronzación de Subcontractors desde Podio a PostgreSQL.
     - Batch pequeño
     - Offset manual
     - Dry-run opcional
     """
 
-    service = podio_clients_router.get_service()
+    service = podio_subc_router.get_service()
     items = service.get_items(limit=limit, offset=offset)
 
-    print(f"📥 Clients recibidos: {len(items)} | offset={offset}")
+    print(f"📥 Subcontractors recibidos: {len(items)} | offset={offset}")
 
     if not items:
         print("✅ No hay más registros.")
@@ -35,11 +35,12 @@ def sync_clients(limit: int = 30, offset: int = 0, dry_run: bool = False):
 
     with get_session() as session:
         for item in items:
-            mapped = map_podio_item_to_client(item)
+            mapped = map_podio_item_to_subc(item)
             podio_item_id = mapped["podio_item_id"]
 
             existing = session.exec(
-                select(Client).where(Client.podio_item_id == podio_item_id)
+                select(Subcontractor).where(
+                    Subcontractor.podio_item_id == podio_item_id)
             ).first()
 
             if existing:
@@ -58,10 +59,10 @@ def sync_clients(limit: int = 30, offset: int = 0, dry_run: bool = False):
                 created += 1
                 if not dry_run:
                     new_id = generate_custom_id(
-                        session, Client, "ID_Client", "CLI"
+                        session, Subcontractor, "ID_Subcontractor", "SUBC"
                     )
-                    mapped["ID_Client"] = new_id
-                    session.add(Client(**mapped))
+                    mapped["ID_Subcontractor"] = new_id
+                    session.add(Subcontractor(**mapped))
 
         if not dry_run:
             session.commit()

@@ -7,6 +7,16 @@ def get_podio_field_value(fields: list, field_id: str):
             raw = f.get("values") or f.get("value")
 
             # ----------------------------
+            # TAGS (siempre array de strings)
+            # ----------------------------
+            if f.get("type") == "tag" and isinstance(raw, list):
+                return [
+                    item.get("value")
+                    for item in raw
+                    if isinstance(item, dict) and item.get("value")
+                ] or None
+
+            # ----------------------------
             # LISTA DE VALORES (lo más común en Podio)
             # ----------------------------
             if isinstance(raw, list) and raw:

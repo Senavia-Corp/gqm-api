@@ -33,6 +33,10 @@ class Subcontractor(SubcontractorBase, table=True):
 
     ID_Subcontractor: Optional[str] = Field(default=None, primary_key=True)
 
+    # Referencias a Podio
+    podio_item_id: Optional[str] = Field(
+        default=None, index=True)
+
     # Relación de muchos a muchos
     jobs: List["Job"] = Relationship(  # type: ignore
         back_populates="subcontractors",
