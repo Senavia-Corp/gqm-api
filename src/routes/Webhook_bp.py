@@ -109,7 +109,8 @@ def podio_webhook(app_type):
         print(f"📩 Evento recibido: {event_type} | Item ID: {item_id}")
 
         with get_session() as session:
-            # 🔹 Solo llamar a Podio si NO es delete
+            existing = None
+            # Solo llamar a Podio si NO es delete
             if event_type != "item.delete":
                 podio_item = data.get(
                     "item") or get_podio_item(item_id, app_type)
@@ -118,12 +119,29 @@ def podio_webhook(app_type):
                 if app_type in {"QID", "PTL", "PAR"}:
                     process_podio_order(podio_item, session, event_type)
 
-                if app_type in APPS_SIN_ID and not podio_item.get("item_id"):
-                    prefix = PREFIX_MAP[app_type]
-                    new_id = generate_custom_id(
-                        session, Model, id_field, prefix)
-                    item_data[id_field] = new_id
-                    print(f"🆔 ID generado para {Model.__name__}: {new_id}")
+                existing = session.exec(
+                    select(Model).where(
+                        getattr(Model, "podio_item_id") == str(item_id)
+                    )
+                ).first()
+
+                if app_type in APPS_SIN_ID:
+                    existing = session.exec(
+                        select(Model).where(
+                            getattr(Model, "podio_item_id") == str(item_id)
+                        )
+                    ).first()
+
+                    if app_type in APPS_SIN_ID and not existing:
+                        prefix = PREFIX_MAP[app_type]
+                        new_id = generate_custom_id(
+                            session=session,
+                            model=Model,
+                            id_field_name=id_field,
+                            prefix=prefix
+                        )
+                        item_data[id_field] = new_id
+                        print(f"🆔 ID generado para {Model.__name__}: {new_id}")
 
                 item_unique_id = str(item_data.get(id_field) or item_id)
 
