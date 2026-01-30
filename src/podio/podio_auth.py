@@ -21,54 +21,32 @@ _token_cache = {
 }
 
 
-# =====================================================
-# Obtener headers OAuth2 para Podio
-# Token ÚNICO reutilizable para todas las apps
-# =====================================================
 @retry_api(max_retries=3, backoff=2)
 def get_podio_headers(app_type: str):
-    """
-    Retorna headers OAuth2 válidos para Podio.
-
-    - Usa App Authentication Flow
-    - Genera UN SOLO token global
-    - El app_type se usa solo para validar que la app existe
-    """
 
     app_type = app_type.upper()
 
-    # -------------------------------------------------
-    # 1. Validar que la app existe (control lógico)
-    # -------------------------------------------------
-    try:
-        get_podio_app_credentials(app_type)
-    except ValueError as e:
-        logger.error(f"❌ Tipo de app inválido: {app_type}")
-        raise e
+    app_creds = get_podio_app_credentials(app_type)
 
-    # -------------------------------------------------
-    # 2. Reutilizar token si aún es válido
-    # -------------------------------------------------
-    if _token_cache["global"]:
-        entry = _token_cache["global"]
+    cache_key = app_type
+
+    if cache_key not in _token_cache:
+        _token_cache[cache_key] = None
+
+    if _token_cache[cache_key]:
+        entry = _token_cache[cache_key]
         if time.time() < entry["expires"]:
             return {
                 "Authorization": f"OAuth2 {entry['token']}",
                 "Content-Type": "application/json"
             }
 
-    # -------------------------------------------------
-    # 3. Generar nuevo token GLOBAL
-    # -------------------------------------------------
-    logger.info("🔄 Generando token GLOBAL de Podio (App Auth Flow)...")
-
-    # Usamos cualquier app válida SOLO para emitir el token
-    first_app = next(iter(PODIO_APPS.values()))
+    logger.info(f"🔄 Generando token Podio para app {app_type}")
 
     data = {
         "grant_type": "app",
-        "app_id": first_app["APP_ID"],
-        "app_token": first_app["APP_TOKEN"],
+        "app_id": app_creds["APP_ID"],
+        "app_token": app_creds["APP_TOKEN"],
         "client_id": PODIO_CLIENT_ID,
         "client_secret": PODIO_CLIENT_SECRET,
     }
@@ -82,22 +60,19 @@ def get_podio_headers(app_type: str):
         response.raise_for_status()
 
     token_info = response.json()
-
     access_token = token_info.get("access_token")
-    expires_in = token_info.get("expires_in", 28800)  # 8 horas
 
     if not access_token:
         raise ValueError("❌ Podio no devolvió access_token")
 
-    # -------------------------------------------------
-    # 4. Cachear token global
-    # -------------------------------------------------
-    _token_cache["global"] = {
+    expires_in = token_info.get("expires_in", 28800)
+
+    _token_cache[cache_key] = {
         "token": access_token,
-        "expires": time.time() + expires_in - 60  # margen de seguridad
+        "expires": time.time() + expires_in - 60
     }
 
-    logger.info("✅ Token GLOBAL de Podio generado y cacheado.")
+    logger.info(f"✅ Token Podio generado para {app_type}")
 
     return {
         "Authorization": f"OAuth2 {access_token}",
