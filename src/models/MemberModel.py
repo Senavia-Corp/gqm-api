@@ -11,10 +11,15 @@ from .link_models.PermissionLinks import PermissionMemberLink
 
 class MemberBase(SQLModel):
     Member_Name: Optional[str] = Field(default=None)
+    Company_Role: Optional[str] = Field(default=None)
     Email_Address: str
     Phone_Number: Optional[str] = Field(default=None)
     Address: Optional[str] = Field(default=None)
     Password: str
+
+    # Referencia a Podio
+    podio_profile_id: Optional[str] = Field(
+        default=None, index=True)
 
 
 class Member(MemberBase, table=True):
