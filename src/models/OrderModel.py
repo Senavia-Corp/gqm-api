@@ -10,6 +10,7 @@ class OrderBase(SQLModel):
     Title: Optional[str] = Field(default=None)
     Formula: Optional[float] = Field(default=None)
     Adj_formula: Optional[float] = Field(default=None)
+    Notes: Optional[str] = Field(default=None)
 
     job_podio_id: Optional[str] = Field(default=None)
     # Para guardar el external id del campo TECH Formula de Podio
