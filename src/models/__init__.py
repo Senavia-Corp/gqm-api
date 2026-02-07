@@ -20,6 +20,7 @@ from src.models.PurchaseOrderModel import PurchaseOrder
 from src.models.PurchaseOrderItemModel import PurchaseOrderItem
 from src.models.RoleModel import Role
 from src.models.SkillsModel import Skills
+from src.models.StandardPSModel import StandardPS
 from src.models.SubcontractorModel import Subcontractor
 from src.models.SupplierModel import Supplier
 from src.models.TasksModel import Tasks

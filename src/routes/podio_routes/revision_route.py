@@ -99,7 +99,7 @@ def reconcile_podio():
             # ---------------- COMPARE ----------------
             changes = {
                 k: v for k, v in mapped.items()
-                if v is not None and getattr(db_obj, k) != v
+                if getattr(db_obj, k) != v
             }
 
             if not changes:

@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from src.podio.sync.sync_clients import sync_clients
 from src.podio.sync.sync_pa_mgmt_co import sync_parent_mgmt_company
 from src.podio.sync.sync_subcontractors import sync_subc
+from src.podio.sync.sync_jobs import sync_jobs
 
 
 sync_bp = Blueprint("sync_bp", __name__, url_prefix="/sync_podio")
@@ -70,6 +71,46 @@ def sync_subc_route():
     except Exception as e:
         return jsonify({
             "resource": "subcontractors",
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+# RUTA PARA JOBS
+@sync_bp.post("/jobs")
+def sync_jobs_route():
+    try:
+        job_type = request.args.get("job_type")
+        year = request.args.get("year")
+
+        if not job_type or not year:
+            return jsonify({
+                "resource": "jobs",
+                "status": "error",
+                "error": "job_type y year son obligatorios"
+            }), 400
+
+        limit = int(request.args.get("limit", 30))
+        offset = int(request.args.get("offset", 0))
+        dry_run = request.args.get("dry_run", "false").lower() == "true"
+
+        result = sync_jobs(
+            job_type=job_type,
+            year=int(year),
+            limit=limit,
+            offset=offset,
+            dry_run=dry_run
+        )
+
+        return jsonify({
+            "resource": "jobs",
+            "message": "Batch de jobs ejecutado ✅",
+            **result
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "resource": "jobs",
             "status": "error",
             "error": str(e)
         }), 500
