@@ -32,7 +32,7 @@ class JobBase(SQLModel):
     Job_status: Optional[str] = Field(default=None)
     Po_wtn_wo: Optional[str] = Field(default=None)
     Service_type: Optional[str] = Field(default=None)
-    Date_assigned: Optional[datetime] = Field(default_factory=datetime.now)
+    Date_assigned: Optional[datetime] = Field(default=None)
     Estimated_start_date: Optional[datetime] = Field(default=None)
     Estimated_project_duration: Optional[str] = Field(default=None)
     Date_Received: Optional[datetime] = Field(default=None)
@@ -57,7 +57,12 @@ class JobBase(SQLModel):
     Gqm_total_change_orders: Optional[float] = Field(default=None)
     Gqm_total_materials_fees: Optional[float] = Field(default=None)
 
-    # De PTL
+    Acc_receivable: Optional[float] = Field(default=None)
+    Gqm_final_form_pricing: Optional[float] = Field(default=None)
+    Gqm_final_adj_form_pricing: Optional[float] = Field(default=None)
+    Gqm_final_target_return: Optional[float] = Field(default=None)
+    Gqm_final_prem_in_money: Optional[float] = Field(default=None)
+
     Ptl_Superintendent: Optional[str] = Field(default=None)
     Ptl_property_id: Optional[str] = Field(default=None)
     Ptl_gc_fee: Optional[str] = Field(default=None)
