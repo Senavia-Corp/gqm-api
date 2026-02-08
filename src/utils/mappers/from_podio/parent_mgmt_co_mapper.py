@@ -2,7 +2,7 @@ from ..podio_value_extractor import get_podio_field_value
 
 
 # FASE 1: sin relaciones
-def map_podio_item_to_parent_mgmt_co(item: dict) -> dict:
+def map_podio_item_to_parent_mgmt_co(item: dict, session=None) -> dict:
     """
     Transforma un item de Podio de ParentMgmtCo para PostgreSQL.
     """

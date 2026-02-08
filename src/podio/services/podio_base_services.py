@@ -8,11 +8,15 @@ from src.utils.middleware.retries.retries import retry_api
 class PodioBaseService:
 
     # Servicio genérico para interactuar con cualquier App de Podio.
-    def __init__(self, app_type: str, app_id: str):
-        self.app_type = app_type    # QID, PTL, PAR
-        self.app_id = app_id        # ID numérica del App en Podio
+    def __init__(self, app_type: str, app_id: str, year: int | None = None):
+        self.app_type = app_type
+        self.app_id = app_id
+        self.year = year
 
     def _headers(self):
+        if self.year is not None:
+            return get_podio_headers(self.app_type, self.year)
+
         return get_podio_headers(self.app_type)
 
     # ------------- GET ITEMS -------------

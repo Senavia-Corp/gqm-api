@@ -15,8 +15,12 @@ from src.models.OrderModel import Order
 from src.models.ParentMgmtCoModel import ParentMgmtCo
 from src.models.PaymentUnitModel import PaymentUnit
 from src.models.PermissionModel import Permission
+from src.models.PurchaseModel import Purchase
+from src.models.PurchaseOrderModel import PurchaseOrder
+from src.models.PurchaseOrderItemModel import PurchaseOrderItem
 from src.models.RoleModel import Role
 from src.models.SkillsModel import Skills
+from src.models.StandardPSModel import StandardPS
 from src.models.SubcontractorModel import Subcontractor
 from src.models.SupplierModel import Supplier
 from src.models.TasksModel import Tasks
@@ -32,6 +36,7 @@ from src.models.link_models.JobSubcontractor import JobSubcontractorLink
 from src.models.link_models.JobPaymentU import JobPaymentULink
 from src.models.link_models.OpportunitiesLinks import OpportSkillsLink, OpportSubcLink
 from src.models.link_models.PermissionLinks import PermissionRoleLink, PermissionMemberLink, PermissionTechLink
+from src.models.link_models.PurchaseSupplier import PurchaseSupplierLink
 from src.models.link_models.SkillsSubcontractor import SkillsSubcLink
 
 # Modelo para guardar autenticación de QBO

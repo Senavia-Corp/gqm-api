@@ -1,20 +1,58 @@
 from .mapper_aux_functions import clean_html, has_html
 
 
-def get_podio_field_value(fields: list, field_id: str):
+def get_podio_field_value(fields: list, field_ids):
+
+    if not field_ids:
+        return None
+
+    # Normalizar a lista
+    if isinstance(field_ids, str):
+        field_ids = [field_ids]
+
+    field_ids = {fid.lower() for fid in field_ids}
+
     for f in fields:
-        if f.get("external_id") == field_id or f.get("label") == field_id:
+        external_id = f.get("external_id")
+        label = f.get("label")
+
+        if (
+            (external_id and external_id.lower() in field_ids)
+            or (label and label.lower() in field_ids)
+        ):
             raw = f.get("values") or f.get("value")
 
             # ----------------------------
-            # LISTA DE VALORES (lo más común en Podio)
+            # Dates
+            # ----------------------------
+            if f.get("type") == "date" and isinstance(raw, list) and raw:
+                date_obj = raw[0]
+                return (
+                    date_obj.get("start_date")
+                    or date_obj.get("start")
+                    or date_obj.get("end_date")
+                    or date_obj.get("end")
+                )
+
+            # ----------------------------
+            # TAGS
+            # ----------------------------
+            if f.get("type") == "tag" and isinstance(raw, list):
+                return [
+                    item.get("value")
+                    for item in raw
+                    if isinstance(item, dict) and item.get("value")
+                ] or None
+
+            # ----------------------------
+            # Lista de valores
             # ----------------------------
             if isinstance(raw, list) and raw:
                 values = []
                 has_html_content = False
 
                 for item in raw:
-                    # EMBED (website, links, etc)
+                    # EMBED
                     if isinstance(item, dict) and "embed" in item:
                         embed = item["embed"]
                         return (
@@ -25,36 +63,28 @@ def get_podio_field_value(fields: list, field_id: str):
 
                     val = item.get("value", item)
 
-                    # Category
                     if isinstance(val, dict) and "text" in val:
                         values.append(clean_html(val["text"]))
-                        has_html_content = has_html_content or has_html(
-                            val["text"])
+                        has_html_content |= has_html(val["text"])
 
-                    # {"value": "..."}
                     elif isinstance(val, dict) and "value" in val:
                         values.append(clean_html(val["value"]))
-                        has_html_content = has_html_content or has_html(
-                            val["value"])
+                        has_html_content |= has_html(val["value"])
 
-                    # string directo (phones, emails)
                     elif isinstance(val, str):
                         values.append(clean_html(val))
-                        has_html_content = has_html_content or has_html(val)
+                        has_html_content |= has_html(val)
 
                 if not values:
                     return None
 
-                # 🔑 Decisión automática
-                # - Texto con HTML → string con saltos
-                # - Phones / Emails → array
                 if len(values) > 1:
                     return "\n".join(values) if has_html_content else values
 
                 return values[0]
 
             # ----------------------------
-            # EMBED directo (fallback)
+            # Embed (URLs)
             # ----------------------------
             if isinstance(raw, dict) and "embed" in raw:
                 embed = raw["embed"]
