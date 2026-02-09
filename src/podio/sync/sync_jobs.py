@@ -4,6 +4,7 @@ from src.utils.middleware.retries.retries import retry_db
 from src.podio.services.job_services import podio_jobs_router
 from src.utils.mappers.from_podio.job_mapper import map_podio_item_to_job
 from src.models.JobModel import Job
+from src.utils.validators.jobs_validator import validate_batch_jobs
 
 
 # ===============================
@@ -93,6 +94,36 @@ def sync_jobs(job_type: str, year: int, limit: int = 30, offset: int = 0, dry_ru
 
         if not dry_run:
             session.commit()
+
+            #Descomentar si se quieren hacer pruebas de fallos para la generación de reportes
+            """ first_tracking_id = items[0].get("app_item_id_formatted") if items else None
+
+            def mapper_with_forced_diff(item: dict) -> dict:
+                mapped = map_podio_item_to_job(item)
+
+                # fuerza diff solo para el primer registro del batch
+                if mapped and first_tracking_id and mapped.get("ID_Jobs") == first_tracking_id:
+                    mapped["Job_status"] = "__FORCED_DIFF__"
+
+                return mapped """
+
+            # ✅ VALIDACIÓN POST-MIGRACIÓN (mismo batch)
+            validation = validate_batch_jobs(
+                items=items,
+                session=session,
+                mapper_fn=map_podio_item_to_job,
+                job_type=job_type,
+                year=year,
+                offset=offset,
+                limit=limit,
+                report_dir="reports/jobs_validation",
+                write_report=True
+            )
+
+            print("🧪 VALIDATION SUMMARY:", validation["summary"])
+            if validation["reports"]:
+                print("📄 REPORT CSV:", validation["reports"].get("csv"))
+                print("📄 SUMMARY JSON:", validation["reports"].get("summary_json"))
 
     return {
         "processed": len(items),
