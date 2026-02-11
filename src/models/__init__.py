@@ -1,5 +1,6 @@
 # Todos los modelos principales
 from src.models.AttachmentsModel import Attachments
+from src.models.BldgDeptModel import BuildingDept
 from src.models.ChangeOrderModel import ChangeOrder
 from src.models.ClientModel import Client
 from src.models.EstimateCostModel import EstimateCost

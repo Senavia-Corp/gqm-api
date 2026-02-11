@@ -16,6 +16,7 @@ from .link_models.JobSubcontractor import JobSubcontractorLink
 from .SubcontractorModel import Subcontractor
 from .link_models.JobPaymentU import JobPaymentULink
 from .PaymentUnitModel import PaymentUnit
+from .BldgDeptModel import BuildingDept
 
 
 class JobType(str, Enum):
@@ -67,9 +68,8 @@ class JobBase(SQLModel):
     Ptl_property_id: Optional[str] = Field(default=None)
     Ptl_gc_fee: Optional[str] = Field(default=None)
 
-    # Falta relación con Building Department!!!
     Gqm_paid_fees: Optional[float] = Field(default=None)
-    Bldg_dept_fees: Optional[List[float]] = Field(
+    Bldg_dept_fees: Optional[List[str]] = Field(
         default=None, sa_column=Column(JSON))
 
 
@@ -85,7 +85,10 @@ class Job(JobBase, table=True):
     # Relaciones foráneas M:1
     ID_Client: Optional[str] = Field(
         default=None, foreign_key="client.ID_Client")
-    client: Optional["Client"] = Relationship(back_populates="jobs")
+    client: Optional[Client] = Relationship(back_populates="jobs")
+    ID_BldgDept: Optional[str] = Field(
+        default=None, foreign_key="bldg_dept.ID_BldgDept")
+    building_dept: Optional[BuildingDept] = Relationship(back_populates="jobs")
 
     # Relaciones foráneas 1:M
     attachments: List["Attachments"] = Relationship(  # type: ignore
@@ -138,8 +141,10 @@ class Job(JobBase, table=True):
 
 class JobCreate(JobBase):
     ID_Client: Optional[str] = None
+    ID_BldgDept: Optional[str] = None
 
 
 class JobUpdate(JobBase):
     ID_Client: Optional[str] = None
+    ID_BldgDept: Optional[str] = None
     Job_type: Optional[str] = None

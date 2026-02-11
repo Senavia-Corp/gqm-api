@@ -5,6 +5,9 @@ from src.utils.id_generator import generate_custom_id
 from src.podio.services.subcontractor_services import podio_subc_router
 from src.utils.mappers.from_podio.subcontractor_mapper import map_podio_item_to_subc
 from src.models.SubcontractorModel import Subcontractor
+from src.utils.mappers.from_podio.subcontractor_skill_relationship import get_or_create_skill_by_dt, link_subc_skill
+from src.utils.mappers.podio_relationships import get_text_values_by_external_id
+from src.utils.mappers.podio_value_extractor import get_podio_field_value
 
 
 # ===============================
@@ -71,6 +74,94 @@ def sync_subc(limit: int = 30, offset: int = 0, dry_run: bool = False):
         "processed": len(items),
         "created": created,
         "updated": updated,
+        "limit": limit,
+        "offset": offset,
+        "dry_run": dry_run
+    }
+
+
+# ===============================
+# ----------- FASE 2 -----------
+# ===============================
+
+def normalize_to_list(value):
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+# SYNC relaciones y creación de Skills
+@retry_db(max_retries=3, delay=1)
+def sync_subcontractor_related_skills(
+    limit: int = 30,
+    offset: int = 0,
+    dry_run: bool = False
+):
+    service = podio_subc_router.get_service()
+    items = service.get_items(limit=limit, offset=offset)
+
+    if not items:
+        return {
+            "processed": 0,
+            "linked": 0
+        }
+
+    processed = 0
+    linked = 0
+
+    with get_session() as session:
+        for item in items:
+            processed += 1
+
+            podio_item_id = str(item.get("item_id"))
+
+            subcontractor = session.exec(
+                select(Subcontractor).where(
+                    Subcontractor.podio_item_id == podio_item_id
+                )
+            ).first()
+
+            if not subcontractor:
+                print(
+                    f"⚠️ Subcontractor con podio_item_id {podio_item_id} no existe"
+                )
+                continue
+
+            fields = item.get("fields", [])
+
+            division_trade = get_podio_field_value(
+                fields=fields,
+                field_ids="contractor-type"
+            )
+
+            division_trades = normalize_to_list(division_trade)
+
+            for trade in division_trades:
+                clean_trade = trade.strip()
+
+                skill = get_or_create_skill_by_dt(
+                    session=session,
+                    division_trade=clean_trade
+                )
+
+                if not dry_run:
+                    created_link = link_subc_skill(
+                        session=session,
+                        subcon_id=subcontractor.ID_Subcontractor,
+                        skills_id=skill.ID_Skill
+                    )
+
+                    if created_link:
+                        linked += 1
+
+        if not dry_run:
+            session.commit()
+
+    return {
+        "processed": processed,
+        "linked": linked,
         "limit": limit,
         "offset": offset,
         "dry_run": dry_run
