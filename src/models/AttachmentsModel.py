@@ -3,6 +3,8 @@ from typing import Optional
 from .JobModel import Job
 from .SubcontractorModel import Subcontractor
 from .TechnicianModel import Technician
+from .SupplierModel import Supplier
+from .FinancialDocModel import FinancialDocument
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -31,15 +33,27 @@ class Attachments(AttachmentsBase, table=True):
         default=None, foreign_key="technician.ID_Technician")
     technician: Optional[Technician] = Relationship(
         back_populates="attachments")
+    ID_Supplier: Optional[str] = Field(
+        default=None, foreign_key="supplier.ID_Supplier")
+    supplier: Optional[Supplier] = Relationship(
+        back_populates="attachments")
+    ID_FinancialDoc: Optional[str] = Field(
+        default=None, foreign_key="financial_document.ID_FinancialDoc")
+    financial_document: Optional[FinancialDocument] = Relationship(
+        back_populates="attachments")
 
 
 class AttachmentsCreate(AttachmentsBase):
     ID_Jobs: Optional[str] = None
     ID_Subcontractor: Optional[str] = None
     ID_Technician: Optional[str] = None
+    ID_Supplier: Optional[str] = None
+    ID_FinancialDoc: Optional[str] = None
 
 
 class AttachmentsUpdate(AttachmentsBase):
     ID_Jobs: Optional[str] = None
     ID_Subcontractor: Optional[str] = None
     ID_Technician: Optional[str] = None
+    ID_Supplier: Optional[str] = None
+    ID_FinancialDoc: Optional[str] = None

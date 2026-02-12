@@ -1,9 +1,10 @@
 # ==================================== Modelos para PostgreSQL ====================================#
 
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional, List
+from typing import Optional
 from .JobModel import Job
 from .TechnicianModel import Technician
+from .MemberModel import Member
 from datetime import date
 
 
@@ -29,17 +30,21 @@ class Tasks(TasksBase, table=True):
     ID_Jobs: Optional[str] = Field(
         default=None, foreign_key="jobs.ID_Jobs")
     job: Optional[Job] = Relationship(back_populates="tasks")
-
     ID_Technician: Optional[str] = Field(
         default=None, foreign_key="technician.ID_Technician")
     technician: Optional[Technician] = Relationship(back_populates="tasks")
+    ID_Member: Optional[str] = Field(
+        default=None, foreign_key="member.ID_Member")
+    member: Optional[Member] = Relationship(back_populates="tasks")
 
 
 class TasksCreate(TasksBase):
     ID_Jobs: Optional[str] = None
     ID_Technician: Optional[str] = None
+    ID_Member: Optional[str] = None
 
 
 class TasksUpdate(TasksBase):
     ID_Jobs: Optional[str] = None
     ID_Technician: Optional[str] = None
+    ID_Member: Optional[str] = None
