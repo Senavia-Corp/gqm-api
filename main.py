@@ -60,6 +60,9 @@ from src.tests.debug_podio import debug_bp
 def create_app():
     app = Flask(__name__)
 
+    # Configurar CORS con origines específicos
+    CORS(app)
+
     # Middleware de logs para todas las rutas
     register_request_logger(app)
 
