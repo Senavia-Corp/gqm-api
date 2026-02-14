@@ -29,6 +29,11 @@ class Supplier(SupplierBase, table=True):
     podio_item_id: Optional[str] = Field(
         default=None, index=True)
 
+    # Relaciones foráneas 1:M
+    attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="supplier",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+
     # Relación de muchos a muchos
     purchases: List["Purchase"] = Relationship(  # type: ignore
         back_populates="suppliers",

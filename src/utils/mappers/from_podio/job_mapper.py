@@ -66,28 +66,3 @@ def map_podio_item_to_job(item: dict, session=None) -> dict:
         job_dict[db_field] = value
 
     return job_dict
-
-
-'''
-def get_related_client_id(session):
-        aliases = FIELD_ALIASES.get("ID_Client", ["client"])
-        for alias in aliases:
-            for f in fields:
-                if f.get("external_id") == alias:
-                    vals = f.get("values", [])
-                    if vals:
-                        podio_client_id = str(vals[0].get("value", {}).get(
-                            "item_id"))
-                        if podio_client_id and session:
-                            client = session.exec(
-                                select(Client).where(
-                                    Client.podio_item_id == podio_client_id)
-                            ).first()
-                            if client:
-                                return client.ID_Client
-                            else:
-                                print(
-                                    f"⚠️ Podio client item_id {podio_client_id} no existe en DB")
-                                return None
-        return None 
-'''

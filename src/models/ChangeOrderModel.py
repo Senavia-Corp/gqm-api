@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional
 from .JobModel import Job
+from .OrderModel import Order
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -10,6 +11,12 @@ class ChangeOrBase(SQLModel):
     Description: Optional[str] = Field(default=None)
     ChangeOrderFormula: Optional[float] = Field(default=None)
     State: Optional[str] = Field(default=None)
+    # Para poder conectar con Podio si se hacen modificaciones
+    job_podio_id: Optional[str] = Field(default=None)
+    # Para guardar el external id de donde viene (TECH x - Change Order o CHANGE ORDER)
+    podio_field: Optional[str] = Field(default=None)
+    # Para guardar el external id de ChOrFormula de Job (Podio)
+    chor_formula_field: Optional[str] = Field(default=None)
 
 
 class ChangeOrder(ChangeOrBase, table=True):
@@ -21,11 +28,16 @@ class ChangeOrder(ChangeOrBase, table=True):
     ID_Jobs: Optional[str] = Field(
         default=None, foreign_key="jobs.ID_Jobs")
     job: Optional[Job] = Relationship(back_populates="change_orders")
+    ID_Order: Optional[str] = Field(
+        default=None, foreign_key="order.ID_Order")
+    order: Optional[Order] = Relationship(back_populates="change_orders")
 
 
 class ChangeOrCreate(ChangeOrBase):
     ID_Jobs: Optional[str] = None
+    ID_Order: Optional[str] = None
 
 
 class ChangeOrUpdate(ChangeOrBase):
     ID_Jobs: Optional[str] = None
+    ID_Order: Optional[str] = None

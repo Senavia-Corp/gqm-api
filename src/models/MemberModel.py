@@ -17,8 +17,10 @@ class MemberBase(SQLModel):
     Address: Optional[str] = Field(default=None)
     Password: str
 
-    # Referencia a Podio
+    # Referencias a Podio
     podio_profile_id: Optional[str] = Field(
+        default=None, index=True)
+    podio_item_id: Optional[str] = Field(
         default=None, index=True)
 
 
@@ -37,6 +39,8 @@ class Member(MemberBase, table=True):
         back_populates="member",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
     purchases: List["Purchase"] = Relationship(  # type: ignore
+        back_populates="member")
+    tasks: List["Tasks"] = Relationship(  # type: ignore
         back_populates="member")
 
     # Relación de muchos a muchos

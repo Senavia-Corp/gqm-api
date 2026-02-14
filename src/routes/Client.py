@@ -36,6 +36,7 @@ def list_clients():
                     joinedload(Client.manager),
                     joinedload(Client.parent_mgmt_co),
                     joinedload(Client.standard_ps),
+                    joinedload(Client.members),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -45,7 +46,7 @@ def list_clients():
 
             clients_data = [
                 add_relationships(
-                    client, ["jobs", "manager", "parent_mgmt_co", "standard_ps"])
+                    client, ["jobs", "manager", "parent_mgmt_co", "standard_ps", "members"])
                 for client in results
             ]
 
@@ -78,6 +79,7 @@ def get_client(id_client):
                     joinedload(Client.manager),
                     joinedload(Client.parent_mgmt_co),
                     joinedload(Client.standard_ps),
+                    joinedload(Client.members),
                 )
                 .where(Client.ID_Client == id_client)
             )
@@ -88,7 +90,7 @@ def get_client(id_client):
                 return jsonify({"error": "Client not found"}), 404
 
             client_data = add_relationships(
-                obj, ["jobs", "manager", "parent_mgmt_co", "standard_ps"])
+                obj, ["jobs", "manager", "parent_mgmt_co", "standard_ps", "members"])
 
             return jsonify(client_data), 200
 
