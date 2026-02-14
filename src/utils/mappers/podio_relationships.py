@@ -1,8 +1,7 @@
 from sqlmodel import select
 
+
 # Obtener las relaciones tipo app
-
-
 def get_related_app_ids(
     fields: list,
     external_id: str,
