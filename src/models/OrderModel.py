@@ -10,12 +10,16 @@ class OrderBase(SQLModel):
     Title: Optional[str] = Field(default=None)
     Formula: Optional[float] = Field(default=None)
     Adj_formula: Optional[float] = Field(default=None)
-    Notes: Optional[str] = Field(default=None)
-
-    job_podio_id: Optional[str] = Field(default=None)
-    # Para guardar el external id del campo TECH Formula de Job (Podio)
-    tech_field: Optional[str] = Field(default=None)
+    Notes: Optional[str] = Field(default=None)  # De PAR
     Ptl_hd_materials: Optional[float] = Field(default=None)  # De PTL
+    # Para poder conectar con Podio si se hacen modificaciones
+    job_podio_id: Optional[str] = Field(default=None)
+    # Para guardar el external id de TECH Formula de Job (Podio)
+    tech_field: Optional[str] = Field(default=None)
+    # Para guardar el external id de HD_Materials de Job (Podio)
+    hd_materials_field: Optional[str] = Field(default=None)
+    # Para guardar el external id de Description de Job (Podio)
+    notes_field: Optional[str] = Field(default=None)
 
 
 class Order(OrderBase, table=True):
