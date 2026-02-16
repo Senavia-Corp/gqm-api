@@ -31,6 +31,9 @@ JOB_MEMBER_FIELDS = {
     ("PAR", 2025): {
         "acc-rep-selling": {"type": "app", "rol": "Acc Rep Selling"}
     },
+    ("PAR", 2026): {
+        "acc-rep-selling": {"type": "app", "rol": "Acc Rep Selling"}
+    },
 
     # PTL
     ("PTL", 2023): {
@@ -40,6 +43,9 @@ JOB_MEMBER_FIELDS = {
         "member": {"type": "contact", "rol": "Mgmt Member"}
     },
     ("PTL", 2025): {
+        "relationship-2": {"type": "app", "rol": "Mgmt Member"}
+    },
+    ("PTL", 2026): {
         "relationship-2": {"type": "app", "rol": "Mgmt Member"}
     },
 
@@ -55,6 +61,11 @@ JOB_MEMBER_FIELDS = {
         "lead-member": {"type": "contact", "rol": "Lead Member"}
     },
     ("QID", 2025): {
+        "relation-rep": {"type": "app", "rol": "Acc Rep Selling"},
+        "mgmt-member-2": {"type": "app", "rol": "Mgmt Member"},
+        "lead-member": {"type": "contact", "rol": "Lead Member"}
+    },
+    ("QID", 2026): {
         "relation-rep": {"type": "app", "rol": "Acc Rep Selling"},
         "mgmt-member-2": {"type": "app", "rol": "Mgmt Member"},
         "lead-member": {"type": "contact", "rol": "Lead Member"}

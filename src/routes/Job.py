@@ -61,7 +61,7 @@ def list_jobs():
             jobs_data = [
                 # se agrega la relacion FK
                 add_relationships(
-                    job, ["client", "members", "multipliers", "building_dept", "change_orders"
+                    job, ["client", "members", "multipliers", "building_dept", "change_orders",
                           "attachments", "subcontractors.technicians", "tasks", "tlactivity",
                           "subcontractors.orders", "estimate_costs", "payment_units"])
                 for job in results
@@ -115,7 +115,7 @@ def get_job_by_id(id_job):
                 return jsonify({"error": "Job not found"}), 404
 
             job_data = add_relationships(
-                obj,  ["client", "members", "multipliers", "building_dept", "change_orders"
+                obj,  ["client", "members", "multipliers", "building_dept", "change_orders",
                        "attachments", "subcontractors.technicians", "tasks", "tlactivity",
                        "subcontractors.orders", "estimate_costs", "payment_units"])
 
@@ -149,7 +149,7 @@ def get_jobs_by_type_year():
         year = request.args.get("year")       # 2025, 2024, 2023
 
         if not job_type or not year:
-            return jsonify({ "error": "Debes enviar type y year" }), 400
+            return jsonify({"error": "Debes enviar type y year"}), 400
 
         # Extraemos el último dígito del año (tu lógica actual)
         year_digit = year[-1]  # 2025 -> "5"
@@ -166,8 +166,10 @@ def get_jobs_by_type_year():
                     joinedload(Job.tasks),
                     joinedload(Job.estimate_costs),
                     joinedload(Job.payment_units),
-                    joinedload(Job.subcontractors).joinedload(Subcontractor.technicians),
-                    joinedload(Job.subcontractors).joinedload(Subcontractor.orders),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.technicians),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.orders),
                     joinedload(Job.tlactivity),
                     joinedload(Job.change_orders),
                     joinedload(Job.building_dept),

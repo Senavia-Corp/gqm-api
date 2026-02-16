@@ -112,3 +112,107 @@ PROJECT_CHANGE_ORDER_FIELDS = {
         4: ["gqm-change-order-4"]
     }
 }
+
+# Order Change Orders
+ORDER_CHANGE_ORDERS_FIELDS = {
+    "QID": {
+        1: [
+            "tech-1-change-order-3",
+            "tech-1-change-order-2-2",
+            "tech-1-change-order-2",
+            "tech-1-change-order-4",
+            "tech-1-change-order-5"
+        ],
+        2: [
+            "tech-2-change-order-1",
+            "tech-2-change-order-1-2",
+            "tech-2-change-order-3",
+            "tech-2-change-order-4",
+            "tech-2-change-order-5",
+            "tech-2-change-order-6"
+        ],
+        3: [
+            "tech-3-change-order-1",
+            "tech-3-change-order-2",
+            "tech-3-change-order-3"
+        ],
+        4: [
+            "tech-4-change-order-1",
+            "tech-4-change-order-2",
+            "tech-4-change-order-3",
+            "tech-4-change-order-4",
+            "tech-4-change-order-5",
+            "tech-4-change-order-6",
+            "tech-4-change-order-7",
+            "tech-4-change-order-8"
+        ],
+        5: [
+            "material-tech-4",
+            "rentals-tech-5",
+            "tech-5-change-order-3"
+        ],
+        6: [
+            "material-tech-6",
+            "tech-6-change-order-2",
+            "tech-6-change-order-3",
+            "tech-6-change-order-4",
+            "tech-6-change-order-5"
+        ],
+        7: [
+            "material-tech-7",
+            "tech-7-change-order-2"
+        ],
+        8: [
+            "material-tech-8",
+            "tech-8-change-order-2"
+        ],
+        9: [
+            "material-tech-9",
+            "tech-9-change-order-2"
+        ],
+        10: ["tech-10-change-order-1"],
+        11: ["tech-11-change-order-1"],
+        12: ["tech-12-change-order-1"],
+        13: [
+            "tech-13-change-order-1",
+            "tech-13-change-order-2",
+            "tech-13-change-order-3"
+        ],
+        14: ["tech-14-change-order-1"],
+        15: ["tech-15-change-order-1"],
+        16: ["tech-16-change-order-1"],
+        17: ["tech-17-change-order-1"],
+        18: ["tech-18-change-order-1"],
+        19: ["tech-19-change-order-1"],
+        20: ["tech-20-change-order-1"]
+    },
+    "PTL": {
+        1: [
+            "tech-1-change-order-1",
+            "tech-1-change-order-2",
+            "tech-1-change-order-3",
+            "tech-1-change-order-4"
+        ],
+        2: [
+            "tech-2-change-order-1",
+            "tech-2-change-order-1-2",
+            "tech-2-change-order-3",
+            "tech-2-change-order-4"
+        ],
+        3: [
+            "tech-3-change-order-1",
+            "tech-3-change-order-2",
+            "tech-3-change-order-3",
+            "tech-3-change-order-4"
+        ],
+        4: [
+            "tech-4-change-order-1",
+            "tech-4-change-order-2",
+            "tech-4-change-order-3",
+            "tech-4-change-order-4"
+        ],
+        5: ["tech-5-change-order-1"],
+        6: ["tech-6-change-order-1"],
+        7: ["tech-7-change-order-1"]
+    }
+}

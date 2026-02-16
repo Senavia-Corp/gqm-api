@@ -15,8 +15,6 @@ class ChangeOrBase(SQLModel):
     job_podio_id: Optional[str] = Field(default=None)
     # Para guardar el external id de donde viene (TECH x - Change Order o CHANGE ORDER)
     podio_field: Optional[str] = Field(default=None)
-    # Para guardar el external id de ChOrFormula de Job (Podio)
-    chor_formula_field: Optional[str] = Field(default=None)
 
 
 class ChangeOrder(ChangeOrBase, table=True):
