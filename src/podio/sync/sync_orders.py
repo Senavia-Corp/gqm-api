@@ -279,6 +279,7 @@ def sync_job_orders_and_change_orders(
                 value = values[0].get("value")
 
                 # -------- TECH SUBCONTRACTOR (App Field) --------
+                matched = False
                 for tech_index, field_ids in TECHNICIAN_FIELDS.items():
                     if external_id in field_ids:
                         subcontractor = extract_subcontractor_from_field(
@@ -289,7 +290,11 @@ def sync_job_orders_and_change_orders(
                             tech_data[tech_index]["subcontractor_id"] = subcontractor.ID_Subcontractor
                             tech_data[tech_index]["tech_field"] = external_id
 
-                        continue
+                        matched = True
+                        break
+
+                if matched:
+                    continue
 
                 # -------- TECH FORMULA --------
                 matched = False
@@ -391,6 +396,9 @@ def sync_job_orders_and_change_orders(
                 hd_materials_field = data.get("hd_materials_field")
                 notes = data.get("notes")
                 notes_field = data.get("notes_field")
+
+                if tech_field is None:
+                    continue
 
                 order, created = upsert_order(
                     session=session,
