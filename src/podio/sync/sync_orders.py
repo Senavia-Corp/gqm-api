@@ -9,6 +9,7 @@ from src.models.OrderModel import Order
 from src.models.SubcontractorModel import Subcontractor
 from src.models.ChangeOrderModel import ChangeOrder
 from src.utils.mappers.from_podio.order_changeorder_mapper import (
+    TECHNICIAN_FIELDS,
     TECH_FORMULA_FIELDS,
     TECH_ADJ_FORMULA_FIELDS,
     TECH_HD_MATERIALS_FIELDS,
@@ -40,7 +41,7 @@ def upsert_order(
     hd_materials_field: str,
     notes: str,
     notes_field: str,
-    dry_run: bool
+    dry_run: bool = False
 ):
 
     existing_order = session.exec(
@@ -253,7 +254,6 @@ def sync_job_orders_and_change_orders(
 
             tech_data = {}
             order_change_data = {}
-            tech_counter = 0
 
             formula_map = TECH_FORMULA_FIELDS.get(job_type, {})
             adj_map = TECH_ADJ_FORMULA_FIELDS.get(job_type, {})
@@ -279,19 +279,17 @@ def sync_job_orders_and_change_orders(
                 value = values[0].get("value")
 
                 # -------- TECH SUBCONTRACTOR (App Field) --------
-                if external_id.startswith("technician"):
-                    tech_counter += 1
-                    tech_index = tech_counter
+                for tech_index, field_ids in TECHNICIAN_FIELDS.items():
+                    if external_id in field_ids:
+                        subcontractor = extract_subcontractor_from_field(
+                            session, f)
 
-                    subcontractor = extract_subcontractor_from_field(
-                        session, f)
+                        if subcontractor:
+                            tech_data.setdefault(tech_index, {})
+                            tech_data[tech_index]["subcontractor_id"] = subcontractor.ID_Subcontractor
+                            tech_data[tech_index]["tech_field"] = external_id
 
-                    if subcontractor:
-                        tech_data.setdefault(tech_index, {})
-                        tech_data[tech_index]["subcontractor_id"] = subcontractor.ID_Subcontractor
-                        tech_data[tech_index]["tech_field"] = external_id
-
-                    continue
+                        continue
 
                 # -------- TECH FORMULA --------
                 matched = False

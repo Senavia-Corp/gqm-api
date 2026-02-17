@@ -13,7 +13,6 @@ from src.podio.sync.sync_jobs import (
     sync_jobs_relation,
     sync_job_related_members,
     sync_job_related_subcontractor)
-from src.podio.services.job_services import podio_jobs_router
 from src.podio.sync.sync_orders import sync_job_orders_and_change_orders
 from src.utils.mappers.from_podio.jobs_relationships import RELATION_CONFIG
 from src.podio.sync.sync_bldg_dept import sync_bldg_dept

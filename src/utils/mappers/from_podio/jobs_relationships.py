@@ -79,7 +79,7 @@ def upsert_job_member_link(
     job_id: str,
     member_id: str,
     rol: str,
-    dry_run: bool
+    dry_run: bool = False
 ):
     created = 0
     updated = 0

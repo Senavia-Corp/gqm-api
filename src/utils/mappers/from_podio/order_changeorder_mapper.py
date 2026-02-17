@@ -1,6 +1,31 @@
 
 # MAPEO DE LOS CAMPOS PARA ORDER Y CHANGE ORDER
 
+# --------- PARA SUBCONTRACTOR:
+# Technician x
+TECHNICIAN_FIELDS = {
+    1: ["technician-2"],
+    2: ["technician-2-2"],
+    3: ["technician-3"],
+    4: ["technician-4"],
+    5: ["technician-5"],
+    6: ["technician-6"],
+    7: ["technician-7"],
+    8: ["technician-8"],
+    9: ["technician-9"],
+    10: ["technician-10"],
+    11: ["technician-11"],
+    12: ["technician-12"],
+    13: ["technician-13"],
+    14: ["technician-14"],
+    15: ["technician-15"],
+    16: ["technician-16"],
+    17: ["technician-17"],
+    18: ["technician-18"],
+    19: ["technician-19"],
+    20: ["technician-20"]
+}
+
 # --------- PARA ORDER:
 # Formula
 TECH_FORMULA_FIELDS = {

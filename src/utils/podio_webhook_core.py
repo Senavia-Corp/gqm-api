@@ -32,7 +32,7 @@ def parse_and_validate_webhook(app_type: str):
         print(f"⚠️ Payload vacío: {raw}")
         return app_type, None, jsonify({"status": "ok"}), 200
 
-    print(f"🔹 Datos parseados: {data}")
+    # print(f"🔹 Datos parseados: {data}")
 
     # ---- ACTIVACIÓN (hook.verify)
     if data.get("type") == "hook.verify":
@@ -44,8 +44,8 @@ def parse_and_validate_webhook(app_type: str):
             activate_podio_webhook(hook_id, code, app_type)
         except Exception as e:
             print(f"❌ Error activando webhook: {e}")
-            return jsonify({"error": str(e)}), 500
-        return jsonify({"status": "hook.verify recibido y activado"}), 200
+            return app_type, None, jsonify({"error": str(e)}), 500
+        return app_type, None, jsonify({"status": "hook.verify recibido y activado"}), 200
 
     # ---- PREPARACION PARA RECIBIR EVENTOS Y QUE NO SE REPITAN
     item_id = data.get("item_id")
