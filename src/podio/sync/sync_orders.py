@@ -9,11 +9,13 @@ from src.models.OrderModel import Order
 from src.models.SubcontractorModel import Subcontractor
 from src.models.ChangeOrderModel import ChangeOrder
 from src.utils.mappers.from_podio.order_changeorder_mapper import (
+    TECHNICIAN_FIELDS,
     TECH_FORMULA_FIELDS,
     TECH_ADJ_FORMULA_FIELDS,
     TECH_HD_MATERIALS_FIELDS,
     TECH_NOTES_FIELDS,
-    PROJECT_CHANGE_ORDER_FIELDS
+    PROJECT_CHANGE_ORDER_FIELDS,
+    ORDER_CHANGE_ORDERS_FIELDS
 )
 from src.utils.mappers.mapper_aux_functions import has_html, clean_html
 
@@ -39,7 +41,7 @@ def upsert_order(
     hd_materials_field: str,
     notes: str,
     notes_field: str,
-    dry_run: bool
+    dry_run: bool = False
 ):
 
     existing_order = session.exec(
@@ -122,7 +124,6 @@ def upsert_change_order(
     podio_item_id: str,
     podio_field: str,
     change_formula: float,
-    change_field: str,
     order=None,
     dry_run: bool = False
 ):
@@ -146,10 +147,6 @@ def upsert_change_order(
 
         if existing.ChangeOrderFormula != change_formula:
             existing.ChangeOrderFormula = change_formula
-            changed = True
-
-        if existing.chor_formula_field != change_field:
-            existing.chor_formula_field = change_field
             changed = True
 
         # 👇 Asegura que la relación esté correcta
@@ -184,8 +181,7 @@ def upsert_change_order(
         ID_Jobs=job.ID_Jobs,
         ID_Order=order.ID_Order if order else None,
         podio_field=podio_field,
-        job_podio_id=podio_item_id,
-        chor_formula_field=change_field
+        job_podio_id=podio_item_id
     )
 
     if not dry_run:
@@ -257,14 +253,15 @@ def sync_job_orders_and_change_orders(
                 continue
 
             tech_data = {}
-            project_change_orders = {}
-            tech_counter = 0
+            order_change_data = {}
 
             formula_map = TECH_FORMULA_FIELDS.get(job_type, {})
             adj_map = TECH_ADJ_FORMULA_FIELDS.get(job_type, {})
             hd_map = TECH_HD_MATERIALS_FIELDS.get(job_type, {})
             notes_map = TECH_NOTES_FIELDS.get(job_type, {})
             project_changeor_map = PROJECT_CHANGE_ORDER_FIELDS.get(
+                job_type, {})
+            order_change_orders_map = ORDER_CHANGE_ORDERS_FIELDS.get(
                 job_type, {})
 
             # -----------------------------
@@ -282,18 +279,21 @@ def sync_job_orders_and_change_orders(
                 value = values[0].get("value")
 
                 # -------- TECH SUBCONTRACTOR (App Field) --------
-                if external_id.startswith("technician"):
-                    tech_counter += 1
-                    tech_index = tech_counter
+                matched = False
+                for tech_index, field_ids in TECHNICIAN_FIELDS.items():
+                    if external_id in field_ids:
+                        subcontractor = extract_subcontractor_from_field(
+                            session, f)
 
-                    subcontractor = extract_subcontractor_from_field(
-                        session, f)
+                        if subcontractor:
+                            tech_data.setdefault(tech_index, {})
+                            tech_data[tech_index]["subcontractor_id"] = subcontractor.ID_Subcontractor
+                            tech_data[tech_index]["tech_field"] = external_id
 
-                    if subcontractor:
-                        tech_data.setdefault(tech_index, {})
-                        tech_data[tech_index]["subcontractor_id"] = subcontractor.ID_Subcontractor
-                        tech_data[tech_index]["tech_field"] = external_id
+                        matched = True
+                        break
 
+                if matched:
                     continue
 
                 # -------- TECH FORMULA --------
@@ -353,7 +353,7 @@ def sync_job_orders_and_change_orders(
                 if matched:
                     continue
 
-                # -------- PROJECT CHANGE ORDER --------
+                # -------- PROJECT CHANGE ORDERS --------
                 matched = False
                 for tech_index, field_ids in project_changeor_map.items():
 
@@ -361,6 +361,19 @@ def sync_job_orders_and_change_orders(
                         tech_data.setdefault(tech_index, {})
                         tech_data[tech_index]["change_formula"] = value
                         tech_data[tech_index]["change_field"] = external_id
+                        matched = True
+                        break
+
+                if matched:
+                    continue
+
+                # -------- ORDER CHANGE ORDERS --------
+                matched = False
+                for tech_index, field_ids in order_change_orders_map.items():
+
+                    if external_id in field_ids:
+                        order_change_data.setdefault(tech_index, {})
+                        order_change_data[tech_index][external_id] = value
                         matched = True
                         break
 
@@ -384,7 +397,7 @@ def sync_job_orders_and_change_orders(
                 notes = data.get("notes")
                 notes_field = data.get("notes_field")
 
-                if not formula:
+                if tech_field is None:
                     continue
 
                 order, created = upsert_order(
@@ -408,10 +421,49 @@ def sync_job_orders_and_change_orders(
             # -----------------------------
             # 3️⃣ UPSERT PROJECT CHANGE ORDERS
             # -----------------------------
+            for tech_index, data in tech_data.items():
+
+                change_formula = data.get("change_formula")
+                change_field = data.get("change_field")
+
+                # Si no hay valor, saltar
+                if change_formula is None or change_field is None:
+                    continue
+
+                upsert_change_order(
+                    session=session,
+                    job=job,
+                    podio_item_id=podio_item_id,
+                    podio_field=change_field,
+                    change_formula=change_formula,
+                    order=None,  # 🔥 IMPORTANTE → Project level
+                    dry_run=dry_run
+                )
 
             # -----------------------------
             # 4️⃣ UPSERT TECH CHANGE ORDERS
             # -----------------------------
+            for tech_index, changes in order_change_data.items():
+
+                order_obj = orders_map.get(tech_index)
+
+                if not order_obj:
+                    continue  # la order no fue creada o no existe
+
+                for external_id, value in changes.items():
+
+                    if value is None:
+                        continue
+
+                    upsert_change_order(
+                        session=session,
+                        job=job,
+                        podio_item_id=podio_item_id,
+                        podio_field=external_id,
+                        change_formula=value,
+                        order=order_obj,  # 🔥 IMPORTANTE → Order level
+                        dry_run=dry_run
+                    )
 
         if not dry_run:
             session.commit()

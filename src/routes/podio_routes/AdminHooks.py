@@ -1,6 +1,6 @@
 
 from flask import Blueprint, jsonify
-from src.podio.webhooks.func_hooks import (
+from src.podio.webhook.func_hooks import (
     list_webhooks,
     clear_existing_webhooks,
     register_podio_webhooks

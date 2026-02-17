@@ -5,9 +5,8 @@ from src.podio.services.job_services import podio_jobs_router
 from src.utils.mappers.from_podio.job_mapper import map_podio_item_to_job
 from src.models.JobModel import Job
 from src.utils.validators.jobs_validator import validate_batch_jobs
-from src.utils.mappers.podio_relationships import get_related_app_ids, get_contact_profile_ids, get_text_values_by_external_id
-from src.utils.mappers.from_podio.jobs_relationships import JOB_MEMBER_FIELDS
-from src.utils.mappers.from_podio.jobs_relationships import upsert_job_member_link
+from src.utils.mappers.podio_relationships import get_related_app_ids, get_contact_profile_ids
+from src.utils.mappers.from_podio.jobs_relationships import JOB_MEMBER_FIELDS, upsert_job_member_link
 from src.models.MemberModel import Member
 from src.models.SubcontractorModel import Subcontractor
 from src.models.link_models.JobSubcontractor import JobSubcontractorLink
@@ -101,7 +100,7 @@ def sync_jobs(job_type: str, year: int, limit: int = 30, offset: int = 0, dry_ru
         if not dry_run:
             session.commit()
 
-            #Descomentar si se quieren hacer pruebas de fallos para la generación de reportes
+            # Descomentar si se quieren hacer pruebas de fallos para la generación de reportes
             """ first_tracking_id = items[0].get("app_item_id_formatted") if items else None
 
             def mapper_with_forced_diff(item: dict) -> dict:
@@ -129,7 +128,8 @@ def sync_jobs(job_type: str, year: int, limit: int = 30, offset: int = 0, dry_ru
             print("🧪 VALIDATION SUMMARY:", validation["summary"])
             if validation["reports"]:
                 print("📄 REPORT CSV:", validation["reports"].get("csv"))
-                print("📄 SUMMARY JSON:", validation["reports"].get("summary_json"))
+                print("📄 SUMMARY JSON:",
+                      validation["reports"].get("summary_json"))
 
     return {
         "processed": len(items),

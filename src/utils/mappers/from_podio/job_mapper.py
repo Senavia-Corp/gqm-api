@@ -28,7 +28,7 @@ def extract_job_type_from_id(project_id: Optional[str]) -> Optional[str]:
 
 
 # Mapeo de los datos de Podio a PostgreSQL
-def map_podio_item_to_job(item: dict, session=None) -> dict:
+def map_podio_item_to_job(item: dict, session=None, job_type: Optional[str] = None) -> dict:
     """
     Transforma un item de Podio de QID, PTL o PAR para PostgreSQL.
     """
@@ -37,9 +37,12 @@ def map_podio_item_to_job(item: dict, session=None) -> dict:
 
     app_item_id_formatted = item.get("app_item_id_formatted")
 
-    job_type = extract_job_type_from_id(app_item_id_formatted)
+    if not job_type:
+        job_type = extract_job_type_from_id(app_item_id_formatted)
 
     if not job_type:
+        print(
+            f"⚠️ No se pudo determinar job_type para item {app_item_id_formatted}")
         return {}
 
     # 🔑 Seleccionar aliases según tipo de job
@@ -61,8 +64,10 @@ def map_podio_item_to_job(item: dict, session=None) -> dict:
     # Mapear dinámicamente usando aliases
     for db_field, field_cfg in field_aliases.items():
         value = get_job_field_value(fields, field_cfg)
-        if value is None:
-            print(f"[MAP WARN] {job_type} → {db_field} = None")
-        job_dict[db_field] = value
+        if value is not None:
+            job_dict[db_field] = value
+        else:
+            print(
+                f"[MAP WARN] {job_type} → {db_field} = no viene en este payload, se ignora")
 
     return job_dict
