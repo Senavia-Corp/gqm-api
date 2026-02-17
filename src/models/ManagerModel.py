@@ -12,7 +12,6 @@ class ManagerBase(SQLModel):
     Manager_name: Optional[str] = Field(default=None)
     Manager_email: Optional[str] = Field(default=None)
     Manager_location: Optional[str] = Field(default=None)
-    Rol: Optional[str] = Field(default=None)  # Property o Regional
 
 
 class Manager(ManagerBase, table=True):

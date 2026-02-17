@@ -36,12 +36,15 @@ from src.routes.Purchase import purchase_bp
 from src.routes.PurchaseOrder import purchase_order_bp
 from src.routes.PurchaseOrderItem import purchase_order_item_bp
 from src.routes.Links.PurchaseSupplierLink import purchase_supplier_bp
+from src.routes.StandardPS import standard_ps_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion de Podio a Postgre (datos antiguos):
-from src.routes.podio_routes.sync_routes import sync_bp
-# Revisión de registros
+from src.routes.podio_routes.sync_routes import sync_phase1_bp, sync_phase2_bp
+# Revisión de registros traidos de Podio
 from src.routes.podio_routes.revision_route import sync_revision_bp
+# Ruta para pedir los user id de Podio
+from src.podio.get_user_id import podio_filter_bp
 # Rutas de webhooks:
 from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
@@ -49,12 +52,16 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 
+
 # Test
 from src.tests.debug_podio import debug_bp
 
 
 def create_app():
     app = Flask(__name__)
+
+    # Configurar CORS con origines específicos
+    CORS(app)
 
     # Middleware de logs para todas las rutas
     register_request_logger(app)
@@ -95,6 +102,7 @@ def create_app():
     app.register_blueprint(purchase_supplier_bp)
     app.register_blueprint(role_bp)
     app.register_blueprint(skills_bp)
+    app.register_blueprint(standard_ps_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
     app.register_blueprint(tasks_bp)
@@ -106,9 +114,12 @@ def create_app():
 
     # RUTAS DE PODIO
     # Sincronización con Podio
-    app.register_blueprint(sync_bp)
+    app.register_blueprint(sync_phase1_bp)
+    app.register_blueprint(sync_phase2_bp)
     # Revisión de registros ya migrados de Podio
     app.register_blueprint(sync_revision_bp)
+    # Pedido de los user id de Podio
+    app.register_blueprint(podio_filter_bp)
     # Para recibir todos los webhooks
     app.register_blueprint(webhook_bp)
     # Para crear o eliminar los hooks de Podio

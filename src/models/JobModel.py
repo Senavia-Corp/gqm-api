@@ -4,6 +4,7 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from sqlalchemy import Column, TIMESTAMP, func
+from sqlalchemy.dialects.postgresql import JSON
 from datetime import datetime
 from enum import Enum
 from .ClientModel import Client
@@ -15,6 +16,7 @@ from .link_models.JobSubcontractor import JobSubcontractorLink
 from .SubcontractorModel import Subcontractor
 from .link_models.JobPaymentU import JobPaymentULink
 from .PaymentUnitModel import PaymentUnit
+from .BldgDeptModel import BuildingDept
 
 
 class JobType(str, Enum):
@@ -31,12 +33,18 @@ class JobBase(SQLModel):
     Job_status: Optional[str] = Field(default=None)
     Po_wtn_wo: Optional[str] = Field(default=None)
     Service_type: Optional[str] = Field(default=None)
-    Date_assigned: Optional[datetime] = Field(default_factory=datetime.now)
+    Date_assigned: Optional[datetime] = Field(default=None)
     Estimated_start_date: Optional[datetime] = Field(default=None)
     Estimated_project_duration: Optional[str] = Field(default=None)
     Date_Received: Optional[datetime] = Field(default=None)
     Estimated_completion_date: Optional[datetime] = Field(default=None)
+    Additional_detail: Optional[str] = Field(default=None)
 
+    Estimated_rent: Optional[float] = Field(default=None)
+    Estimated_material: Optional[float] = Field(default=None)
+    Estimated_city: Optional[float] = Field(default=None)
+
+    Tech_formula_pricing: Optional[float] = Field(default=None)
     Gqm_formula_pricing: Optional[float] = Field(default=None)
     Gqm_adj_formula_pricing: Optional[float] = Field(default=None)
     Gqm_target_sold_pricing: Optional[float] = Field(default=None)
@@ -44,7 +52,25 @@ class JobBase(SQLModel):
     Gqm_premium_in_money: Optional[float] = Field(default=None)
     Gqm_final_sold_pricing: Optional[float] = Field(default=None)
     Gqm_final_percentage: Optional[float] = Field(default=None)
+
+    Pricing_target: Optional[str] = Field(default=None)
+    Permit: Optional[str] = Field(default=None)
     Gqm_total_change_orders: Optional[float] = Field(default=None)
+    Gqm_total_materials_fees: Optional[float] = Field(default=None)
+
+    Acc_receivable: Optional[float] = Field(default=None)
+    Gqm_final_form_pricing: Optional[float] = Field(default=None)
+    Gqm_final_adj_form_pricing: Optional[float] = Field(default=None)
+    Gqm_final_target_return: Optional[float] = Field(default=None)
+    Gqm_final_prem_in_money: Optional[float] = Field(default=None)
+
+    Ptl_Superintendent: Optional[str] = Field(default=None)
+    Ptl_property_id: Optional[str] = Field(default=None)
+    Ptl_gc_fee: Optional[str] = Field(default=None)
+
+    Gqm_paid_fees: Optional[float] = Field(default=None)
+    Bldg_dept_fees: Optional[List[str]] = Field(
+        default=None, sa_column=Column(JSON))
 
 
 class Job(JobBase, table=True):
@@ -59,7 +85,10 @@ class Job(JobBase, table=True):
     # Relaciones foráneas M:1
     ID_Client: Optional[str] = Field(
         default=None, foreign_key="client.ID_Client")
-    client: Optional["Client"] = Relationship(back_populates="jobs")
+    client: Optional[Client] = Relationship(back_populates="jobs")
+    ID_BldgDept: Optional[str] = Field(
+        default=None, foreign_key="bldg_dept.ID_BldgDept")
+    building_dept: Optional[BuildingDept] = Relationship(back_populates="jobs")
 
     # Relaciones foráneas 1:M
     attachments: List["Attachments"] = Relationship(  # type: ignore
@@ -112,8 +141,10 @@ class Job(JobBase, table=True):
 
 class JobCreate(JobBase):
     ID_Client: Optional[str] = None
+    ID_BldgDept: Optional[str] = None
 
 
 class JobUpdate(JobBase):
     ID_Client: Optional[str] = None
+    ID_BldgDept: Optional[str] = None
     Job_type: Optional[str] = None

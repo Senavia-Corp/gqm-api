@@ -38,6 +38,9 @@ class FinancialDocument(FDocBase, table=True):
     #  Relaciones foráneas 1:M
     financial_doc_items: List["FinancialDoc_Item"] = Relationship(  # type: ignore
         back_populates="financial_document")
+    attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="financial_document",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
     # Relación de muchos a muchos
     financial_transactions: List[FinancialTransaction] = Relationship(

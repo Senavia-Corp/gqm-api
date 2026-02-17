@@ -40,11 +40,13 @@ class Client(ClientBase, table=True):
         back_populates="client")
     financial_docs: List["FinancialDocument"] = Relationship(  # type: ignore
         back_populates="client")
+    standard_ps: List["StandardPS"] = Relationship(  # type: ignore
+        back_populates="client")
 
     # Relaciones foráneas M:1
     ID_Community_Tracking: Optional[str] = Field(
         default=None, foreign_key="parent_mgmt_co.ID_Community_Tracking")
-    parent_mgmt_co: Optional["ParentMgmtCo"] = Relationship(
+    parent_mgmt_co: Optional[ParentMgmtCo] = Relationship(
         back_populates="clients")
 
     # Relación de muchos a muchos

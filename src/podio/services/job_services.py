@@ -1,42 +1,31 @@
 
-from src.config import (
-    QID_TAP_APP_ID,
-    PTL_TAP_APP_ID,
-    PAR_TAP_APP_ID
-)
+from src.config import get_job_app_credentials
 from .podio_base_services import PodioBaseService
 
 
 class PodioJobsRouter:
     """
-    Router inteligente que selecciona el App de Podio correcto
-    basado en el Job_type recibido (QID, PTL, PAR).
+    Router inteligente para Jobs dinámicos (QID / PTL / PAR por año)
     """
 
-    def __init__(self):
-        # Mapeo: Job Type → Servicio de Podio correspondiente
-        self.services = {
-            "QID": PodioBaseService("QID", QID_TAP_APP_ID),
-            "PTL": PodioBaseService("PTL", PTL_TAP_APP_ID),
-            "PAR": PodioBaseService("PAR", PAR_TAP_APP_ID),
-        }
-
-    def get_service(self, job_type: str) -> PodioBaseService:
-        """
-        Retorna el service de Podio correcto según el Job_type.
-        """
+    def get_service(self, job_type: str, year: int) -> PodioBaseService:
         if not job_type:
-            raise ValueError("Job_type está vacío o es None.")
+            raise ValueError("job_type está vacío o es None")
+
+        if year is None:
+            raise ValueError("year es obligatorio para Jobs")
 
         job_type = job_type.upper().strip()
 
-        if job_type not in self.services:
-            raise ValueError(
-                f"Tipo de trabajo '{job_type}' no es válido. "
-                f"Tipos permitidos: {', '.join(self.services.keys())}"
-            )
+        # 🔑 Aquí se decide TODO
+        app_creds = get_job_app_credentials(year, job_type)
+        app_id = app_creds["APP_ID"]
 
-        return self.services[job_type]
+        return PodioBaseService(
+            app_type=job_type,
+            app_id=app_id,
+            year=year
+        )
 
 
 # Instancia global del router (para usar en servicios o rutas)

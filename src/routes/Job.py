@@ -50,6 +50,7 @@ def list_jobs():
                         Subcontractor.orders),
                     joinedload(Job.tlactivity),
                     joinedload(Job.change_orders),
+                    joinedload(Job.building_dept),
                 )
             )
             results = session.exec(statement).unique().all()
@@ -60,9 +61,9 @@ def list_jobs():
             jobs_data = [
                 # se agrega la relacion FK
                 add_relationships(
-                    job, ["client", "members", "multipliers",
-                          "attachments", "subcontractors.technicians",
-                          "subcontractors.orders", "tasks", "estimate_costs", "payment_units", "tlactivity", "change_orders"])
+                    job, ["client", "members", "multipliers", "building_dept", "change_orders",
+                          "attachments", "subcontractors.technicians", "tasks", "tlactivity",
+                          "subcontractors.orders", "estimate_costs", "payment_units"])
                 for job in results
             ]
 
@@ -104,6 +105,7 @@ def get_job_by_id(id_job):
                         Subcontractor.orders),
                     joinedload(Job.tlactivity),
                     joinedload(Job.change_orders),
+                    joinedload(Job.building_dept),
                 )
                 .where(Job.ID_Jobs == id_job)
             )
@@ -113,9 +115,9 @@ def get_job_by_id(id_job):
                 return jsonify({"error": "Job not found"}), 404
 
             job_data = add_relationships(
-                obj,  ["client", "members", "multipliers",
-                       "attachments", "subcontractors.technicians",
-                       "subcontractors.orders", "tasks", "estimate_costs", "payment_units", "tlactivity", "change_orders"])
+                obj,  ["client", "members", "multipliers", "building_dept", "change_orders",
+                       "attachments", "subcontractors.technicians", "tasks", "tlactivity",
+                       "subcontractors.orders", "estimate_costs", "payment_units"])
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)
@@ -125,6 +127,86 @@ def get_job_by_id(id_job):
     except SQLAlchemyError as db_error:
         print(
             f"Error de base de datos al buscar trabajo {id_job}: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar trabajos: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+# Ruta para conseguir un trabajo por tipo y por año
+@job_bp.get("/by-type-year")
+@paginate()
+def get_jobs_by_type_year():
+    try:
+        job_type = request.args.get("type")   # PTL, PAR, QID
+        year = request.args.get("year")       # 2025, 2024, 2023
+
+        if not job_type or not year:
+            return jsonify({"error": "Debes enviar type y year"}), 400
+
+        # Extraemos el último dígito del año (tu lógica actual)
+        year_digit = year[-1]  # 2025 -> "5"
+        pattern = f"{job_type.upper()}{year_digit}%"
+
+        with get_session() as session:
+            statement = (
+                select(Job)
+                .options(
+                    joinedload(Job.client),
+                    joinedload(Job.members),
+                    joinedload(Job.multipliers),
+                    joinedload(Job.attachments),
+                    joinedload(Job.tasks),
+                    joinedload(Job.estimate_costs),
+                    joinedload(Job.payment_units),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.technicians),
+                    joinedload(Job.subcontractors).joinedload(
+                        Subcontractor.orders),
+                    joinedload(Job.tlactivity),
+                    joinedload(Job.change_orders),
+                    joinedload(Job.building_dept),
+                )
+                .where(Job.ID_Jobs.like(pattern))
+            )
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 404   # El decorador se encarga del formato final
+
+            jobs_data = [
+                add_relationships(
+                    job,
+                    [
+                        "client",
+                        "members",
+                        "multipliers",
+                        "building_dept",
+                        "change_orders"
+                        "attachments",
+                        "subcontractors.technicians",
+                        "tasks",
+                        "tlactivity",
+                        "subcontractors.orders",
+                        "estimate_costs",
+                        "payment_units",
+                    ],
+                )
+                for job in results
+            ]
+
+            return jobs_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al listar trabajos: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
