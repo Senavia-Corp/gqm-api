@@ -189,7 +189,7 @@ def podio_jobs_webhook(app_type, year):
 
     try:
         app_type, data, early_resp, status = parse_and_validate_webhook(
-            app_type)
+            app_type, year=year)
         if early_resp:
             return early_resp, status
 
@@ -213,7 +213,7 @@ def podio_jobs_webhook(app_type, year):
             if event_type in ["item.create", "item.update"]:
 
                 item = data.get(
-                    "item") or get_podio_item(item_id, app_type)
+                    "item") or get_podio_item(item_id, app_type, year=year)
 
                 process_jobs_podio(
                     session=session,

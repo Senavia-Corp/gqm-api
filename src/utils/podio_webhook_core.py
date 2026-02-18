@@ -1,6 +1,7 @@
 from flask import request, jsonify
 from sqlmodel import select
 import requests
+from typing import Optional
 from src.podio.podio_auth import get_podio_headers
 from src.utils.middleware.retries.retries import retry_api
 from src.utils.mappers.mapper_aux_functions import is_recent_event
@@ -10,21 +11,22 @@ from src.utils.middleware.retries.db_route_retries.delete_session import delete_
 
 # Función para activar el webhook:
 @retry_api(max_retries=3, backoff=2)
-def activate_podio_webhook(hook_id: str, code: str, app_type: str):
+def activate_podio_webhook(hook_id: str, code: str, app_type: str, year: Optional[int] = None):
 
     url = f"https://api.podio.com/hook/{hook_id}/verify/validate"
-    headers = get_podio_headers(app_type)
+    headers = get_podio_headers(app_type, year=year)
 
     resp = requests.post(url, json={"code": code}, headers=headers)
     resp.raise_for_status()
 
-    print(f"✅ Webhook {hook_id} activado correctamente para {app_type}")
+    print(
+        f"✅ Webhook {hook_id} activado correctamente para {app_type} (Año: {year if year else 'N/A'})")
 
 
 # Función para validar el webhook y parsear los datos
-def parse_and_validate_webhook(app_type: str):
+def parse_and_validate_webhook(app_type: str, year: Optional[int] = None):
     app_type = app_type.upper().strip()
-    print(f"📩 Webhook recibido para APP: {app_type}")
+    print(f"📩 Webhook recibido para APP: {app_type} | AÑO: {year}")
 
     data = request.form.to_dict() or request.get_json() or {}
     if not data:
@@ -41,7 +43,7 @@ def parse_and_validate_webhook(app_type: str):
         print(
             f"📩 SOLICITUD DE VERIFICACIÓN: hook_id={hook_id}, code={code}")
         try:
-            activate_podio_webhook(hook_id, code, app_type)
+            activate_podio_webhook(hook_id, code, app_type, year=year)
         except Exception as e:
             print(f"❌ Error activando webhook: {e}")
             return app_type, None, jsonify({"error": str(e)}), 500
