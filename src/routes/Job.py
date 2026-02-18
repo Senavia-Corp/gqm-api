@@ -6,6 +6,7 @@ from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..models.MemberModel import Member
 from ..models.SubcontractorModel import Subcontractor
+from ..models.link_models.JobMember import JobMemberLink
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -58,14 +59,33 @@ def list_jobs():
             if not results:
                 return [], 404   # El decorador se encarga del formato final
 
-            jobs_data = [
-                # se agrega la relacion FK
-                add_relationships(
+            # Traer los roles de members
+            job_ids = [job.ID_Jobs for job in results]
+
+            roles_statement = (
+                select(JobMemberLink)
+                .where(JobMemberLink.job_id.in_(job_ids))
+            )
+
+            roles = session.exec(roles_statement).all()
+            roles_map = {
+                (link.job_id, link.member_id): link.rol
+                for link in roles
+            }
+
+            jobs_data = []
+
+            for job in results:
+                job_dict = add_relationships(
                     job, ["client", "members", "multipliers", "building_dept", "change_orders",
                           "attachments", "subcontractors.technicians", "tasks", "tlactivity",
-                          "subcontractors.orders", "estimate_costs", "payment_units"])
-                for job in results
-            ]
+                          "subcontractors.orders", "estimate_costs", "payment_units"],)
+
+                for member in job_dict.get("members", []):
+                    key = (job.ID_Jobs, member["ID_Member"])
+                    member["rol"] = roles_map.get(key)
+
+                jobs_data.append(job_dict)
 
             return jobs_data, 200
 
@@ -114,10 +134,26 @@ def get_job_by_id(id_job):
             if not obj:
                 return jsonify({"error": "Job not found"}), 404
 
+            # Busca y relaciona el rol correspondiente
+            roles_statement = (
+                select(JobMemberLink)
+                .where(JobMemberLink.job_id == obj.ID_Jobs)
+            )
+            roles = session.exec(roles_statement).all()
+            roles_map = {
+                link.member_id: link.rol
+                for link in roles
+            }
+
             job_data = add_relationships(
                 obj,  ["client", "members", "multipliers", "building_dept", "change_orders",
                        "attachments", "subcontractors.technicians", "tasks", "tlactivity",
                        "subcontractors.orders", "estimate_costs", "payment_units"])
+
+            # Agregar rol a los members
+            for member in job_data.get("members", []):
+                member_id = member["ID_Member"]
+                member["rol"] = roles_map.get(member_id)
 
             # Elimina las FK del JSON (estética)
             job_data.pop("ID_Client", None)
@@ -182,26 +218,33 @@ def get_jobs_by_type_year():
             if not results:
                 return [], 404   # El decorador se encarga del formato final
 
-            jobs_data = [
-                add_relationships(
-                    job,
-                    [
-                        "client",
-                        "members",
-                        "multipliers",
-                        "building_dept",
-                        "change_orders"
-                        "attachments",
-                        "subcontractors.technicians",
-                        "tasks",
-                        "tlactivity",
-                        "subcontractors.orders",
-                        "estimate_costs",
-                        "payment_units",
-                    ],
-                )
-                for job in results
-            ]
+            # Traer los roles de members
+            job_ids = [job.ID_Jobs for job in results]
+
+            roles_statement = (
+                select(JobMemberLink)
+                .where(JobMemberLink.job_id.in_(job_ids))
+            )
+
+            roles = session.exec(roles_statement).all()
+            roles_map = {
+                (link.job_id, link.member_id): link.rol
+                for link in roles
+            }
+
+            jobs_data = []
+
+            for job in results:
+                job_dict = add_relationships(
+                    job, ["client", "members", "multipliers", "building_dept", "change_orders",
+                          "attachments", "subcontractors.technicians", "tasks", "tlactivity",
+                          "subcontractors.orders", "estimate_costs", "payment_units"],)
+
+                for member in job_dict.get("members", []):
+                    key = (job.ID_Jobs, member["ID_Member"])
+                    member["rol"] = roles_map.get(key)
+
+                jobs_data.append(job_dict)
 
             return jobs_data, 200
 
