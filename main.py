@@ -37,6 +37,7 @@ from src.routes.PurchaseOrder import purchase_order_bp
 from src.routes.PurchaseOrderItem import purchase_order_item_bp
 from src.routes.Links.PurchaseSupplierLink import purchase_supplier_bp
 from src.routes.StandardPS import standard_ps_bp
+from src.routes.BuildingDepartment import bldg_dept_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion de Podio a Postgre (datos antiguos):
@@ -71,6 +72,7 @@ def create_app():
 
     # Registrar blueprints
     app.register_blueprint(attachments_bp)
+    app.register_blueprint(bldg_dept_bp)
     app.register_blueprint(change_order_bp)
     app.register_blueprint(client_bp)
     app.register_blueprint(client_manager_bp)
