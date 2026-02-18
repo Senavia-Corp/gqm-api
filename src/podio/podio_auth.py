@@ -57,6 +57,11 @@ def get_podio_headers(app_type: str, year: Optional[int] = None):
             # Usamos la función clásica para apps estáticas
             app_creds = get_podio_app_credentials(app_type)
 
+        # DEBUG: Ver qué devolvió la función de credenciales
+        logger.info(f"DEBUG CREDS: Tipo devuelto: {type(app_creds)}")
+        logger.info(
+            f"DEBUG CREDS: Keys disponibles: {list(app_creds.keys()) if isinstance(app_creds, dict) else 'N/A'}")
+
     except ValueError as e:
         logger.error(f"❌ Error buscando credenciales: {e}")
         raise e

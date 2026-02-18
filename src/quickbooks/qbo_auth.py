@@ -124,24 +124,33 @@ def get_valid_access_token(realm_id):
         # Calcular expiración
         expires_at = token_record.updated_at + \
             timedelta(seconds=token_record.expires_in)
+        buffer_time = timedelta(minutes=5)
 
         # Si NO expiró → se devuelve el token
-        if datetime.now() < expires_at:
+        if datetime.now() < (expires_at - buffer_time):
             return token_record.access_token
 
         # Si expiró → se genera uno nuevo
+        print(f"Refrescando token para realm: {realm_id}...")
         new_tokens = refresh_access_token(token_record.refresh_token)
+
+        # Validación de respuesta exitosa antes de guardar
+        if "error" in new_tokens:
+            # Si el refresh_token falló (ej. fue invalidado manualmente), se re-autoriza
+            raise Exception(
+                f"Error de Intuit: {new_tokens.get('error_description')}")
 
         # Guardamos nuevos tokens
         token_record.access_token = new_tokens["access_token"]
         token_record.refresh_token = new_tokens["refresh_token"]
         token_record.expires_in = new_tokens["expires_in"]
         token_record.refresh_token_expires_in = new_tokens.get(
-            "x_refresh_token_expires_in")
+            "x_refresh_token_expires_in", token_record.refresh_token_expires_in)
         token_record.updated_at = datetime.now()
 
         session.add(token_record)
         session.commit()
+        session.refresh(token_record)
 
         return token_record.access_token
 
