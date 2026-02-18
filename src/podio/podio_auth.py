@@ -37,7 +37,7 @@ def get_podio_headers(app_type: str, year: Optional[int] = None):
     # -----------------------------------------
     # 1. Definir la clave única para el Cache
     # -----------------------------------------
-    if year:
+    if year is not None:
         # Si es un Job, la clave es compuesta: QID_2026
         cache_key = f"{app_type}_{year}"
         logger.info(
