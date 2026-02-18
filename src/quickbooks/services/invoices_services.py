@@ -1,16 +1,15 @@
 import requests
 from ..qbo_auth import get_valid_access_token
 
+
 # Obtener todos los invoices
-
-
 def get_invoices(realm_id, start=1, limit=200):
     access_token = get_valid_access_token(realm_id)
 
     base_url = "https://quickbooks.api.intuit.com"
     query = (
         "SELECT * FROM Invoice "
-        "ORDER BY Id DESC "
+        "ORDERBY Metadata.LastUpdatedTime DESC "
         f"STARTPOSITION {start} MAXRESULTS {limit}"
     )
 
@@ -19,11 +18,12 @@ def get_invoices(realm_id, start=1, limit=200):
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
-        "Content-Type": "application/text"
+        "Content-Type": "application/json"
     }
 
     params = {
-        "query": query
+        "query": query,
+        "minorversion": 75
     }
 
     response = requests.get(url, headers=headers, params=params)
@@ -43,16 +43,16 @@ def get_invoices_by_job(realm_id, job_code, start=1, limit=100):
     query = (
         "SELECT * FROM Invoice "
         f"WHERE DocNumber LIKE '{job_code}-%' "
-        "ORDER BY Id DESC "
+        "ORDERBY Metadata.LastUpdatedTime DESC "
         f"STARTPOSITION {start} MAXRESULTS {limit}"
     )
 
-    url = f"{base_url}/v3/company/{realm_id}/query"
+    url = f"{base_url}/v3/company/{realm_id}/query?minorversion=75"
 
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
-        "Content-Type": "application/text"
+        "Content-Type": "text/plain"
     }
 
     # Query se manda en el body
