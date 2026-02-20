@@ -32,3 +32,16 @@ def clean_podio_fields(fields: dict) -> dict:
         cleaned[k] = v
 
     return cleaned
+
+
+def normalize_name(name: str) -> str:
+    if not name:
+        return ""
+
+    return (
+        name.strip()
+        .replace("{", "")
+        .replace("}", "")
+        .replace('"', "")
+        .lower()
+    )

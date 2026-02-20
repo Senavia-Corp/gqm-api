@@ -1,13 +1,17 @@
 import os
 import requests
 from sqlmodel import select
+from flask import request
 import urllib.parse
 from flask import Blueprint, redirect
 from ...tests.test_sandbox import get_company_info
 from ...quickbooks.services.invoices_services import get_invoices, get_invoices_by_job
-from ...quickbooks.services.payments_services import get_money_received
-from ...quickbooks.services.bills_services import get_bills, get_bill_payments
+from ...quickbooks.services.payments_services import get_money_received, get_bill_payments
+from ...quickbooks.services.bills_services import get_bills, get_bill_by_job
 from ...quickbooks.services.vendors_services import get_vendors
+from ...quickbooks.sync.sync_invoices_with_payments import sync_qbo_invoices_and_payments_by_job
+from ...quickbooks.sync.sync_bills_with_payments import sync_qbo_bills_and_payments_by_job
+from ...quickbooks.sync.sync_job_financials import sync_job_financials
 
 from src.database.db_sqlmodel import get_session
 from src.models.QBOTokensModel import QuickBooksToken
@@ -23,6 +27,9 @@ def test_company_info(realm_id):
     return data, 200
 
 
+# ----------------------------------------------- #
+# ----------- CONFIGURACIÓN DE LA APP ----------- #
+# ----------------------------------------------- #
 # Launch URL
 @qbo_bp.get("/connect")
 def connect_qbo():
@@ -88,46 +95,198 @@ def disconnect_qbo(realm_id):
         }, 200
 
 
+# ----------------------------------------------- #
+# ----------- ENDPOINTS PARA INVOICES ----------- #
+# ----------------------------------------------- #
+
 # Endpoint para conseguir info de invoices reales
 @qbo_bp.get("/invoices/<realm_id>")
 def fetch_invoices(realm_id):
-    data = get_invoices(realm_id)
+
+    start = int(request.args.get("start", 1))
+    limit = int(request.args.get("limit", 100))
+
+    data = get_invoices(
+        realm_id=realm_id,
+        start=start,
+        limit=limit)
     return data, 200
 
 
 # Endpoint para conseguir invoices por Job (QIDxxxx)
 @qbo_bp.get("/invoices/<realm_id>/job/<job_code>")
 def fetch_invoices_by_job(realm_id, job_code):
+
+    start = int(request.args.get("start", 1))
+    limit = int(request.args.get("limit", 100))
+
     data = get_invoices_by_job(
         realm_id=realm_id,
-        job_code=job_code
+        job_code=job_code,
+        start=start,
+        limit=limit
     )
     return data, 200
 
 
-# Endpoint para conseguir info de payments reales
+# Endpoint para conseguir info de invoice payments
 @qbo_bp.get("/money_received/<realm_id>")
 def fetch_payments(realm_id):
-    data = get_money_received(realm_id)
+
+    start = int(request.args.get("start", 1))
+    limit = int(request.args.get("limit", 100))
+
+    data = get_money_received(
+        realm_id=realm_id,
+        start=start,
+        limit=limit
+    )
     return data, 200
 
+
+# ---------------- INVOICES + PAYMENTS ---------------- #
+
+# Endpoint para sincronizar invoices + payments por Job
+@qbo_bp.post("/invoices_payments/<realm_id>/job/<job_code>/sync")
+def sync_inv_and_payments_by_job_endpoint(realm_id, job_code):
+
+    try:
+        start = int(request.args.get("start", 1))
+        limit = int(request.args.get("limit", 100))
+        dry_run = request.args.get("dry_run", "false").lower() == "true"
+
+    except ValueError:
+        return {"error": "Invalid query parameters"}, 400
+
+    result = sync_qbo_invoices_and_payments_by_job(
+        realm_id=realm_id,
+        job_code=job_code,
+        start=start,
+        limit=limit,
+        dry_run=dry_run
+    )
+
+    return result, 200
+
+
+# ----------------------------------------------- #
+# ------------- ENDPOINTS PARA BILLS ------------ #
+# ----------------------------------------------- #
+
+# Endpoint para conseguir info de bills
+@qbo_bp.get("/bills/<realm_id>")
+def fetch_bills(realm_id):
+
+    start = int(request.args.get("start", 1))
+    limit = int(request.args.get("limit", 100))
+
+    data = get_bills(
+        realm_id=realm_id,
+        start=start,
+        limit=limit
+    )
+    return data, 200
+
+
+# Endpoint para conseguir bills por Job (QIDxxxx)
+@qbo_bp.get("/bills/<realm_id>/job/<job_code>")
+def fetch_bills_by_job(realm_id, job_code):
+
+    start = int(request.args.get("start", 1))
+    limit = int(request.args.get("limit", 100))
+
+    data = get_bill_by_job(
+        realm_id=realm_id,
+        job_code=job_code,
+        start=start,
+        limit=limit
+    )
+    return data, 200
+
+
+# Endpoint para conseguir info de bill payments
+@qbo_bp.get("/bill_payments/<realm_id>")
+def fetch_bill_payments(realm_id):
+
+    start = int(request.args.get("start", 1))
+    limit = int(request.args.get("limit", 100))
+
+    data = get_bill_payments(
+        realm_id=realm_id,
+        start=start,
+        limit=limit
+    )
+    return data, 200
+
+
+# ------------------ BILLS + PAYMENTS ----------------- #
+
+# Endpoint para sincronizar bills + payments por Job
+@qbo_bp.post("/bills_payments/<realm_id>/job/<job_code>/sync")
+def sync_bill_and_bpayments_by_job_endpoint(realm_id, job_code):
+
+    try:
+        start = int(request.args.get("start", 1))
+        limit = int(request.args.get("limit", 100))
+        dry_run = request.args.get("dry_run", "false").lower() == "true"
+
+    except ValueError:
+        return {"error": "Invalid query parameters"}, 400
+
+    result = sync_qbo_bills_and_payments_by_job(
+        realm_id=realm_id,
+        job_code=job_code,
+        start=start,
+        limit=limit,
+        dry_run=dry_run
+    )
+
+    return result, 200
+
+
+# --------------------------------------------------- #
+# ------------- ENDPOINT DE SYNC POR JOB ------------ #
+# --------------------------------------------------- #
+@qbo_bp.post("/sync-full-job/<realm_id>/<job_code>")
+def sync_full_job_endpoint(realm_id, job_code):
+    """
+    Endpoint maestro para sincronizar todo lo financiero de un Job (Ingresos y Gastos).
+    """
+    # 1. Obtener parámetros de la URL (Query Params)
+    try:
+        start = int(request.args.get("start", 1))
+        limit = int(request.args.get("limit", 100))
+        dry_run = request.args.get("dry_run", "false").lower() == "true"
+
+    except ValueError:
+        return {"error": "Los parámetros 'start' o 'limit' deben ser números enteros."}, 400
+
+    # 2. Llamar a la función orquestadora
+    result = sync_job_financials(
+        realm_id=realm_id,
+        job_code=job_code,
+        start=start,
+        limit=limit,
+        dry_run=dry_run
+    )
+
+    # 3. Retornar el JSON unificado
+    return result, 200
+
+
+# ----------------------------------------------- #
+# ------------- ENDPOINTS PARA OTROS ------------ #
 
 # Endpoint para conseguir info de vendors reales
 @qbo_bp.get("/vendors/<realm_id>")
 def fetch_vendors(realm_id):
-    data = get_vendors(realm_id)
-    return data, 200
 
+    start = int(request.args.get("start", 1))
+    limit = int(request.args.get("limit", 100))
 
-# Endpoint para conseguir info de bills reales
-@qbo_bp.get("/bills/<realm_id>")
-def fetch_bills(realm_id):
-    data = get_bills(realm_id)
-    return data, 200
-
-
-# Endpoint para conseguir info de bill payments reales
-@qbo_bp.get("/bill_payments/<realm_id>")
-def fetch_bill_payments(realm_id):
-    data = get_bill_payments(realm_id)
+    data = get_vendors(
+        realm_id=realm_id,
+        start=start,
+        limit=limit
+    )
     return data, 200
