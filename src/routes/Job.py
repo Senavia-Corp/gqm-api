@@ -5,13 +5,15 @@ from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..models.MemberModel import Member
+from ..models.ClientModel import Client
 from ..models.SubcontractorModel import Subcontractor
 from ..models.link_models.JobMember import JobMemberLink
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload, load_only
+from sqlalchemy import func, extract, or_, and_
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..podio.services.job_services import podio_jobs_router
@@ -100,6 +102,220 @@ def list_jobs():
         print(f"Error inesperado al listar trabajos: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
+@job_bp.get("/jobs_table")
+def list_jobs_table():
+    try:
+        # params
+        page = int(request.args.get("page", 1))
+        limit = int(request.args.get("limit", 10))
+        if page < 1:
+            page = 1
+        if limit < 1:
+            limit = 10
+        # opcional: cap para evitar abusos
+        limit = min(limit, 200)
+
+        job_type = request.args.get("type")      # QID/PTL/PAR
+        status = request.args.get("status")      # "PAID", "Archived", etc
+        year = request.args.get("year")          # 2023/2024/2025/2026
+
+        # normalizar type si llega
+        if job_type:
+            job_type = job_type.upper()
+
+        year_int = None
+        if year:
+            try:
+                year_int = int(year)
+            except ValueError:
+                return jsonify({"detail": "Invalid year"}), 400
+
+        with get_session() as session:
+            # -----------------------------
+            # Base query (solo columnas tabla)
+            # -----------------------------
+            statement = (
+                select(Job)
+                .options(
+                    load_only(
+                        Job.ID_Jobs,
+                        Job.Job_type,
+                        Job.Project_name,
+                        Job.Project_location,
+                        Job.Job_status,
+                        Job.Date_assigned,
+                        Job.Gqm_formula_pricing,
+                        Job.ID_Client,
+                        Job.Estimated_start_date
+                    ),
+                    selectinload(Job.client).load_only(
+                        Client.ID_Client,
+                        Client.Client_Community,
+                    ),
+                    selectinload(Job.members).load_only(
+                        Member.ID_Member,
+                        Member.Member_Name,
+                    ),
+                )
+            )
+
+            # -----------------------------
+            # Filters
+            # -----------------------------
+            if job_type:
+                statement = statement.where(Job.Job_type == job_type)
+
+            if status:
+                statement = statement.where(Job.Job_status == status)
+
+            if year_int is not None:
+                # ✅ Year filter "aware" por tipo:
+                # - PTL usa Estimated_start_date
+                # - QID/PAR usan Date_assigned
+                # - ALL (sin type) combina ambos en un OR
+                if job_type == "PTL":
+                    statement = statement.where(
+                        Job.Estimated_start_date.is_not(None),
+                        extract("year", Job.Estimated_start_date) == year_int,
+                    )
+                elif job_type:
+                    statement = statement.where(
+                        Job.Date_assigned.is_not(None),
+                        extract("year", Job.Date_assigned) == year_int,
+                    )
+                else:
+                    statement = statement.where(
+                        or_(
+                            and_(
+                                Job.Job_type == "PTL",
+                                Job.Estimated_start_date.is_not(None),
+                                extract("year", Job.Estimated_start_date) == year_int,
+                            ),
+                            and_(
+                                Job.Job_type != "PTL",
+                                Job.Date_assigned.is_not(None),
+                                extract("year", Job.Date_assigned) == year_int,
+                            ),
+                        )
+                    )
+
+            # -----------------------------
+            # Total count (sin options/loads)
+            # -----------------------------
+            count_stmt = select(func.count()).select_from(Job)
+
+            if job_type:
+                count_stmt = count_stmt.where(Job.Job_type == job_type)
+            if status:
+                count_stmt = count_stmt.where(Job.Job_status == status)
+
+            if year_int is not None:
+                if job_type == "PTL":
+                    count_stmt = count_stmt.where(
+                        Job.Estimated_start_date.is_not(None),
+                        extract("year", Job.Estimated_start_date) == year_int,
+                    )
+                elif job_type:
+                    count_stmt = count_stmt.where(
+                        Job.Date_assigned.is_not(None),
+                        extract("year", Job.Date_assigned) == year_int,
+                    )
+                else:
+                    count_stmt = count_stmt.where(
+                        or_(
+                            and_(
+                                Job.Job_type == "PTL",
+                                Job.Estimated_start_date.is_not(None),
+                                extract("year", Job.Estimated_start_date) == year_int,
+                            ),
+                            and_(
+                                Job.Job_type != "PTL",
+                                Job.Date_assigned.is_not(None),
+                                extract("year", Job.Date_assigned) == year_int,
+                            ),
+                        )
+                    )
+
+            total = session.exec(count_stmt).one()
+
+            # -----------------------------
+            # Pagination SQL
+            # -----------------------------
+            offset = (page - 1) * limit
+            statement = (
+                statement
+                .order_by(Job.ID_Jobs.desc())  # o Date_assigned.desc() si prefieres
+                .offset(offset)
+                .limit(limit)
+            )
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return jsonify({
+                    "page": page,
+                    "limit": limit,
+                    "total": total,
+                    "results": []
+                }), 200
+
+            # -----------------------------
+            # Roles de members (solo para los jobs de esta página)
+            # -----------------------------
+            job_ids = [j.ID_Jobs for j in results if j.ID_Jobs]
+            roles = session.exec(
+                select(JobMemberLink).where(JobMemberLink.job_id.in_(job_ids))
+            ).all()
+            roles_map = {(l.job_id, l.member_id): l.rol for l in roles}
+
+            # -----------------------------
+            # Serialización "light" (sin add_relationships heavy)
+            # -----------------------------
+            out = []
+            for j in results:
+                j_dict = {
+                    "ID_Jobs": j.ID_Jobs,
+                    "Job_type": j.Job_type,
+                    "Project_name": j.Project_name,
+                    "Project_location": j.Project_location,
+                    "Job_status": j.Job_status,
+                    "Date_assigned": j.Date_assigned,
+                    "Estimated_start_date": j.Estimated_start_date,
+                    "Gqm_formula_pricing": j.Gqm_formula_pricing,
+                    "client": None,
+                    "members": [],
+                }
+
+                if j.client:
+                    j_dict["client"] = {
+                        "ID_Client": j.client.ID_Client,
+                        "Client_Community": getattr(j.client, "Client_Community", None),
+                    }
+
+                for m in (j.members or []):
+                    j_dict["members"].append({
+                        "ID_Member": m.ID_Member,
+                        "Member_Name": getattr(m, "Member_Name", None),
+                        "rol": roles_map.get((j.ID_Jobs, m.ID_Member)),
+                    })
+
+                out.append(j_dict)
+
+            return jsonify({
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "results": out
+            }), 200
+
+    except Exception as e:
+        print(f"Error jobs_table: {e}")
+        return jsonify({
+            "detail": "Error interno del servidor.",
             "code": "internal_error"
         }), 500
 

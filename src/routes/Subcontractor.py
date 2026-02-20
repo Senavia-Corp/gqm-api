@@ -8,7 +8,8 @@ from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, load_only
+from sqlalchemy import func
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..podio.services.subcontractor_services import podio_subc_router
@@ -68,6 +69,91 @@ def list_subcontractors():
 
     except Exception as e:  # Para un fallo general inesperado
         print(f"Error inesperado al listar subcontratistas: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+@subcontractor_bp.get("/subcontractors_table")
+def list_subcontractors_table():
+    try:
+        page = int(request.args.get("page", 1))
+        limit = int(request.args.get("limit", 10))
+        if page < 1:
+            page = 1
+        if limit < 1:
+            limit = 10
+        limit = min(limit, 200)
+
+        status = request.args.get("status")  # filtro opcional por Status
+
+        with get_session() as session:
+            # Query ligera solicitando solo las columnas necesarias
+            statement = (
+                select(Subcontractor)
+                .options(
+                    load_only(
+                        Subcontractor.ID_Subcontractor,
+                        Subcontractor.Name,
+                        Subcontractor.Organization,
+                        Subcontractor.Status,
+                        Subcontractor.Email_Address,
+                        Subcontractor.Score,
+                    )
+                )
+            )
+
+            # aplicar filtro si viene status
+            if status:
+                statement = statement.where(Subcontractor.Status == status)
+
+            # total
+            count_stmt = select(func.count()).select_from(Subcontractor)
+            if status:
+                count_stmt = count_stmt.where(Subcontractor.Status == status)
+            total = session.exec(count_stmt).one()
+
+            # paginación SQL
+            offset = (page - 1) * limit
+            statement = statement.order_by(Subcontractor.ID_Subcontractor.desc()).offset(offset).limit(limit)
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return jsonify({
+                    "page": page,
+                    "limit": limit,
+                    "total": total,
+                    "results": []
+                }), 200
+
+            out = []
+            for s in results:
+                out.append({
+                    "ID_Subcontractor": s.ID_Subcontractor,
+                    "Name": s.Name,
+                    "Organization": s.Organization,
+                    "Status": s.Status,
+                    "Email_Address": s.Email_Address,
+                    "Score": s.Score,
+                })
+
+            return jsonify({
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "results": out
+            }), 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al listar subcontractors table: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar subcontractors table: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
