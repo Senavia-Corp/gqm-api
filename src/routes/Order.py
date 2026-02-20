@@ -156,6 +156,56 @@ def get_orders_by_subc_and_job(id_subcontractor, id_job):
             "code": "internal_error"
         }), 500
 
+# Ruta para conseguir una order por job
+@order_bp.get("/job/<job_podio_id>")
+@paginate()
+def get_orders_by_job(job_podio_id):
+    try:
+        # Acepta opcionalmente ?subcontractor=ID o ?id_subcontractor=ID o ?ID_Subcontractor=ID
+        subc_id = (
+            request.args.get("subcontractor")
+            or request.args.get("id_subcontractor")
+            or request.args.get("ID_Subcontractor")
+        )
+
+        with get_session() as session:
+            statement = (
+                select(Order)
+                .options(
+                    joinedload(Order.estimate_costs),
+                    joinedload(Order.subcontractor),
+                )
+                .where(Order.job_podio_id == job_podio_id)
+            )
+
+            if subc_id:
+                statement = statement.where(Order.ID_Subcontractor == subc_id)
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 404
+
+            orders_data = [
+                add_relationships(order, ["estimate_costs", "subcontractor"])
+                for order in results
+            ]
+
+            return orders_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Database error while fetching orders for job {job_podio_id}: {db_error}")
+        return jsonify({
+            "detail": "Internal server error while querying the database.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Unexpected error while fetching orders for job {job_podio_id}: {e}")
+        return jsonify({
+            "detail": "Unexpected internal server error.",
+            "code": "internal_error"
+        }), 500
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear una order
