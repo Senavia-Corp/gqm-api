@@ -8,6 +8,7 @@ from src.models.link_models.FinancialLink import FinancialLink
 from src.models.JobModel import Job
 from src.models.ClientModel import Client
 from src.models.SubcontractorModel import Subcontractor
+from src.models.FinancialDocModel import DocumentType
 
 
 # -------------------------- SINCRONIZAR FINANCIAL DOCUMENTS -------------------------- #
@@ -39,55 +40,58 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
         print("ℹ️ No hay Job_Code en data")
 
     # ---------  🔗 RELACIÓN CON CLIENTE O SUBCONTRACTOR
-    related_name = data.pop("Related_Name", None)
-    related_type = data.pop("Related_Type", None)
-
     client_obj = None
     subcontractor_obj = None
 
-    if related_name and related_type:
+    print("🔎 Buscando Cliente/Subcontractor según doc_type...")
 
-        print(
-            f"🔎 Buscando entidad relacionada: {related_name} ({related_type})")
-        normalized_qbo_name = normalize_name(related_name)
-
-        if related_type == "client":
-
-            print("📂 Buscando en tabla Client...")
+    if doc_type == DocumentType.Invoice:
+        customer_ref = data.get("CustomerRef")
+        if customer_ref and customer_ref.get("name"):
+            related_name = customer_ref.get("name")
+            normalized_qbo_name = normalize_name(related_name)
+            print(
+                f"🔎 Invoice: Buscando Cliente → {related_name} (normalizado: {normalized_qbo_name})")
 
             clients = session.exec(select(Client)).all()
             for client in clients:
                 normalized_db_name = normalize_name(client.Client_Community)
-
                 if normalized_db_name == normalized_qbo_name:
                     client_obj = client
                     break
 
             if client_obj:
-                print("✅ Client encontrado:", client_obj.ID_Client)
+                print(f"✅ Client encontrado: {client_obj.ID_Client}")
             else:
                 print("⚠️ Client NO encontrado")
+        else:
+            print("ℹ️ Invoice sin CustomerRef.name, saltando búsqueda de cliente")
 
-        elif related_type == "subcontractor":
-
-            print("📂 Buscando en tabla Subcontractor...")
+    elif doc_type == DocumentType.Bill:
+        vendor_ref = data.get("VendorRef")
+        if vendor_ref and vendor_ref.get("name"):
+            related_name = vendor_ref.get("name")
+            normalized_qbo_name = normalize_name(related_name)
+            print(
+                f"🔎 Bill: Buscando Subcontractor → {related_name} (normalizado: {normalized_qbo_name})")
 
             subcontractors = session.exec(select(Subcontractor)).all()
             for sub in subcontractors:
                 normalized_db_name = normalize_name(sub.Organization)
-
                 if normalized_db_name == normalized_qbo_name:
                     subcontractor_obj = sub
                     break
 
             if subcontractor_obj:
-                print("✅ Subcontractor encontrado:",
-                      subcontractor_obj.ID_Subcontractor)
+                print(
+                    f"✅ Subcontractor encontrado: {subcontractor_obj.ID_Subcontractor}")
             else:
                 print("⚠️ Subcontractor NO encontrado")
+        else:
+            print("ℹ️ Bill sin VendorRef.name, saltando búsqueda de subcontractor")
 
     else:
-        print("⏭️ Saltando búsqueda: Related_Name o Related_Type están vacíos")
+        print("⏭️ Saltando búsqueda: no hay relación con estas entidades.")
 
     # ---------  🔍 BUSCAR EXISTENCIA POR QBO ID
     print("🔎 Buscando documento existente por qbo_id...")
@@ -149,6 +153,7 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
     new_doc = FinancialDocument(
         ID_FinancialDoc=new_id,
         Type_of_document=doc_type,
+        ID_Jobs=job_obj.ID_Jobs if job_obj else None,
         ID_Client=client_obj.ID_Client if client_obj else None,
         ID_Subcontractor=subcontractor_obj.ID_Subcontractor if subcontractor_obj else None,
         **data
@@ -222,7 +227,7 @@ def upsert_financial_transaction(session, data, trans_type, dry_run=False):
     # ---------  🔁 UPDATE
     if existing:
 
-        print(f"   ➡️ EXISTE en DB: {existing.ID_FTransaction}")
+        print(f"   ➡️   EXISTE en DB: {existing.ID_FTransaction}")
         changed = False
 
         for field, value in data.items():
@@ -246,7 +251,7 @@ def upsert_financial_transaction(session, data, trans_type, dry_run=False):
         return existing, False
 
     # ---------  🆕 CREATE
-    print("🆕 Transacción NO existe → creando nueva")
+    print("🆕    Transacción NO existe → creando nueva")
 
     new_id = generate_custom_id(
         session, FinancialTransaction, "ID_FTransaction", "FT")
@@ -280,7 +285,7 @@ def upsert_financial_link(session, doc_id, trans_id, dry_run=False):
     ).first()
 
     if existing:
-        print(" ℹ️  LINK ya existe. No se crea nuevo.")
+        print(" ℹ️   LINK ya existe. No se crea nuevo.")
         return existing, False  # ya existía
 
     print(" ➕  LINK no existe. Creando...")

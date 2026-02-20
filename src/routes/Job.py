@@ -7,6 +7,7 @@ from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..models.MemberModel import Member
 from ..models.ClientModel import Client
 from ..models.SubcontractorModel import Subcontractor
+from ..models.FinancialDocModel import FinancialDocument
 from ..models.link_models.JobMember import JobMemberLink
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -193,7 +194,8 @@ def list_jobs_table():
                             and_(
                                 Job.Job_type == "PTL",
                                 Job.Estimated_start_date.is_not(None),
-                                extract("year", Job.Estimated_start_date) == year_int,
+                                extract(
+                                    "year", Job.Estimated_start_date) == year_int,
                             ),
                             and_(
                                 Job.Job_type != "PTL",
@@ -230,7 +232,8 @@ def list_jobs_table():
                             and_(
                                 Job.Job_type == "PTL",
                                 Job.Estimated_start_date.is_not(None),
-                                extract("year", Job.Estimated_start_date) == year_int,
+                                extract(
+                                    "year", Job.Estimated_start_date) == year_int,
                             ),
                             and_(
                                 Job.Job_type != "PTL",
@@ -248,7 +251,8 @@ def list_jobs_table():
             offset = (page - 1) * limit
             statement = (
                 statement
-                .order_by(Job.ID_Jobs.desc())  # o Date_assigned.desc() si prefieres
+                # o Date_assigned.desc() si prefieres
+                .order_by(Job.ID_Jobs.desc())
                 .offset(offset)
                 .limit(limit)
             )
@@ -342,6 +346,10 @@ def get_job_by_id(id_job):
                     joinedload(Job.tlactivity),
                     joinedload(Job.change_orders),
                     joinedload(Job.building_dept),
+                    selectinload(Job.financial_docs)
+                    .selectinload(FinancialDocument.financial_doc_items),
+                    selectinload(Job.financial_docs)
+                    .selectinload(FinancialDocument.financial_transactions)
                 )
                 .where(Job.ID_Jobs == id_job)
             )
@@ -364,7 +372,8 @@ def get_job_by_id(id_job):
             job_data = add_relationships(
                 obj,  ["client", "members", "multipliers", "building_dept", "change_orders",
                        "attachments", "subcontractors.technicians", "tasks", "tlactivity",
-                       "subcontractors.orders", "estimate_costs", "payment_units"])
+                       "subcontractors.orders", "estimate_costs", "payment_units",
+                       "financial_docs.financial_doc_items", "financial_docs.transactions"])
 
             # Agregar rol a los members
             for member in job_data.get("members", []):
