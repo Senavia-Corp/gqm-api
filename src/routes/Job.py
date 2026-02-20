@@ -346,10 +346,10 @@ def get_job_by_id(id_job):
                     joinedload(Job.tlactivity),
                     joinedload(Job.change_orders),
                     joinedload(Job.building_dept),
-                    selectinload(Job.financial_docs)
-                    .selectinload(FinancialDocument.financial_doc_items),
-                    selectinload(Job.financial_docs)
-                    .selectinload(FinancialDocument.financial_transactions)
+                    selectinload(Job.financial_docs).options(
+                        selectinload(FinancialDocument.financial_doc_items),
+                        selectinload(FinancialDocument.financial_transactions)
+                    )
                 )
                 .where(Job.ID_Jobs == id_job)
             )
@@ -373,7 +373,7 @@ def get_job_by_id(id_job):
                 obj,  ["client", "members", "multipliers", "building_dept", "change_orders",
                        "attachments", "subcontractors.technicians", "tasks", "tlactivity",
                        "subcontractors.orders", "estimate_costs", "payment_units",
-                       "financial_docs.financial_doc_items", "financial_docs.transactions"])
+                       "financial_docs.financial_doc_items", "financial_docs.financial_transactions"])
 
             # Agregar rol a los members
             for member in job_data.get("members", []):
