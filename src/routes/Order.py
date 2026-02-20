@@ -174,6 +174,7 @@ def get_orders_by_job(job_podio_id):
                 .options(
                     joinedload(Order.estimate_costs),
                     joinedload(Order.subcontractor),
+                    joinedload(Order.change_orders),
                 )
                 .where(Order.job_podio_id == job_podio_id)
             )
@@ -187,7 +188,7 @@ def get_orders_by_job(job_podio_id):
                 return [], 404
 
             orders_data = [
-                add_relationships(order, ["estimate_costs", "subcontractor"])
+                add_relationships(order, ["estimate_costs", "subcontractor", "change_orders"])
                 for order in results
             ]
 
