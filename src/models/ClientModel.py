@@ -38,8 +38,6 @@ class Client(ClientBase, table=True):
     # Relaciones foráneas 1:M
     jobs: List["Job"] = Relationship(  # type: ignore
         back_populates="client")
-    financial_docs: List["FinancialDocument"] = Relationship(  # type: ignore
-        back_populates="client")
     standard_ps: List["StandardPS"] = Relationship(  # type: ignore
         back_populates="client")
 

@@ -36,8 +36,6 @@ class Order(OrderBase, table=True):
     # Relaciones foráneas 1:M
     estimate_costs: List["EstimateCost"] = Relationship(  # type: ignore
         back_populates="order")
-    financial_docs: List["FinancialDocument"] = Relationship(  # type: ignore
-        back_populates="order")
     change_orders: List["ChangeOrder"] = Relationship(  # type: ignore
         back_populates="order")
 
