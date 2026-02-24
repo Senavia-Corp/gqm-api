@@ -67,8 +67,6 @@ class Subcontractor(SubcontractorBase, table=True):
     tlactivity: List["TLActivity"] = Relationship(  # type: ignore
         back_populates="subcontractor",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
-    financial_docs: List["FinancialDocument"] = Relationship(  # type: ignore
-        back_populates="subcontractor")
 
 
 class SubcontractorCreate(SubcontractorBase):

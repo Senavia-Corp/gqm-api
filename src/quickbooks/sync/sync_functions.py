@@ -1,14 +1,10 @@
 from sqlmodel import select
 from src.utils.id_generator import generate_custom_id
-from src.utils.mappers.clean_podio_fields import normalize_name
 from src.models.FinancialDocModel import FinancialDocument
 from src.models.FinancialDocItemModel import FinancialDoc_Item
 from src.models.FinancialTransModel import FinancialTransaction
 from src.models.link_models.FinancialLink import FinancialLink
 from src.models.JobModel import Job
-from src.models.ClientModel import Client
-from src.models.SubcontractorModel import Subcontractor
-from src.models.FinancialDocModel import DocumentType
 
 
 # -------------------------- SINCRONIZAR FINANCIAL DOCUMENTS -------------------------- #
@@ -38,60 +34,6 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
             print("⚠️ Job NO encontrado en DB")
     else:
         print("ℹ️ No hay Job_Code en data")
-
-    # ---------  🔗 RELACIÓN CON CLIENTE O SUBCONTRACTOR
-    client_obj = None
-    subcontractor_obj = None
-
-    print("🔎 Buscando Cliente/Subcontractor según doc_type...")
-
-    if doc_type == DocumentType.Invoice:
-        customer_ref = data.get("CustomerRef")
-        if customer_ref and customer_ref.get("name"):
-            related_name = customer_ref.get("name")
-            normalized_qbo_name = normalize_name(related_name)
-            print(
-                f"🔎 Invoice: Buscando Cliente → {related_name} (normalizado: {normalized_qbo_name})")
-
-            clients = session.exec(select(Client)).all()
-            for client in clients:
-                normalized_db_name = normalize_name(client.Client_Community)
-                if normalized_db_name == normalized_qbo_name:
-                    client_obj = client
-                    break
-
-            if client_obj:
-                print(f"✅ Client encontrado: {client_obj.ID_Client}")
-            else:
-                print("⚠️ Client NO encontrado")
-        else:
-            print("ℹ️ Invoice sin CustomerRef.name, saltando búsqueda de cliente")
-
-    elif doc_type == DocumentType.Bill:
-        vendor_ref = data.get("VendorRef")
-        if vendor_ref and vendor_ref.get("name"):
-            related_name = vendor_ref.get("name")
-            normalized_qbo_name = normalize_name(related_name)
-            print(
-                f"🔎 Bill: Buscando Subcontractor → {related_name} (normalizado: {normalized_qbo_name})")
-
-            subcontractors = session.exec(select(Subcontractor)).all()
-            for sub in subcontractors:
-                normalized_db_name = normalize_name(sub.Organization)
-                if normalized_db_name == normalized_qbo_name:
-                    subcontractor_obj = sub
-                    break
-
-            if subcontractor_obj:
-                print(
-                    f"✅ Subcontractor encontrado: {subcontractor_obj.ID_Subcontractor}")
-            else:
-                print("⚠️ Subcontractor NO encontrado")
-        else:
-            print("ℹ️ Bill sin VendorRef.name, saltando búsqueda de subcontractor")
-
-    else:
-        print("⏭️ Saltando búsqueda: no hay relación con estas entidades.")
 
     # ---------  🔍 BUSCAR EXISTENCIA POR QBO ID
     print("🔎 Buscando documento existente por qbo_id...")
@@ -128,16 +70,6 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
             existing.ID_Jobs = job_obj.ID_Jobs
             changed = True
 
-        if client_obj and existing.ID_Client != client_obj.ID_Client:
-            print("🔗 Actualizando relación con Client")
-            existing.ID_Client = client_obj.ID_Client
-            changed = True
-
-        if subcontractor_obj and existing.ID_Subcontractor != subcontractor_obj.ID_Subcontractor:
-            print("🔗 Actualizando relación con Subcontractor")
-            existing.ID_Subcontractor = subcontractor_obj.ID_Subcontractor
-            changed = True
-
         if changed and not dry_run:
             session.add(existing)
             print("✅ Documento actualizado en sesión")
@@ -154,8 +86,6 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
         ID_FinancialDoc=new_id,
         Type_of_document=doc_type,
         ID_Jobs=job_obj.ID_Jobs if job_obj else None,
-        ID_Client=client_obj.ID_Client if client_obj else None,
-        ID_Subcontractor=subcontractor_obj.ID_Subcontractor if subcontractor_obj else None,
         **data
     )
 
