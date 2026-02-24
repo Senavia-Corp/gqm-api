@@ -1,62 +1,23 @@
-import requests
-from ..qbo_auth import get_valid_access_token
+
+from .qbo_base_services import qbo_query
 
 
 # GET para Bills
-def get_bills(realm_id, start=1, limit=300):
-    access_token = get_valid_access_token(realm_id)
+def get_bills(realm_id, start=1, limit=100):
 
-    base_url = "https://quickbooks.api.intuit.com"
     query = (
         "SELECT * FROM Bill "
-        "ORDER BY Id DESC "
-        f"STARTPOSITION {start} MAXRESULTS {limit}"
+        "ORDER BY Metadata.LastUpdatedTime DESC "
     )
 
-    url = f"{base_url}/v3/company/{realm_id}/query"
-
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/text"
-    }
-
-    params = {
-        "query": query
-    }
-
-    response = requests.get(url, headers=headers, params=params)
-
-    print("QB STATUS:", response.status_code)
-    print("QB RESPONSE:", response.text)
-
-    response.raise_for_status()
-    return response.json()
+    return qbo_query(realm_id, query, start=start, limit=limit)
 
 
-# # GET para Bill Payments
-def get_bill_payments(realm_id, start=1, limit=200):
-    access_token = get_valid_access_token(realm_id)
+# GET Bill por Job
+def get_bill_by_job(realm_id, job_code, start=1, limit=100):
 
-    base_url = "https://quickbooks.api.intuit.com"
     query = (
-        "SELECT * FROM BillPayment "
-        "ORDER BY Id DESC "
-        f"STARTPOSITION {start} MAXRESULTS {limit}"
+        f"SELECT * FROM Bill WHERE DocNumber LIKE '{job_code}-%'"
     )
 
-    url = f"{base_url}/v3/company/{realm_id}/query"
-
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/text"
-    }
-
-    response = requests.get(url, headers=headers, params={"query": query})
-
-    print("QB STATUS:", response.status_code)
-    print("QB RESPONSE:", response.text)
-
-    response.raise_for_status()
-    return response.json()
+    return qbo_query(realm_id, query, start=start, limit=limit)

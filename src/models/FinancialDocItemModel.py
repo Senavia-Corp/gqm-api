@@ -18,6 +18,9 @@ class FinancialDoc_Item(FDItemBase, table=True):
 
     ID_FDItem: Optional[str] = Field(default=None, primary_key=True)
 
+    # Referencias a QBO
+    qbo_line_id: Optional[str] = Field(default=None)
+
     # Relaciones foráneas M:1
     ID_FinancialDoc: Optional[str] = Field(
         default=None, foreign_key="financial_document.ID_FinancialDoc")

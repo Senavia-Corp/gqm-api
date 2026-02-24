@@ -1,5 +1,5 @@
 import traceback
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job
@@ -21,6 +21,8 @@ from src.utils.podio_webhook_core import parse_and_validate_webhook, event_creat
 from src.podio.webhook.client_hook_sync import process_clients_podio
 from src.podio.webhook.subc_hook_sync import process_subcs_podio
 from src.podio.webhook.jobs_hook_sync import process_jobs_podio
+from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event_delete_qbo
+from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
 
 
 # Un solo Blueprint para todos los webhooks
@@ -259,3 +261,76 @@ def podio_jobs_webhook(app_type, year):
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"status": "ok"}), 200
+
+
+# ----------------------------------------
+# ---- Webhook de Quickbooks
+# ----------------------------------------
+# Ruta para todo lo de QBO
+@webhook_bp.route("/webhook/qbo", methods=["POST"])
+def qbo_webhook():
+    print("\n🔥 --- QBO WEBHOOK START ---", flush=True)
+    print(f"Headers: {dict(request.headers)}", flush=True)
+    try:
+        # 1️⃣ Obtener raw body para validación de firma
+        raw_body = request.get_data()
+        signature = request.headers.get("intuit-signature")
+
+        # 2️⃣ Validar firma (Descomenta cuando estés listo)
+        if not validate_qbo_signature(raw_body, signature):
+            return jsonify({"error": "Invalid signature"}), 401
+
+        # 3️⃣ Parsear payload
+        payload = request.get_json()
+
+        # Normalizar a lista para manejar batches
+        events = payload if isinstance(payload, list) else [payload]
+        print(f"📦 Recibidos {len(events)} evento(s)", flush=True)
+
+        for event in events:
+            # --- Nuevo formato CloudEvents Plano (Tu muestra) ---
+            if "intuitentityid" in event:
+                entity_id = event.get("intuitentityid")
+                realm_id = event.get("intuitaccountid")
+                e_type = event.get("type", "")  # ej: qbo.bill.created.v1
+
+                # Parsear nombre y operación desde el type
+                parts = e_type.split('.')
+                entity_name = parts[1].capitalize() if len(
+                    parts) > 1 else "Unknown"
+                operation = parts[2].capitalize() if len(
+                    parts) > 2 else "Update"
+
+                _process_event(realm_id, entity_name, entity_id, operation)
+
+        return jsonify({"status": "success"}), 200
+
+    except Exception as e:
+        print(f"❌ Error crítico en QBO webhook: {str(e)}", flush=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+# Función auxiliar para no repetir la lógica de ifs
+def _process_event(realm_id, entity_name, entity_id, operation):
+    print(
+        f"📩 Procesando: {entity_name} | ID: {entity_id} | Op: {operation}", flush=True)
+
+    # Normalización: QBO espera nombres de entidad como 'Invoice', 'Payment'
+    entity_name = entity_name.capitalize()
+
+    try:
+        if operation == "Delete":
+            event_delete_qbo(realm_id=realm_id,
+                             entity_name=entity_name, entity_id=entity_id)
+        elif operation == "Void":
+            event_void_qbo(realm_id=realm_id,
+                           entity_name=entity_name, entity_id=entity_id)
+        else:
+            process_single_entity_qbo(
+                realm_id=realm_id,
+                entity_type=entity_name,
+                qbo_id=entity_id,
+                dry_run=False
+            )
+    except Exception as e:
+        print(f"❌ Error procesando evento individual: {e}", flush=True)

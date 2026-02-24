@@ -115,6 +115,54 @@ def get_fdocument(id_fdocument):
         }), 500
 
 
+# Ruta para conseguir la lista de todos los fdocument por job
+@fdocument_bp.get("/job/<id_job>")
+@paginate()
+def list_fdocument_by_job(id_job):
+    try:
+        with get_session() as session:
+
+            statement = (
+                select(FinancialDocument)
+                .options(
+                    joinedload(FinancialDocument.financial_doc_items),
+                    joinedload(FinancialDocument.financial_transactions),
+                    joinedload(FinancialDocument.client),
+                    joinedload(FinancialDocument.job),
+                    joinedload(FinancialDocument.order),
+                    joinedload(FinancialDocument.subcontractor),
+                )
+                .where(FinancialDocument.ID_Jobs == id_job)
+            )
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 404
+
+            fd_data = [
+                add_relationships(
+                    fd, ["financial_doc_items", "financial_transactions",
+                         "client", "job", "order", "subcontractor"])
+                for fd in results
+            ]
+
+            return fd_data, 200
+
+    except SQLAlchemyError as db_error:  # Para un fallo de db
+        print(f"Error de base de datos al listar fdocuments: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:  # Para un fallo general inesperado
+        print(f"Error inesperado al listar fdocuments: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+
+
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un fdocument
 @fdocument_bp.post("/")
