@@ -52,6 +52,8 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 # Rutas de Quickbooks
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
+# Rutas de métricas
+from src.routes.MetricsJobs import metrics_bp
 
 
 # Test
@@ -132,6 +134,9 @@ def create_app():
     # Para conexión con Quickbooks
     app.register_blueprint(qbo_bp)
     app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
+
+    # Rutas de métricas
+    app.register_blueprint(metrics_bp)
 
     # Ruta simple
 
