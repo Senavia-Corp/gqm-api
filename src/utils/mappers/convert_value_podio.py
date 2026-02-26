@@ -79,29 +79,42 @@ PODIO_FIELD_TYPES = {
 
     # Campos Parent Mgmt Company (Property en Podio) --- REALES
 
-
-    # Campos de Tasks --- DE TEST ADMIN PANEL
-    "titulo": "text",  # Name en mi modelo
-    "description": "text",
-    "status": "category",
-    "deadline": "date",  # Delivery_date en mi modelo
-    "related-project": "app",
 }
 
 
-def convert_value_for_podio(field_id, value):
-    field_type = PODIO_FIELD_TYPES.get(field_id, "text")
+def convert_value_for_podio(value, field_type="text"):
 
     if field_type == "app":
         return {"value": int(value)} if value else None
+
+    if field_type == "tag":
+        # Podio espera lista de strings
+        if not value:
+            return []
+        # Aseguramos que siempre sea lista
+        if isinstance(value, str):
+            return [value]
+        elif isinstance(value, list):
+            # Convertimos todos los elementos a string
+            return [str(v) for v in value if v is not None]
+        else:
+            # Si viene algo raro, lo convertimos a string en una lista
+            return [str(value)]
 
     if field_type == "text":
         return {"value": str(value)} if value is not None else None
 
     if field_type == "category":
-        if value is None:
-            return None
-        return {"value": str(value)}
+        if not value:
+            return []
+        # Si es string simple, lo convertimos en lista
+        if isinstance(value, str):
+            return [{"value": value}]
+        elif isinstance(value, list):
+            return [{"value": str(v)} for v in value if v is not None]
+        else:
+            # Si viene algo raro, lo convertimos a un valor único
+            return [{"value": str(value)}]
 
     if field_type == "embed":
         if value is None:
@@ -160,9 +173,11 @@ def convert_value_for_podio(field_id, value):
         return [{"type": "work", "value": str(value)}]
 
     if field_type == "contact":
-        if value is None:
-            return None
-        return {"value": int(value)}  # profile_id
+        if not value:
+            return []
+        if isinstance(value, list):
+            return [{"value": int(v)} for v in value]
+        return [{"value": int(value)}]  # profile_id
 
     if field_type == "location":
         if value is None:

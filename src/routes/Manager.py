@@ -9,6 +9,10 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
+from ..models.ClientModel import Client
+from ..models.link_models.ClientLinks import ClientManagerLink
+from src.podio.services.client_services import podio_clients_router
+from src.utils.mappers.mapper_aux_functions import register_event
 
 # Blueprint de Manager:
 manager_bp = Blueprint(
@@ -163,6 +167,7 @@ def update_manager(manager_id):
     session = None  # Para que funcione except
     try:
         data = request.get_json()
+        sync_podio = request.args.get("sync_podio", "false").lower() == "true"
         with get_session() as session:
             obj = session.get(Manager, manager_id)
             if not obj:
@@ -178,6 +183,41 @@ def update_manager(manager_id):
             session.add(obj)
             session.commit()
             session.refresh(obj)
+
+            # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
+            if sync_podio and "Manager_name" in update_data_dict:
+
+                # 🔎 Buscar todos los links de este manager
+                links = session.exec(
+                    select(ClientManagerLink)
+                    .where(ClientManagerLink.manager_id == manager_id)
+                ).all()
+
+                podio_service = podio_clients_router.get_service()
+
+                for link in links:
+
+                    client = session.get(Client, link.clients_id)
+
+                    if not client or not client.podio_item_id:
+                        continue
+
+                    if link.rol == "Prop. Manager":
+                        field_name = "contact-name"
+                    elif link.rol == "Regional Manager":
+                        field_name = "regional-manager"
+                    else:
+                        continue
+
+                    podio_service.update_item(
+                        int(client.podio_item_id),
+                        {
+                            field_name: obj.Manager_name
+                        }
+                    )
+
+                    register_event(client.podio_item_id)
+
             return jsonify(obj.model_dump()), 200
 
     # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.

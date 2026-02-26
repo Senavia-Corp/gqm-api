@@ -1,18 +1,18 @@
 from ..convert_value_podio import convert_value_for_podio
 
 SUBC_FIELD_MAP = {
-    "Organization": "organization",
-    "Name": "name",
-    "Email_Address": "email-address",
-    "Phone_Number": "phone-number",
-    "Organization_Website": "website",
-    "Address": "address",
-    "Status": "status",
-    "Gqm_compliance": "gqm-compliace-req",
-    "Gqm_best_service_training": "gqm-best-service-training",
-    "Specialty": "job-title",
-    "Coverage_Area": "coverage-area",
-    "Notes": "notes"
+    "Organization": {"podio_field": "organization", "type": "tag"},
+    "Name": {"podio_field": "name", "type": "text"},
+    "Email_Address": {"podio_field": "email-address", "type": "email"},
+    "Phone_Number": {"podio_field": "phone-number", "type": "phone"},
+    "Organization_Website": {"podio_field": "website", "type": "embed"},
+    "Address": {"podio_field": "address", "type": "location"},
+    "Status": {"podio_field": "status", "type": "category"},
+    "Gqm_compliance": {"podio_field": "gqm-compliace-req", "type": "category"},
+    "Gqm_best_service_training": {"podio_field": "gqm-best-service-training", "type": "category"},
+    "Specialty": {"podio_field": "job-title", "type": "text"},
+    "Coverage_Area": {"podio_field": "coverage-area", "type": "category"},
+    "Notes": {"podio_field": "notes", "type": "text"}
 }
 
 
@@ -20,11 +20,14 @@ def map_subc_to_podio(subc_obj, session=None):
     payload = {}
 
     # Campos simples
-    for attr, podio_field in SUBC_FIELD_MAP.items():
+    for attr, config in SUBC_FIELD_MAP.items():
         value = getattr(subc_obj, attr, None)
         if value is not None:
-            payload[podio_field] = convert_value_for_podio(podio_field, value)
+            payload[config["podio_field"]] = convert_value_for_podio(
+                value, config["type"])
 
-    # Relación en QID, PTL y PAR se manda desde Jobs
+    # Relación con Skills para Division Trade se manda desde el link
+
+    # Relación en QID, PTL y PAR se manda desde Jobs.
 
     return payload
