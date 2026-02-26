@@ -19,6 +19,8 @@ class FTransBase(SQLModel):
     Bank_Account_Ref: Optional[str] = Field(default=None)
     Type_of_payment: Optional[str] = Field(default=None)
     Date_of_payment: Optional[date] = Field(default=None)
+    is_emailed: Optional[bool] = Field(default=None)
+    is_voided: Optional[bool] = Field(default=None)
 
 
 class FinancialTransaction(FTransBase, table=True):

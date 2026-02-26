@@ -6,7 +6,8 @@ QBO_FDOC_FIELD_MAP = {
     "Balance_Amount": "Balance",
     "Notes": "PrivateNote",
     "Due_Date": "DueDate",
-    "qbo_id": "Id"
+    "qbo_id": "Id",
+    "Vendor_Customer": ["VendorRef.name", "CustomerRef.name"]
 }
 
 

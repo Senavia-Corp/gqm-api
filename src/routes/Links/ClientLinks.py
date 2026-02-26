@@ -4,6 +4,10 @@ from ...models.ClientModel import Client
 from ...models.ManagerModel import Manager
 from ...models.MemberModel import Member
 from ...models.link_models.ClientLinks import ClientMemberLink, ClientManagerLink
+from ...podio.services.client_services import podio_clients_router
+from src.utils.mappers.convert_value_podio import convert_value_for_podio
+from src.utils.mappers.mapper_aux_functions import register_event
+
 
 # ------------------- Link entre Client y Manager -------------------
 client_manager_bp = Blueprint(
@@ -13,36 +17,93 @@ client_manager_bp = Blueprint(
 # Vincular un cliente con un manager
 @client_manager_bp.post("/client/<clients_id>/manager/<manager_id>")
 def assign_client_to_manager(clients_id, manager_id):
-    with get_session() as session:
-        client = session.get(Client, clients_id)
-        prmanager = session.get(Manager, manager_id)
+    data = request.get_json(silent=True) or {}
+    rol = data.get("rol")
+    sync_podio = request.args.get("sync_podio", "false").lower() == "true"
 
-        if not client or not prmanager:
+    with get_session() as session:
+
+        client = session.get(Client, clients_id)
+        manager = session.get(Manager, manager_id)
+
+        if not client or not manager:
             return jsonify({"error": "Client or Manager not found"}), 404
 
         existing_link = session.get(
             ClientManagerLink, (clients_id, manager_id))
+
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
 
+        # ----------- 🔵 CREAR EN DB
         link = ClientManagerLink(
             clients_id=clients_id,
-            manager_id=manager_id
+            manager_id=manager_id,
+            rol=rol
         )
 
         session.add(link)
         session.commit()
 
+        # ----------- 🟢 CREAR EN PODIO (🔄 Enviar PATCH)
+        if sync_podio:
+            if client.podio_item_id and manager.Manager_name:
+
+                podio_service = podio_clients_router.get_service()
+                podio_fields = {}
+
+                if link.rol == "Prop. Manager":
+                    podio_fields["contact-name"] = convert_value_for_podio(
+                        manager.Manager_name, "text"
+                    )
+
+                elif link.rol == "Regional Manager":
+                    podio_fields["regional-manager"] = convert_value_for_podio(
+                        manager.Manager_name, "text"
+                    )
+
+                if podio_fields:
+                    podio_service.update_item(
+                        int(client.podio_item_id), podio_fields)
+
+                # Anti-loop: registrar evento
+                register_event(client.podio_item_id)
+
         return jsonify({
             "status": "Linked 🔗",
             "clients_id": clients_id,
-            "manager_id": manager_id
+            "manager_id": manager_id,
+            "rol": rol
         }), 201
+
+
+# Actualizar el campo rol
+@client_manager_bp.patch("/client/<clients_id>/manager/<manager_id>/rol")
+def update_role(clients_id, manager_id):
+    data = request.get_json(silent=True) or {}
+    rol = data.get("rol")  # puede ser None
+
+    with get_session() as session:
+        link = session.get(
+            ClientManagerLink, (clients_id, manager_id)
+        )
+
+        if not link:
+            return jsonify({"error": "Relationship not found"}), 404
+
+        link.rol = rol
+        session.commit()
+
+        return jsonify({
+            "status": "Role updated 🔁",
+            "rol": rol
+        }), 200
 
 
 # Desvincular un cliente de un manager
 @client_manager_bp.delete("/client/<clients_id>/manager/<manager_id>")
 def remove_client_from_manager(clients_id, manager_id):
+    sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     with get_session() as session:
 
         # Buscar si existe el link
@@ -56,6 +117,31 @@ def remove_client_from_manager(clients_id, manager_id):
                 "error": "Relationship does not exist"
             }), 404
 
+        # Buscamos client y rol antes de borrar
+        client = session.get(Client, clients_id)
+        rol_to_update = link.rol
+
+        # ----------- 🟢 DELETE EN PODIO (🔄 Enviar PATCH)
+        if sync_podio:
+            if client and client.podio_item_id and rol_to_update:
+                podio_service = podio_clients_router.get_service()
+
+                if rol_to_update == "Prop. Manager":
+                    field_name = "contact-name"
+                elif rol_to_update == "Regional Manager":
+                    field_name = "regional-manager"
+                else:
+                    field_name = None
+
+                if field_name:
+                    podio_service.update_item(
+                        int(client.podio_item_id),
+                        {field_name: []}  # limpiar campo en podio
+                    )
+
+                    register_event(client.podio_item_id)
+
+        # ----------- 🔴 BORRAR EN DB
         session.delete(link)
         session.commit()
 
@@ -76,6 +162,7 @@ client_member_bp = Blueprint(
 def assign_client_to_member(clients_id, members_id):
     data = request.get_json(silent=True) or {}
     rol = data.get("rol")
+    sync_podio = request.args.get("sync_podio", "false").lower() == "true"
 
     with get_session() as session:
         client = session.get(Client, clients_id)
@@ -89,6 +176,7 @@ def assign_client_to_member(clients_id, members_id):
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
 
+        # ----------- 🔵 CREAR EN DB
         link = ClientMemberLink(
             clients_id=clients_id,
             members_id=members_id,
@@ -97,6 +185,30 @@ def assign_client_to_member(clients_id, members_id):
 
         session.add(link)
         session.commit()
+
+        # ----------- 🟢 CREAR EN PODIO (🔄 Enviar PATCH)
+        if sync_podio:
+            if client.podio_item_id and member.podio_profile_id:
+
+                podio_service = podio_clients_router.get_service()
+                podio_fields = {}
+
+                if link.rol == "Acc. Rep":
+                    podio_fields["acc-rep"] = convert_value_for_podio(
+                        member.podio_profile_id, "contact"
+                    )
+
+                elif link.rol == "Inv/Acc Pro":
+                    podio_fields["invacc-pro"] = convert_value_for_podio(
+                        member.podio_profile_id, "contact"
+                    )
+
+                if podio_fields:
+                    podio_service.update_item(
+                        int(client.podio_item_id), podio_fields)
+
+                # Anti-loop: registrar evento
+                register_event(client.podio_item_id)
 
         return jsonify({
             "status": "Linked 🔗",
@@ -132,6 +244,7 @@ def update_role(clients_id, members_id):
 # Desvincular un cliente de un member
 @client_member_bp.delete("/client/<clients_id>/member/<members_id>")
 def remove_client_from_member(clients_id, members_id):
+    sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     with get_session() as session:
 
         # Buscar si existe el link
@@ -145,6 +258,31 @@ def remove_client_from_member(clients_id, members_id):
                 "error": "Relationship does not exist"
             }), 404
 
+        # Buscamos client y rol antes de borrar
+        client = session.get(Client, clients_id)
+        rol_to_update = link.rol
+
+        # ----------- 🟢 DELETE EN PODIO (🔄 Enviar PATCH)
+        if sync_podio:
+            if client and client.podio_item_id and rol_to_update:
+                podio_service = podio_clients_router.get_service()
+
+                if rol_to_update == "Acc. Rep":
+                    field_name = "acc-rep"
+                elif rol_to_update == "Inv/Acc Pro":
+                    field_name = "invacc-pro"
+                else:
+                    field_name = None
+
+                if field_name:
+                    podio_service.update_item(
+                        int(client.podio_item_id),
+                        {field_name: []}  # limpiar campo en podio
+                    )
+
+                    register_event(client.podio_item_id)
+
+        # ----------- 🔴 BORRAR EN DB
         session.delete(link)
         session.commit()
 

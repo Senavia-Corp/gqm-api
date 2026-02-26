@@ -25,6 +25,9 @@ class FDocBase (SQLModel):
     Percentage_Paid: Optional[float] = Field(default=None)
     Notes: Optional[str] = Field(default=None)
     Due_Date: Optional[date] = Field(default=None)
+    is_emailed: Optional[bool] = Field(default=None)
+    is_voided: Optional[bool] = Field(default=None)
+    Vendor_Customer: Optional[str] = Field(default=None)
 
 
 class FinancialDocument(FDocBase, table=True):
@@ -37,7 +40,8 @@ class FinancialDocument(FDocBase, table=True):
 
     #  Relaciones foráneas 1:M
     financial_doc_items: List["FinancialDoc_Item"] = Relationship(  # type: ignore
-        back_populates="financial_document")
+        back_populates="financial_document",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
     attachments: List["Attachments"] = Relationship(  # type: ignore
         back_populates="financial_document",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
@@ -49,31 +53,15 @@ class FinancialDocument(FDocBase, table=True):
     )
 
     # Relaciones foráneas M:1
-    ID_Client: Optional[str] = Field(
-        default=None, foreign_key="client.ID_Client")
-    client: Optional["Client"] = Relationship(back_populates="financial_docs")
     ID_Jobs: Optional[str] = Field(
         default=None, foreign_key="jobs.ID_Jobs")
     job: Optional[Job] = Relationship(back_populates="financial_docs")
-    ID_Order: Optional[str] = Field(
-        default=None, foreign_key="order.ID_Order")
-    order: Optional["Order"] = Relationship(back_populates="financial_docs")
-    ID_Subcontractor: Optional[str] = Field(
-        default=None, foreign_key="subcontractor.ID_Subcontractor")
-    subcontractor: Optional[Subcontractor] = Relationship(
-        back_populates="financial_docs")
 
 
 class FDocCreate(FDocBase):
-    ID_Client: Optional[str] = None
     ID_Jobs: Optional[str] = None
-    ID_Order: Optional[str] = None
-    ID_Subcontractor: Optional[str] = None
 
 
 class FDocUpdate(FDocBase):
     Type_of_document: Optional[str] = None
-    ID_Client: Optional[str] = None
     ID_Jobs: Optional[str] = None
-    ID_Order: Optional[str] = None
-    ID_Subcontractor: Optional[str] = None

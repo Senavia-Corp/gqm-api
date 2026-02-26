@@ -3,7 +3,6 @@ from ..qbo_auth import get_valid_access_token
 
 
 # FUNCIÓN BASE GENÉRICA PARA HACER PEDIDOS A QBO
-
 def qbo_query(realm_id: str, query: str, start: int = 1, limit: int = 100):
     access_token = get_valid_access_token(realm_id)
 
@@ -36,3 +35,15 @@ def qbo_query(realm_id: str, query: str, start: int = 1, limit: int = 100):
     response.raise_for_status()
 
     return response.json()
+
+
+# -------------------- GET POR QBO_ID -------------------- #
+def qbo_get_by_id(realm_id, entity_type, entity_id):
+    """Trae una entidad específica por su ID desde QBO"""
+    # Reutiliza lógica de qbo_query pero filtrando por ID
+    query = f"SELECT * FROM {entity_type} WHERE Id = '{entity_id}'"
+    response = qbo_query(realm_id, query)
+
+    # QBO devuelve { "QueryResponse": { "Bill": [...] } }
+    entities = response.get("QueryResponse", {}).get(entity_type, [])
+    return entities[0] if entities else None
