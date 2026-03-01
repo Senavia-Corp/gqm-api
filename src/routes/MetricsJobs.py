@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response
 from sqlmodel import select
 from sqlalchemy import func, extract, and_, or_, case, literal
 from sqlalchemy.exc import SQLAlchemyError
@@ -9,6 +9,8 @@ from ..models.MemberModel import Member
 from ..models.link_models.JobMember import JobMemberLink
 from ..models.ClientModel import Client
 from ..models.ParentMgmtCoModel import ParentMgmtCo
+from ..services.metrics.jobs_metrics_service import get_jobs_status_metrics_data
+from ..services.reports.jobs_report_pdf import build_jobs_report_pdf_bytes
 
 metrics_bp = Blueprint("metrics_blueprint", __name__, url_prefix="/metrics")
 
@@ -1129,3 +1131,46 @@ def parent_mgmt_co_metrics():
     except Exception as e:
         print(f"Unexpected error metrics parent-mgmt-co: {e}")
         return jsonify({"detail": "Error interno inesperado del servidor.", "code": "internal_error"}), 500
+
+
+
+# =============================================================================
+# NEW ENDPOINT: Reportes de Jobs
+# =============================================================================
+@metrics_bp.get("/reports/jobs")
+def jobs_report_pdf():
+    """
+    GET /metrics/reports/jobs?type=ALL|QID|PTL|PAR&year=2025
+    Retorna PDF descargable.
+    """
+    data, err = get_jobs_status_metrics_data(
+        request.args.get("type"),
+        request.args.get("year"),
+    )
+    if err:
+        payload, status = err
+        return jsonify(payload), status
+
+    # Logo (opcional):
+    # - recomendado: guardar en repo tipo: src/assets/logo.png
+    # - o usar env var REPORT_LOGO_PATH
+    logo_path = "src/assets/company_logo.png"  # ajusta a tu repo (o None)
+
+    pdf_bytes = build_jobs_report_pdf_bytes(
+        data,
+        company_name="Senavia Corp",  # o lo que corresponda
+        logo_path=logo_path,
+    )
+
+    job_type = data.get("type") or "ALL"
+    year = data.get("year") or "ALL"
+    filename = f"jobs_report_{job_type}_{year}.pdf"
+
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
