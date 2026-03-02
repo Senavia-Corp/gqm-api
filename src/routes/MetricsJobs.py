@@ -1154,7 +1154,7 @@ def jobs_report_pdf():
     # Logo (opcional):
     # - recomendado: guardar en repo tipo: src/assets/logo.png
     # - o usar env var REPORT_LOGO_PATH
-    logo_path = "src/assets/company_logo.png"  # ajusta a tu repo (o None)
+    logo_path = "src/assets/gqm-logo.png"  # ajusta a tu repo (o None)
 
     pdf_bytes = build_jobs_report_pdf_bytes(
         data,
