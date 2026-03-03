@@ -131,9 +131,8 @@ def process_single_entity_qbo(realm_id: str, entity_type: str, qbo_id: str, dry_
 
     print(f"✅ {entity_type} {qbo_id} procesado")
 
+
 # --- FUNCIONES AUXILIARES PARA EVITAR RECURSIVIDAD ---
-
-
 def _handle_invoice(session, entity, realm_id, dry_run):
     mapped_doc = map_entity(entity, QBO_FDOC_FIELD_MAP)
     mapped_doc = attach_job_code(mapped_doc)

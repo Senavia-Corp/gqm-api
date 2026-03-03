@@ -3,10 +3,18 @@ from src.models.FinancialTransModel import FinancialTransaction
 
 # Mapeo de Modelos para Webhook
 MODEL_MAP = {
-    "Invoice": FinancialDocument,
-    "Bill": FinancialDocument,
-    "Payment": FinancialTransaction,
-    "BillPayment": FinancialTransaction
+    "invoice": FinancialDocument,
+    "bill": FinancialDocument,
+    "payment": FinancialTransaction,
+    "billpayment": FinancialTransaction
+}
+
+# Nombre exacto que la API de QBO exige en el SELECT
+QBO_API_NAME = {
+    "invoice": "Invoice",
+    "bill": "Bill",
+    "payment": "Payment",
+    "billpayment": "BillPayment"
 }
 
 
