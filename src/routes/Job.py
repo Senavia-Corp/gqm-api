@@ -656,6 +656,13 @@ def create_job():
 
     # 🔘 Función de sincronización
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    year = request.args.get("year", type=int)
+
+    if sync_podio and not year:
+        raise AppException(
+            "El parámetro 'year' es obligatorio cuando sync_podio=true.",
+            "missing_year",
+            400)
 
     with get_session() as session:
 
@@ -673,7 +680,8 @@ def create_job():
                 raise AppException(
                     f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)
 
-            podio_service = podio_jobs_router.get_service(obj.Job_type)
+            podio_service = podio_jobs_router.get_service(
+                job_type=obj.Job_type, year=year)
             podio_response = podio_service.create_item(podio_fields)
 
             if not podio_response or not podio_response.get("item_id"):
@@ -734,6 +742,7 @@ def create_job():
 @handle_exceptions()
 def update_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    year = request.args.get("year", type=int)
     data = request.get_json()
 
     with get_session() as session:
@@ -766,7 +775,8 @@ def update_job(id_job):
                 raise AppException(
                     f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)
 
-            podio_service = podio_jobs_router.get_service(obj.Job_type)
+            podio_service = podio_jobs_router.get_service(
+                job_type=obj.Job_type, year=year)
 
             try:
                 podio_service.update_item(
@@ -801,6 +811,7 @@ def update_job(id_job):
 @handle_exceptions()
 def delete_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    year = request.args.get("year", type=int)
 
     with get_session() as session:
         obj = session.exec(select(Job).where(
@@ -811,7 +822,8 @@ def delete_job(id_job):
         # ----------- 🟢 BORRAR EN PODIO (SI APLICA)
         if sync_podio and obj.podio_item_id:
 
-            podio_service = podio_jobs_router.get_service(obj.Job_type)
+            podio_service = podio_jobs_router.get_service(
+                job_type=obj.Job_type, year=year)
 
             try:
                 podio_service.delete_item(int(obj.podio_item_id))
