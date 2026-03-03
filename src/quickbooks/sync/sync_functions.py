@@ -100,29 +100,6 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
 # -------------------------- SINCRONIZAR FINANCIAL DOC ITEMS -------------------------- #
 def upsert_financial_doc_items(session, data, doc_id, dry_run=False):
 
-    # ---------  🔍 BUSCAR EXISTENCIA POR QBO ID
-    existing = session.exec(
-        select(FinancialDoc_Item).where(
-            FinancialDoc_Item.ID_FinancialDoc == doc_id,
-            FinancialDoc_Item.qbo_line_id == data["qbo_line_id"]
-        )
-    ).first()
-
-    # ---------  🔁 UPDATE
-    if existing:
-
-        changed = False
-
-        for field, value in data.items():
-            if getattr(existing, field) != value:
-                setattr(existing, field, value)
-                changed = True
-
-        if changed and not dry_run:
-            session.add(existing)
-
-        return existing, False
-
     # ---------  🆕 CREATE
     new_id = generate_custom_id(session, FinancialDoc_Item, "ID_FDItem", "FDI")
 

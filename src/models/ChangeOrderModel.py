@@ -11,8 +11,6 @@ class ChangeOrBase(SQLModel):
     Description: Optional[str] = Field(default=None)
     ChangeOrderFormula: Optional[float] = Field(default=None)
     State: Optional[str] = Field(default=None)
-    # Para poder conectar con Podio si se hacen modificaciones
-    job_podio_id: Optional[str] = Field(default=None)
     # Para guardar el external id de donde viene (TECH x - Change Order o CHANGE ORDER)
     podio_field: Optional[str] = Field(default=None)
 
@@ -21,6 +19,9 @@ class ChangeOrder(ChangeOrBase, table=True):
     __tablename__ = "change_order"
 
     ID_ChangeOrder: Optional[str] = Field(default=None, primary_key=True)
+
+    # Para poder conectar con Podio si se hacen modificaciones
+    job_podio_id: Optional[str] = Field(default=None)
 
     # Relaciones foráneas M:1
     ID_Jobs: Optional[str] = Field(
