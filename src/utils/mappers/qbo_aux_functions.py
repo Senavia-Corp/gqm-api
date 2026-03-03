@@ -1,7 +1,16 @@
-from src.models.FinancialDocModel import DocumentType
+from src.models.FinancialDocModel import FinancialDocument
+from src.models.FinancialTransModel import FinancialTransaction
+
+# Mapeo de Modelos para Webhook
+MODEL_MAP = {
+    "Invoice": FinancialDocument,
+    "Bill": FinancialDocument,
+    "Payment": FinancialTransaction,
+    "BillPayment": FinancialTransaction
+}
+
+
 # Extraer valor del JSON
-
-
 def extract_value(obj: dict, path: str):
     if not obj or not path:
         return None
@@ -42,24 +51,6 @@ def attach_job_code(mapped_doc: dict) -> dict:
 
     job_code = doc_number.split("-")[0]
     mapped_doc["Job_Code"] = job_code
-
-    return mapped_doc
-
-
-# Agregar la relación con Client o Subcontractor dependiendo del documento
-def attach_related_entity(mapped_doc: dict, raw_json: dict, doc_type):
-
-    if doc_type == DocumentType.Invoice:
-        customer = raw_json.get("CustomerRef", {})
-        customer_name = customer.get("name")
-        mapped_doc["Related_Name"] = customer_name
-        mapped_doc["Related_Type"] = "client"
-
-    elif doc_type == DocumentType.Bill:
-        vendor = raw_json.get("VendorRef", {})
-        vendor_name = vendor.get("name")
-        mapped_doc["Related_Name"] = vendor_name
-        mapped_doc["Related_Type"] = "subcontractor"
 
     return mapped_doc
 

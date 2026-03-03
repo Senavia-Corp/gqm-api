@@ -2,8 +2,10 @@
 
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
+import json
 from ..database.db_sqlmodel import get_session
 from ..models.ChangeOrderModel import ChangeOrder, ChangeOrCreate, ChangeOrUpdate
+from ..models.JobModel import Job
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -12,6 +14,16 @@ from sqlalchemy.orm import joinedload
 from src.utils.id_generator import generate_custom_id
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
+from ..utils.middleware.logs.logs import logger
+from ..podio.services.job_services import podio_jobs_router
+from ..utils.mappers.to_podio.order_changeorder_mappers import (
+    normalize_podio_fields,
+    map_chorder_create_to_podio,
+    map_chorder_patch_to_podio,
+    map_chorder_delete_to_podio
+)
+from ..utils.mappers.mapper_aux_functions import register_event
 
 
 # Blueprint de Change Orders:
@@ -24,238 +36,276 @@ change_order_bp = Blueprint(
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos las Change Orders
 @change_order_bp.get("/")
+@handle_exceptions()
 @paginate()  # decorador de paginación
 def list_change_orders():
-    try:
-        with get_session() as session:
 
-            statement = (
-                select(ChangeOrder)
-                .options(
-                    joinedload(ChangeOrder.job)
-                )
+    with get_session() as session:
+
+        statement = (
+            select(ChangeOrder)
+            .options(
+                joinedload(ChangeOrder.job)
             )
-            results = session.exec(statement).unique().all()
+        )
+        results = session.exec(statement).unique().all()
 
-            if not results:
-                return [], 404   # El decorador se encarga del formato final
+        if not results:
+            return [], 200   # El decorador se encarga del formato final
 
-            change_data = [
-                # se agrega la relacion FK
-                add_relationships(
-                    changeOr, ["job"])
-                for changeOr in results
-            ]
+        change_data = [
+            # se agrega la relacion FK
+            add_relationships(
+                changeOr, ["job"])
+            for changeOr in results
+        ]
 
-            return change_data, 200
-
-    except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar change orders: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al consultar la base de datos.",
-            "code": "db_error"
-        }), 500
-
-    except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar change orders: {e}")
-        return jsonify({
-            "detail": "Error interno inesperado del servidor.",
-            "code": "internal_error"
-        }), 500
+        return change_data, 200
 
 
 # Ruta para conseguir un change order por ID
 @change_order_bp.get("/<id_change_order>")
+@handle_exceptions()
 def get_changeOr_by_id(id_change_order):
-    try:
-        with get_session() as session:
-            statement = (
-                select(ChangeOrder)
-                .options(
-                    joinedload(ChangeOrder.job)
-                )
-                .where(ChangeOrder.ID_ChangeOrder == id_change_order)
+
+    with get_session() as session:
+        statement = (
+            select(ChangeOrder)
+            .options(
+                joinedload(ChangeOrder.job)
             )
-            obj = session.exec(statement).unique().first()
+            .where(ChangeOrder.ID_ChangeOrder == id_change_order)
+        )
+        obj = session.exec(statement).unique().first()
 
-            if not obj:
-                return jsonify({"error": "Change Order not found"}), 404
+        if not obj:
+            raise AppException("Change Order no encontrado.",
+                               "ch_order_not_found", 404)
 
-            changeOr_data = add_relationships(
-                obj,  ["job"])
+        changeOr_data = add_relationships(
+            obj,  ["job"])
 
-            return jsonify(changeOr_data), 200
-
-    except SQLAlchemyError as db_error:
-        print(
-            f"Error de base de datos al buscar change order {id_change_order}: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al consultar la base de datos.",
-            "code": "db_error"
-        }), 500
-
-    except Exception as e:
-        print(f"Error inesperado al listar change orders: {e}")
-        return jsonify({
-            "detail": "Error interno inesperado del servidor.",
-            "code": "internal_error"
-        }), 500
+        return changeOr_data, 200
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un change order
 @change_order_bp.post("/")
+@handle_exceptions()
 def create_changeOr():
-    try:
-        data = request.get_json()
-        create_changeOr = ChangeOrCreate.model_validate(data)
-        obj = ChangeOrder.model_validate(create_changeOr)
 
-    except ValidationError as e:
-        if 'JSON' in str(e):
-            return jsonify({"detail": "La solicitud debe contener un JSON válido."}), 400
-        print(f"Error inesperado en preparación de datos: {e}")
-        return jsonify({"detail": "Error inesperado del servidor."}), 500
+    data = request.get_json()
+    create_changeOr = ChangeOrCreate.model_validate(data)
+    obj = ChangeOrder(
+        **create_changeOr.model_dump(exclude_unset=False, exclude_none=False))
 
-    try:
-        with get_session() as session:
-            new_id = generate_custom_id(
-                session, ChangeOrder, "ID_ChangeOrder", "ChO")
-            obj.ID_ChangeOrder = new_id
+    # 🔘 Función de sincronización
+    sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    year = request.args.get("year", type=int)
 
-            save_with_retry(session, obj)
+    if sync_podio and not year:
+        raise AppException(
+            "El parámetro 'year' es obligatorio cuando sync_podio=true.",
+            "missing_year",
+            400)
 
-            return jsonify(obj.model_dump()), 201
+    with get_session() as session:
 
-    except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
-        session.rollback()  # Deshace los cambios realizados
-        error_message = str(e)
-        if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un change order con este valor único."
-        else:
-            detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
-        print(f"Error de integridad: {e}")
-        return jsonify({"detail": detail}), 409
+        # ----------- 🔵 CREAR EN DB
+        new_id = generate_custom_id(
+            session, ChangeOrder, "ID_ChangeOrder", "ChO")
+        obj.ID_ChangeOrder = new_id
 
-    except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
-        session.rollback()
-        print(f"Error de base de datos al crear change order: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al interactuar con la base de datos.",
-            "code": "db_error"
-        }), 500
+        # ----------- 🟢 SINCRONIZAR EN PODIO (SI APLICA)
+        if sync_podio:
 
-    except Exception as e:
-        try:
-            session.rollback()
-        except Exception:
-            pass
+            # 1️⃣ Buscar Job
+            job = session.exec(
+                select(Job).where(Job.podio_item_id == obj.job_podio_id)
+            ).first()
 
-        print(f"Error inesperado durante la creación de change order: {e}")
-        return jsonify({
-            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
-            "code": "internal_error"
-        }), 500
+            if not job:
+                raise AppException("Job no encontrado", "job_not_found", 404)
+
+            # 2️⃣ Obtener servicio
+            podio_service = podio_jobs_router.get_service(
+                job_type=job.Job_type,
+                year=year
+            )
+
+            # 3️⃣ Obtener job actual desde Podio (necesario)
+            podio_job = podio_service.get_item(obj.job_podio_id)
+            raw_fields = podio_job.get("fields", {})
+            podio_job_fields = normalize_podio_fields(raw_fields)
+
+            # 4️⃣ Construir payload
+            payload = map_chorder_create_to_podio(
+                obj,
+                job.Job_type,
+                podio_job_fields,
+                session
+            )
+
+            print("🚀 Payload que se enviará a Podio:")
+            print(json.dumps(payload, indent=4))
+
+            try:
+                podio_service.update_item(obj.job_podio_id, payload)
+                register_event(obj.job_podio_id)
+
+            except Exception as podio_err:
+                raise AppException(
+                    f"No se pudo sincronizar Change Order con Podio: {podio_err}",
+                    "podio_sync_failed",
+                    400
+                )
+
+        # ----------- 💾 GUARDAR EN DB
+        save_with_retry(session, obj)
+
+        logger.info(
+            "✅ Change Order creado | chorder_id=%s | job_item_id=%s",
+            obj.ID_ChangeOrder,
+            obj.job_podio_id
+        )
+
+        return obj.model_dump(), 201
 
 
 # Ruta para actualizar un change order
 @change_order_bp.patch("/<id_change_order>")
+@handle_exceptions()
 def update_changeOr(id_change_order):
-    session = None  # Para que funcione except
-    try:
-        data = request.get_json()
-        with get_session() as session:
-            obj = session.get(ChangeOrder, id_change_order)
-            if not obj:
-                return jsonify({"error": "Change Order not found"}), 404
 
-            update_changeOr = ChangeOrUpdate.model_validate(data)
-            update_data_dict = update_changeOr.model_dump(
-                exclude_unset=True)  # Crea dict limpio
+    sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    year = request.args.get("year", type=int)
+    data = request.get_json()
 
-            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
-                setattr(obj, key, value)
+    if sync_podio and not year:
+        raise AppException(
+            "El parámetro 'year' es obligatorio cuando sync_podio=true.",
+            "missing_year",
+            400)
 
-            save_with_retry(session, obj)
+    with get_session() as session:
 
-            return jsonify(obj.model_dump()), 200
+        change_order = session.exec(
+            select(ChangeOrder).where(
+                ChangeOrder.ID_ChangeOrder == id_change_order)
+        ).first()
 
-    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
-    except ValidationError as e:
-        return jsonify({
-            "detail": "Error de validación: Datos de change order inválidos para la actualización.",
-            "errors": e.errors()
-        }), 400
+        if not change_order:
+            raise AppException("Change Order not found",
+                               "chorder_not_found", 404)
 
-    except IntegrityError as e:
-        if session:
-            session.rollback()
-        detail = "Error de integridad: Ya existe un change order con estos valores únicos o faltan datos requeridos."
-        print(f"Error de integridad (PATCH): {e}")
-        return jsonify({"detail": detail}), 409
+        update_changeOr = ChangeOrUpdate.model_validate(data)
+        update_data_dict = update_changeOr.model_dump(
+            exclude_unset=True)
 
-    except SQLAlchemyError as db_error:
-        if session:
-            session.rollback()
-        print(
-            f"Error de base de datos al actualizar change order: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al interactuar con la base de datos.",
-            "code": "db_error"
-        }), 500
+        # ----------- 🔄 ACTUALIZAR EN DB
+        for key, value in update_data_dict.items():
+            setattr(change_order, key, value)
 
-    except Exception as e:
-        if session:
+        save_with_retry(session, change_order)
+
+        logger.info("🔄 Change Order actualizado | chorder_id=%s",
+                    id_change_order)
+
+        # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
+        if sync_podio:
+
+            job = session.exec(
+                select(Job).where(Job.podio_item_id ==
+                                  change_order.job_podio_id)
+            ).first()
+
+            if not job:
+                raise AppException("Job not found", "job_not_found", 404)
+
+            podio_service = podio_jobs_router.get_service(
+                job_type=job.Job_type,
+                year=year
+            )
+
+            payload = map_chorder_patch_to_podio(
+                change_order, job.Job_type, session)
+
             try:
-                session.rollback()
-            except Exception:
-                pass
-        print(f"Error inesperado al actualizar change order: {e}")
-        return jsonify({
-            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
-            "code": "internal_error"
-        }), 500
+                podio_service.update_item(change_order.job_podio_id, payload)
+                register_event(change_order.job_podio_id)
+
+            except Exception as podio_err:
+                raise AppException(
+                    f"No se pudo sincronizar Change Order con Podio: {podio_err}",
+                    "podio_sync_failed",
+                    400
+                )
+
+        return change_order.model_dump(), 200
 
 
 # Ruta para eliminar un change order
 @change_order_bp.delete("/<id_change_order>")
+@handle_exceptions()
 def delete_changeOr(id_change_order):
-    session = None
-    try:
-        with get_session() as session:
-            obj = session.get(ChangeOrder, id_change_order)
-            if not obj:
-                return jsonify({"error": "Change Order not found"}), 404
 
-            delete_with_retry(session, obj)
+    sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    year = request.args.get("year", type=int)
 
-            return jsonify({"message": f"Deleted Change Order {id_change_order}"}), 200
+    if sync_podio and not year:
+        raise AppException(
+            "El parámetro 'year' es obligatorio cuando sync_podio=true.",
+            "missing_year",
+            400
+        )
 
-    # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un change order que tiene productos asociados con Foreign Key
-        if session:
-            session.rollback()
-        detail = "Error de integridad: No se puede eliminar el change order porque tiene registros relacionados."
-        print(f"Error de integridad (DELETE): {e}")
-        return jsonify({"detail": detail}), 409
+    with get_session() as session:
+        change_order = session.exec(
+            select(ChangeOrder).where(
+                ChangeOrder.ID_ChangeOrder == id_change_order)
+        ).first()
 
-    except SQLAlchemyError as db_error:
-        if session:
-            session.rollback()
-        print(f"Error de base de datos al eliminar change order: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al interactuar con la base de datos.",
-            "code": "db_error"
-        }), 500
+        if not change_order:
+            raise AppException("Change Order not found",
+                               "chorder_not_found", 404)
 
-    except Exception as e:
-        if session:
+        # ----------- 🟢 BORRAR EN PODIO (SI APLICA)
+        if sync_podio:
+
+            job = session.exec(
+                select(Job).where(Job.podio_item_id ==
+                                  change_order.job_podio_id)
+            ).first()
+
+            if not job:
+                raise AppException("Job not found", "job_not_found", 404)
+
+            podio_service = podio_jobs_router.get_service(
+                job_type=job.Job_type,
+                year=year
+            )
+
+            payload = map_chorder_delete_to_podio(change_order, job.Job_type)
+
             try:
-                session.rollback()
-            except Exception:
-                pass
-        print(f"Error inesperado al eliminar change order: {e}")
+                podio_service.update_item(change_order.job_podio_id, payload)
+                register_event(change_order.job_podio_id)
+
+            except Exception as podio_err:
+                raise AppException(
+                    f"No se pudo sincronizar Change Order con Podio: {podio_err}",
+                    "podio_sync_failed",
+                    400
+                )
+
+        # ----------- 🔴 BORRAR EN DB
+        delete_with_retry(session, change_order)
+
+        logger.info(
+            "🗑️ Change Order eliminado | chorder_id=%s",
+            id_change_order
+        )
+
         return jsonify({
-            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
-            "code": "internal_error"
-        }), 500
+            "message": f"Deleted Change Order {id_change_order}"
+        }), 200
