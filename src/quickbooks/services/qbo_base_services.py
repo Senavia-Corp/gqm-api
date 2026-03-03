@@ -4,9 +4,12 @@ from ..qbo_auth import get_valid_access_token
 
 # FUNCIÓN BASE GENÉRICA PARA HACER PEDIDOS A QBO
 def qbo_query(realm_id: str, query: str, start: int = 1, limit: int = 100):
+    print(f"🔍 Buscando tokens para el realm_id: {realm_id}")
     access_token = get_valid_access_token(realm_id)
 
-    url = f"https://quickbooks.api.intuit.com/v3/company/{realm_id}/query"
+    # url = f"https://quickbooks.api.intuit.com/v3/company/{realm_id}/query"
+    # PARA TEST:
+    url = f"https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/query"
 
     final_query = (
         f"{query} "

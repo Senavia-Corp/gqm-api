@@ -4,10 +4,7 @@ from datetime import date
 from enum import Enum
 from .FinancialTransModel import FinancialTransaction
 from .link_models.FinancialLink import FinancialLink
-from .ClientModel import Client
 from .JobModel import Job
-from .OrderModel import Order
-from .SubcontractorModel import Subcontractor
 
 
 # ==================================== Modelos para PostgreSQL ====================================#
@@ -36,7 +33,7 @@ class FinancialDocument(FDocBase, table=True):
     ID_FinancialDoc: Optional[str] = Field(default=None, primary_key=True)
 
     # Referencias a QBO
-    qbo_id: Optional[str] = Field(default=None)
+    qbo_id: Optional[str] = Field(default=None, unique=True, index=True)
 
     #  Relaciones foráneas 1:M
     financial_doc_items: List["FinancialDoc_Item"] = Relationship(  # type: ignore

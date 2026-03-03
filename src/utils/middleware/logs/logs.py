@@ -5,6 +5,10 @@ import sys
 
 def setup_logger():
     logger = logging.getLogger("app")
+
+    if logger.handlers:
+        return logger  # Evita duplicar handlers
+
     logger.setLevel(logging.DEBUG)  # Este es el nivel mas básico.
 
     # Formato de los logs

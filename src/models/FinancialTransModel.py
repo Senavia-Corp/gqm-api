@@ -29,7 +29,7 @@ class FinancialTransaction(FTransBase, table=True):
     ID_FTransaction: Optional[str] = Field(default=None, primary_key=True)
 
     # Referencias a QBO
-    qbo_id: Optional[str] = Field(default=None)
+    qbo_id: Optional[str] = Field(default=None, unique=True, index=True)
 
     # Relación de muchos a muchos
     financial_documents: List["FinancialDocument"] = Relationship(  # type: ignore

@@ -12,7 +12,8 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
-
+from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
+from ..utils.middleware.logs.logs import logger
 
 # Blueprint de FinancialDocument:
 fdocument_bp = Blueprint("fdocument_blueprint",
@@ -34,10 +35,7 @@ def list_fdocument():
                 .options(
                     joinedload(FinancialDocument.financial_doc_items),
                     joinedload(FinancialDocument.financial_transactions),
-                    joinedload(FinancialDocument.client),
-                    joinedload(FinancialDocument.job),
-                    joinedload(FinancialDocument.order),
-                    joinedload(FinancialDocument.subcontractor),
+                    joinedload(FinancialDocument.job)
                 )
             )
             results = session.exec(statement).unique().all()
@@ -47,8 +45,7 @@ def list_fdocument():
 
             fd_data = [
                 add_relationships(
-                    fd, ["financial_doc_items", "financial_transactions",
-                         "client", "job", "order", "subcontractor"])
+                    fd, ["financial_doc_items", "financial_transactions", "job"])
                 for fd in results
             ]
 
@@ -80,10 +77,7 @@ def get_fdocument(id_fdocument):
                 .options(
                     joinedload(FinancialDocument.financial_doc_items),
                     joinedload(FinancialDocument.financial_transactions),
-                    joinedload(FinancialDocument.client),
-                    joinedload(FinancialDocument.job),
-                    joinedload(FinancialDocument.order),
-                    joinedload(FinancialDocument.subcontractor),
+                    joinedload(FinancialDocument.job)
                 )
                 .where(FinancialDocument.ID_FinancialDoc == id_fdocument)
             )
@@ -94,8 +88,7 @@ def get_fdocument(id_fdocument):
                 return jsonify({"error": "FinancialDocument not found"}), 404
 
             fd_data = add_relationships(
-                obj, ["financial_doc_items", "financial_transactions",
-                      "client", "job", "order", "subcontractor"])
+                obj, ["financial_doc_items", "financial_transactions", "job"])
 
             return jsonify(fd_data), 200
 
@@ -127,10 +120,7 @@ def list_fdocument_by_job(id_job):
                 .options(
                     joinedload(FinancialDocument.financial_doc_items),
                     joinedload(FinancialDocument.financial_transactions),
-                    joinedload(FinancialDocument.client),
-                    joinedload(FinancialDocument.job),
-                    joinedload(FinancialDocument.order),
-                    joinedload(FinancialDocument.subcontractor),
+                    joinedload(FinancialDocument.job)
                 )
                 .where(FinancialDocument.ID_Jobs == id_job)
             )
@@ -141,8 +131,7 @@ def list_fdocument_by_job(id_job):
 
             fd_data = [
                 add_relationships(
-                    fd, ["financial_doc_items", "financial_transactions",
-                         "client", "job", "order", "subcontractor"])
+                    fd, ["financial_doc_items", "financial_transactions", "job"])
                 for fd in results
             ]
 
