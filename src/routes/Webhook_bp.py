@@ -21,7 +21,7 @@ from src.utils.podio_webhook_core import parse_and_validate_webhook, event_creat
 from src.podio.webhook.client_hook_sync import process_clients_podio
 from src.podio.webhook.subc_hook_sync import process_subcs_podio
 from src.podio.webhook.jobs_hook_sync import process_jobs_podio
-from src.utils.mappers.qbo_aux_functions import MODEL_MAP
+from src.utils.mappers.qbo_aux_functions import MODEL_MAP, QBO_API_NAME
 from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event_delete_qbo
 from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
 
@@ -315,32 +315,32 @@ def _process_event(realm_id, entity_name, entity_id, operation):
     print(
         f"📩 Procesando: {entity_name} | ID: {entity_id} | Op: {operation}", flush=True)
 
-    # Obtenemos la clase del modelo (FinancialDocument o FinancialTransaction)
-    model_class = MODEL_MAP.get(entity_name)
+    clean_entity = entity_name.lower()
+    model_class = MODEL_MAP.get(clean_entity)
+    api_name = QBO_API_NAME.get(clean_entity, entity_name)
 
     try:
-        # CASO A: Operaciones que NO requieren llamar a la API de QBO (Eventos de estado)
-        if operation in ["Delete", "Void", "Emailed"]:
+        if operation in ["Delete", "Deleted"]:
+            # Pasamos api_name para que coincida (Invoice/Bill/Payment/BillPayment)
+            event_delete_qbo(realm_id, api_name, entity_id)
+            return
+
+        elif operation == "Void" and model_class:
             with get_session() as session:
-                if operation == "Delete":
-                    # El delete maneja su propio ruteo por entity_name adentro
-                    event_delete_qbo(realm_id, entity_name, entity_id)
+                event_void_qbo(session, model_class, entity_id)
+                return
 
-                elif operation == "Void" and model_class:
-                    event_void_qbo(session, model_class, entity_id)
+        elif operation in ["Emailed", "Email"] and model_class:
+            with get_session() as session:
+                event_email_qbo(session, model_class, entity_id)
+                return
 
-                elif operation == "Emailed" and model_class:
-                    event_email_qbo(session, model_class, entity_id)
-
-        # CASO B: Operaciones que requieren traer datos frescos de QBO (Create/Update/Merge)
         else:
-            # Esta función ya abre su propia sesión y hace la consulta a la API
+            # Sincronización normal: Enviamos el api_name ("BillPayment")
             process_single_entity_qbo(
                 realm_id=realm_id,
-                entity_type=entity_name,
-                qbo_id=entity_id,
-                dry_run=False
+                entity_type=api_name,
+                qbo_id=entity_id
             )
-
     except Exception as e:
-        print(f"❌ Error procesando {entity_name} {entity_id}: {e}", flush=True)
+        print(f"❌ Error en ruteo: {e}")

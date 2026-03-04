@@ -46,11 +46,18 @@ def event_email_qbo(session, Model, qbo_id):
 
 # -------- Evento Delete
 def event_delete_qbo(realm_id: str, entity_type: str, qbo_id: str):
+
+    # Limpieza preventiva del ID
+    clean_id = str(qbo_id).strip()
+
     with get_session() as session:
+        print(
+            f"🔍 Buscando {entity_type} con qbo_id: '{clean_id}' para eliminar...")
+
         # --- CASO FACTURAS/BILLS ---
         if entity_type in ("Invoice", "Bill"):
             doc = session.exec(select(FinancialDocument).where(
-                FinancialDocument.qbo_id == qbo_id)).first()
+                FinancialDocument.qbo_id == clean_id)).first()
             if doc:
                 delete_with_retry(session, doc)
                 print(f"🗑️ {entity_type} {qbo_id} eliminado")
@@ -58,7 +65,7 @@ def event_delete_qbo(realm_id: str, entity_type: str, qbo_id: str):
         # --- CASO PAGOS (Requiere lógica extra) ---
         elif entity_type in ("Payment", "BillPayment"):
             trans = session.exec(select(FinancialTransaction).where(
-                FinancialTransaction.qbo_id == qbo_id)).first()
+                FinancialTransaction.qbo_id == clean_id)).first()
             if trans:
                 # 1. Extraemos los QBO_IDs de las facturas ANTES de borrar
                 affected_doc_ids = [

@@ -3,8 +3,8 @@
 # ================== QID ================== #
 ORDER_QID_FIELDS = {
     "Formula": {
-        1: "tech-1-formula-2",  # "tech-1-ptl-original-pricing",
-        2: "tech-2-formula",  # "tech-2-ptl-original-pricing",
+        1: "tech-1-ptl-original-pricing",
+        2: "tech-2-ptl-original-pricing",
         3: "tech-3-ptl-original-pricing",
         4: "tech-4-ptl-original-pricing",
         5: "labor-tech-5",
@@ -21,7 +21,7 @@ ORDER_QID_FIELDS = {
         16: "tech-16-formula"
     },
     "ID_Subcontractor": {
-        1: "technician-1-2",  # "technician-2",
+        1: "technician-2",
         2: "technician-2-2",
         3: "technician-3",
         4: "technician-4",
