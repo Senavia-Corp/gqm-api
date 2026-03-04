@@ -78,8 +78,11 @@ def convert_value_for_podio(value, field_type="text"):
         if not isinstance(value, datetime):
             raise ValueError("Date fields must be datetime or date.")
 
+        formatted = value.strftime("%Y-%m-%d %H:%M:%S")
+
         return {
-            "start": value.strftime("%Y-%m-%d %H:%M:%S")
+            "start": formatted,
+            "end": None
         }
 
     if field_type == "email":
