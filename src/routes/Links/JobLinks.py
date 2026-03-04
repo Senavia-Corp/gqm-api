@@ -12,7 +12,7 @@ from ...models.link_models.JobPaymentU import JobPaymentULink
 from ...podio.services.job_services import podio_jobs_router
 from src.utils.mappers.convert_value_podio import convert_value_for_podio
 from src.utils.mappers.mapper_aux_functions import register_event
-from src.utils.mappers.to_podio.job_relationships import JOB_MEMBER_PODIO_MAP, TECHNICIAN_LIMITS, get_technician_fields
+from src.utils.mappers.to_podio.job_relationships import JOB_MEMBER_PODIO_MAP, get_technician_fields
 
 
 # ------------------- Link entre Job y Member -------------------#
