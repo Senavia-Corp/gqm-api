@@ -86,7 +86,7 @@ def convert_value_for_podio(value, field_type="text"):
 
         return {
             "start": formatted,
-            "end": None
+            "end": formatted
         }
 
     if field_type == "email":
