@@ -40,19 +40,23 @@ def convert_value_for_podio(value, field_type="text"):
         if value is None:
             return None
 
-        # Caso 1: te pasan directamente la URL como string
-        if isinstance(value, str):
-            url = value.strip()
+        def normalize_url(url: str):
+            url = url.strip()
             if not url:
                 return None
+
+            if not url.startswith(("http://", "https://")):
+                url = f"https://{url}"
+
             return {"url": url}
 
-        # Caso 2: dict con una URL {"url": "..."}
+        # Caso 1: string directo
+        if isinstance(value, str):
+            return normalize_url(value)
+
+        # Caso 2: dict {"url": "..."}
         if isinstance(value, dict) and "url" in value:
-            url = value.get("url")
-            if not url:
-                return None
-            return {"url": str(url)}
+            return normalize_url(str(value.get("url")))
 
     if field_type == "number":
         if value is None:
