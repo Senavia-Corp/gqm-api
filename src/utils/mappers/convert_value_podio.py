@@ -75,21 +75,18 @@ def convert_value_for_podio(value, field_type="text"):
         if value is None:
             return None
 
-        # Si entra date → convertir a datetime a medianoche
         if isinstance(value, date) and not isinstance(value, datetime):
-            value = datetime(value.year, value.month, value.day, 0, 0)
+            value = datetime(value.year, value.month, value.day, 0, 0, 0)
 
-        if not isinstance(value, datetime):
+        if not isinstance(value, (datetime, date)):
             raise ValueError("Date fields must be datetime or date.")
 
         formatted = value.strftime("%Y-%m-%d %H:%M:%S")
 
-        return [
-            {
-                "start": formatted,
-                "end": formatted
-            }
-        ]
+        return {
+            "start": formatted,
+            "end": formatted
+        }
 
     if field_type == "email":
         if value is None:
