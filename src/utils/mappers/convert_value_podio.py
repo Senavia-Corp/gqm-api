@@ -84,10 +84,12 @@ def convert_value_for_podio(value, field_type="text"):
 
         formatted = value.strftime("%Y-%m-%d %H:%M:%S")
 
-        return {
-            "start": formatted,
-            "end": formatted
-        }
+        return [
+            {
+                "start": formatted,
+                "end": formatted
+            }
+        ]
 
     if field_type == "email":
         if value is None:
