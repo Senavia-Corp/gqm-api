@@ -35,6 +35,7 @@ class ChangeOrder(ChangeOrBase, table=True):
 class ChangeOrCreate(ChangeOrBase):
     ID_Jobs: Optional[str] = None
     ID_Order: Optional[str] = None
+    job_podio_id: Optional[str] = None
 
 
 class ChangeOrUpdate(ChangeOrBase):

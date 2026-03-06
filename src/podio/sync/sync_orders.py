@@ -38,9 +38,7 @@ def upsert_order(
     adj_formula: float,
     tech_field: str,
     hd_materials: float,
-    hd_materials_field: str,
     notes: str,
-    notes_field: str,
     dry_run: bool = False
 ):
 
@@ -71,16 +69,8 @@ def upsert_order(
             existing_order.Ptl_hd_materials = hd_materials
             changed = True
 
-        if existing_order.hd_materials_field != hd_materials_field:
-            existing_order.hd_materials_field = hd_materials_field
-            changed = True
-
         if existing_order.Notes != notes:
             existing_order.Notes = notes
-            changed = True
-
-        if existing_order.notes_field != notes_field:
-            existing_order.notes_field = notes_field
             changed = True
 
         if changed and not dry_run:
@@ -104,9 +94,7 @@ def upsert_order(
         job_podio_id=podio_item_id,
         tech_field=tech_field,
         Ptl_hd_materials=hd_materials,
-        hd_materials_field=hd_materials_field,
         Notes=notes,
-        notes_field=notes_field,
         ID_Subcontractor=subcontractor_id
     )
 
@@ -330,7 +318,6 @@ def sync_job_orders_and_change_orders(
                     if external_id in field_ids:
                         tech_data.setdefault(tech_index, {})
                         tech_data[tech_index]["hd_materials"] = value
-                        tech_data[tech_index]["hd_materials_field"] = external_id
                         matched = True
                         break
 
@@ -346,7 +333,6 @@ def sync_job_orders_and_change_orders(
                             value) if has_html(value) else value
                         tech_data.setdefault(tech_index, {})
                         tech_data[tech_index]["notes"] = clean_value
-                        tech_data[tech_index]["notes_field"] = external_id
                         matched = True
                         break
 
@@ -393,9 +379,7 @@ def sync_job_orders_and_change_orders(
                 subcontractor_id = data.get("subcontractor_id")
                 tech_field = data.get("formula_field")
                 hd_materials = data.get("hd_materials")
-                hd_materials_field = data.get("hd_materials_field")
                 notes = data.get("notes")
-                notes_field = data.get("notes_field")
 
                 if tech_field is None:
                     continue
@@ -410,9 +394,7 @@ def sync_job_orders_and_change_orders(
                     adj_formula=adj_formula,
                     tech_field=tech_field,
                     hd_materials=hd_materials,
-                    hd_materials_field=hd_materials_field,
                     notes=notes,
-                    notes_field=notes_field,
                     dry_run=dry_run
                 )
 

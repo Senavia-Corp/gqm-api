@@ -14,6 +14,7 @@ from src.routes.Tasks import tasks_bp
 from src.routes.Member import member_bp
 from src.routes.Technician import technician_bp
 from src.routes.Skills import skills_bp
+from src.routes.Links.SkillSubcLink import skills_subcontractors_bp
 from src.routes.MultiplierR import multiplier_bp
 from src.routes.Attachments import attachments_bp
 from src.routes.Manager import manager_bp
@@ -52,6 +53,10 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 # Rutas de Quickbooks
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
+# Rutas de métricas
+from src.routes.MetricsJobs import metrics_bp
+from src.routes.financial_metrics_bp import financial_metrics_bp
+from src.routes.timeline_metrics_bp import timeline_metrics_bp
 
 
 # Test
@@ -87,13 +92,13 @@ def create_app():
     app.register_blueprint(job_member_bp)
     app.register_blueprint(job_subcontractor_bp)
     app.register_blueprint(job_payment_unit_bp)
+    app.register_blueprint(manager_bp)
     app.register_blueprint(member_bp)
     app.register_blueprint(multiplier_bp)
     app.register_blueprint(opportunities_bp)
     app.register_blueprint(order_bp)
     app.register_blueprint(payment_unit_bp)
     app.register_blueprint(parent_mgmt_co_bp)
-    app.register_blueprint(manager_bp)
     app.register_blueprint(permission_bp)
     app.register_blueprint(permission_role_bp)
     app.register_blueprint(permission_member_bp)
@@ -104,6 +109,7 @@ def create_app():
     app.register_blueprint(purchase_supplier_bp)
     app.register_blueprint(role_bp)
     app.register_blueprint(skills_bp)
+    app.register_blueprint(skills_subcontractors_bp)
     app.register_blueprint(standard_ps_bp)
     app.register_blueprint(subcontractor_bp)
     app.register_blueprint(supplier_bp)
@@ -132,6 +138,11 @@ def create_app():
     # Para conexión con Quickbooks
     app.register_blueprint(qbo_bp)
     app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
+
+    # Rutas de métricas
+    app.register_blueprint(metrics_bp)
+    app.register_blueprint(financial_metrics_bp)
+    app.register_blueprint(timeline_metrics_bp)
 
     # Ruta simple
 

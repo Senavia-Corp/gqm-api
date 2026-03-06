@@ -19,6 +19,7 @@ from src.utils.mappers.from_podio.order_changeorder_mapper import (
     PROJECT_CHANGE_ORDER_FIELDS,
     ORDER_CHANGE_ORDERS_FIELDS
 )
+from src.utils.middleware.logs.logs import logger
 
 
 def upsert_job_from_item(session, item, app_type):
@@ -141,7 +142,8 @@ def add_job_related_members(session, job, item, app_type, year):
     config = JOB_MEMBER_FIELDS.get((app_type, year))
 
     if not config:
-        print("⚠️ No hay configuración de miembros para esta app/año")
+        logger.warning(
+            "No hay configuración de miembros para app_type=%s year=%s", app_type, year)
         return
 
     fields = item.get("fields", [])
@@ -172,7 +174,7 @@ def add_job_related_members(session, job, item, app_type, year):
                 if not member:
                     continue
 
-                upsert_job_member_link(
+                created, updated = upsert_job_member_link(
                     session=session,
                     job_id=job.ID_Jobs,
                     member_id=member.ID_Member,
@@ -380,9 +382,7 @@ def add_job_orders_and_change_orders(
             adj_formula=data.get("adj_formula"),
             tech_field=data.get("formula_field"),
             hd_materials=data.get("hd_materials"),
-            hd_materials_field=data.get("hd_materials_field"),
-            notes=data.get("notes"),
-            notes_field=data.get("notes_field")
+            notes=data.get("notes")
         )
 
         orders_map[tech_index] = order

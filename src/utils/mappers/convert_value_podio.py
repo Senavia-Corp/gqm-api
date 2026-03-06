@@ -40,19 +40,23 @@ def convert_value_for_podio(value, field_type="text"):
         if value is None:
             return None
 
-        # Caso 1: te pasan directamente la URL como string
-        if isinstance(value, str):
-            url = value.strip()
+        def normalize_url(url: str):
+            url = url.strip()
             if not url:
                 return None
+
+            if not url.startswith(("http://", "https://")):
+                url = f"https://{url}"
+
             return {"url": url}
 
-        # Caso 2: dict con una URL {"url": "..."}
+        # Caso 1: string directo
+        if isinstance(value, str):
+            return normalize_url(value)
+
+        # Caso 2: dict {"url": "..."}
         if isinstance(value, dict) and "url" in value:
-            url = value.get("url")
-            if not url:
-                return None
-            return {"url": str(url)}
+            return normalize_url(str(value.get("url")))
 
     if field_type == "number":
         if value is None:
@@ -71,15 +75,17 @@ def convert_value_for_podio(value, field_type="text"):
         if value is None:
             return None
 
-        # Si entra date → convertir a datetime a medianoche
         if isinstance(value, date) and not isinstance(value, datetime):
-            value = datetime(value.year, value.month, value.day, 0, 0)
+            value = datetime(value.year, value.month, value.day, 0, 0, 0)
 
-        if not isinstance(value, datetime):
+        if not isinstance(value, (datetime, date)):
             raise ValueError("Date fields must be datetime or date.")
 
+        formatted = value.strftime("%Y-%m-%d %H:%M:%S")
+
         return {
-            "start": value.strftime("%Y-%m-%d %H:%M:%S")
+            "start": formatted,
+            "end": formatted
         }
 
     if field_type == "email":

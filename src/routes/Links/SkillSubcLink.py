@@ -16,7 +16,7 @@ skills_subcontractors_bp = Blueprint(
 
 # Vincular una skill con un subcontractor
 @skills_subcontractors_bp.post("/skills/<skills_id>/subcontractors/<subcon_id>")
-def assign_skill_to_subc(skills_id, subcon_id):
+def assign_skill_to_subc(subcon_id, skills_id):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
 
     with get_session() as session:
@@ -27,15 +27,16 @@ def assign_skill_to_subc(skills_id, subcon_id):
             return jsonify({"error": "Skill or Subcontractor not found"}), 404
 
         existing_link = session.get(
-            SkillsSubcLink, (skills_id, subcon_id))
+            SkillsSubcLink, (subcon_id, skills_id))
 
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
 
         # ----------- 🔵 CREAR EN DB
         link = SkillsSubcLink(
-            skills_id=skills_id,
-            subcon_id=subcon_id
+            subcon_id=subcon_id,
+            skills_id=skills_id
+
         )
 
         session.add(link)
@@ -84,7 +85,7 @@ def assign_skill_to_subc(skills_id, subcon_id):
 
 # Desvincular una skill de un subcontractor
 @skills_subcontractors_bp.delete("/skills/<skills_id>/subcontractors/<subcon_id>")
-def remove_skill_from_subc(skills_id, subcon_id):
+def remove_skill_from_subc(subcon_id, skills_id):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
 
     with get_session() as session:
@@ -92,7 +93,7 @@ def remove_skill_from_subc(skills_id, subcon_id):
         # Buscar si existe el link
         link = session.get(
             SkillsSubcLink,
-            (skills_id, subcon_id)  # Clave primaria compuesta
+            (subcon_id, skills_id)  # Clave primaria compuesta
         )
 
         if not link:

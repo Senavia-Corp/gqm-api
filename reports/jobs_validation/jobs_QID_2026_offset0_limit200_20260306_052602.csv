@@ -1,0 +1,36 @@
+ID_Jobs,podio_item_id,job_type,field,expected,actual,status
+QID6346,3260199485,QID,Estimated_city,,650.0,DIFF
+QID6343,3259880841,QID,Additional_detail,,"Bifold Doors:
+1 BR - 80 Units (26"" Bifold Qty: 160 - 30"" Bifold Qty: 160)
+2 BR - 160  Units (30"" Bifold Qty: 400 - 35"" Bifold Qty: 100)
+3 BR -160  Units (30"" Bifold Qty: 240 - 35"" Bifold Qty: 40)
+Qty Total:
+26"" - 160
+30"" - 800
+35"" - 440
+Total: 1400 Bifolds
+Material approx: $136,330 PVC Doors
+Labor: $14000
+------------------------------------------------------------------------
+Front Doors:
+Front Door: 8 panel 
+
+ Width: 35 3/4
+
+ Height: 79 3/4 
+
+ Thick: 1 7/8”
+
+ Hinge: 8 1/4
+
+ Second: 38
+Material: $39,800
+Labor Including Painting: $39600",DIFF
+QID6343,3259880841,QID,Estimated_material,,176130.0,DIFF
+QID6343,3259880841,QID,Gqm_target_sold_pricing,,298649.0,DIFF
+QID6343,3259880841,QID,Gqm_target_return,,-0.1967,DIFF
+QID6343,3259880841,QID,Gqm_final_percentage,,0.9264,DIFF
+QID6343,3259880841,QID,Gqm_final_target_return,,0.7183,DIFF
+QID6325,3258458618,QID,Estimated_material,,130.0,DIFF
+QID6317,3258297969,QID,Estimated_material,,220.0,DIFF
+QID6299,3256156204,QID,Estimated_material,,2500.0,DIFF

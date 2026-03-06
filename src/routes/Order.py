@@ -22,7 +22,8 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
     map_order_delete_to_podio
 )
 from ..utils.mappers.mapper_aux_functions import register_event
-
+from sqlalchemy import or_
+from src.utils.audit import audit   # ← NEW
 
 # Blueprint de Order:
 order_bp = Blueprint("order_blueprint", __name__, url_prefix="/order")
@@ -84,7 +85,7 @@ def get_order(id_order):
         return order_data, 200
 
 
-# Ruta para conseguir una order por subc y job
+# Ruta para conseguir orders por subc y job (CUBRE AMBOS CASOS: PODIO Y ESTIMATE COSTS)
 @order_bp.get("/subcontractor/<id_subcontractor>/job/<id_job>")
 @handle_exceptions()
 @paginate()
@@ -92,18 +93,34 @@ def get_orders_by_subc_and_job(id_subcontractor, id_job):
 
     with get_session() as session:
 
+        # 1) Buscar Job para conocer podio_item_id (si existe)
+        job = session.exec(
+            select(Job).where(Job.ID_Jobs == id_job)
+        ).first()
+
+        if not job:
+            raise AppException("Job no encontrado.", "job_not_found", 404)
+
+        # 2) Construir condición combinada
+        # - Si el job NO tiene podio_item_id, solo aplica la relación por estimate_costs
+        conditions = [
+            # relación real por estimate costs (Order <- EstimateCost -> Job)
+            Order.estimate_costs.any(EstimateCost.ID_Jobs == id_job)
+        ]
+
+        if job.podio_item_id:
+            # relación por podio (Order.job_podio_id == Job.podio_item_id)
+            conditions.append(Order.job_podio_id == job.podio_item_id)
+
         statement = (
             select(Order)
-            .join(Order.subcontractor)
-            .join(Order.estimate_costs)
-            .join(EstimateCost.job)
             .options(
-                joinedload(Order.estimate_costs).joinedload(
-                    EstimateCost.job),
-                joinedload(Order.subcontractor)
+                joinedload(Order.estimate_costs).joinedload(EstimateCost.job),
+                joinedload(Order.subcontractor),
+                joinedload(Order.change_orders),
             )
             .where(Order.ID_Subcontractor == id_subcontractor)
-            .where(EstimateCost.ID_Jobs == id_job)
+            .where(or_(*conditions))
         )
 
         results = session.exec(statement).unique().all()
@@ -113,7 +130,9 @@ def get_orders_by_subc_and_job(id_subcontractor, id_job):
 
         orders_data = [
             add_relationships(
-                order, ["estimate_costs.job", "subcontractor"])
+                order,
+                ["estimate_costs.job", "subcontractor", "change_orders"]
+            )
             for order in results
         ]
 
@@ -138,6 +157,7 @@ def get_orders_by_job(job_podio_id):
             .options(
                 joinedload(Order.estimate_costs),
                 joinedload(Order.subcontractor),
+                joinedload(Order.change_orders),
             )
             .where(Order.job_podio_id == job_podio_id)
         )
@@ -151,17 +171,54 @@ def get_orders_by_job(job_podio_id):
             return [], 200
 
         orders_data = [
-            add_relationships(order, ["estimate_costs", "subcontractor"])
+            add_relationships(
+                order, ["estimate_costs", "subcontractor", "change_orders"])
             for order in results
         ]
 
         return orders_data, 200
 
 
+# Ruta para conseguir una Order por ID_Jobs
+@order_bp.get("/job-id/<id_job>")
+@handle_exceptions()
+@paginate()
+def get_orders_by_job_id(id_job):
+    """
+    Retorna orders asociadas a un Job por ID_Jobs, usando el vínculo real:
+    Order -> EstimateCost (ID_Order) y EstimateCost.ID_Jobs.
+    """
+    with get_session() as session:
+        statement = (
+            select(Order)
+            .join(Order.estimate_costs)  # requires relationship
+            .options(
+                joinedload(Order.estimate_costs),
+                joinedload(Order.subcontractor),
+                joinedload(Order.change_orders),
+            )
+            .where(EstimateCost.ID_Jobs == id_job)
+        )
+
+        results = session.exec(statement).unique().all()
+        if not results:
+            return [], 200
+
+        orders_data = [
+            add_relationships(
+                order, ["estimate_costs", "subcontractor", "change_orders"])
+            for order in results
+        ]
+
+        return orders_data, 200
+
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear una order
+
+
 @order_bp.post("/")
 @handle_exceptions()
+@audit("Order created", job_id_from="body")
 def create_order():
 
     data = request.get_json()
@@ -188,6 +245,12 @@ def create_order():
 
         # ----------- 🟢 SINCRONIZAR EN PODIO (SI APLICA)
         if sync_podio:
+            if not obj.job_podio_id:
+                raise AppException(
+                    "job_podio_id es obligatorio cuando sync_podio=true",
+                    "missing_job_podio_id",
+                    400
+                )
 
             # 1️⃣ Buscar Job
             job = session.exec(
@@ -195,13 +258,18 @@ def create_order():
             ).first()
 
             if not job:
-                raise AppException("Job no encontrado", "job_not_found", 404)
+                raise AppException("Job not found", "job_not_found", 404)
 
             # 2️⃣ Obtener servicio
+            if not job.Job_type:
+                raise AppException(
+                    "El Job no tiene Job_type definido",
+                    "missing_job_type",
+                    400)
+
             podio_service = podio_jobs_router.get_service(
                 job_type=job.Job_type,
-                year=year
-            )
+                year=year)
 
             # 3️⃣ Obtener job actual desde Podio (necesario)
             podio_job = podio_service.get_item(obj.job_podio_id)
@@ -215,9 +283,12 @@ def create_order():
                 podio_job_fields,
                 session
             )
-
-            print("🚀 Payload que se enviará a Podio:")
-            print(json.dumps(payload, indent=4))
+            if not payload:
+                raise AppException(
+                    "No se encontró un campo disponible en Podio para la Order",
+                    "no_available_order_slot",
+                    400
+                )
 
             try:
                 podio_service.update_item(obj.job_podio_id, payload)
@@ -245,6 +316,7 @@ def create_order():
 # Ruta para actualizar una order
 @order_bp.patch("/<id_order>")
 @handle_exceptions()
+@audit("Order updated", id_param="id_order", job_id_from="response")
 def update_order(id_order):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -270,17 +342,20 @@ def update_order(id_order):
         update_data_dict = update_order.model_dump(
             exclude_unset=True)  # Crea dict limpio
         update_data_dict.pop("job_podio_id", None)
+        update_data_dict.pop("ID_Subcontractor", None)
 
         # ----------- 🔄 ACTUALIZAR EN DB
         for key, value in update_data_dict.items():
             setattr(order, key, value)
 
-        save_with_retry(session, order)
-
-        logger.info("🔄 Order actualizado | order_id=%s", id_order)
-
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio:
+            if not order.job_podio_id:
+                raise AppException(
+                    "job_podio_id es obligatorio cuando sync_podio=true",
+                    "missing_job_podio_id",
+                    400
+                )
 
             job = session.exec(
                 select(Job).where(Job.podio_item_id == order.job_podio_id)
@@ -297,8 +372,9 @@ def update_order(id_order):
             payload = map_order_patch_to_podio(order, job.Job_type, session)
 
             try:
-                podio_service.update_item(order.job_podio_id, payload)
-                register_event(order.job_podio_id)
+                if payload:
+                    podio_service.update_item(order.job_podio_id, payload)
+                    register_event(order.job_podio_id)
 
             except Exception as podio_err:
                 raise AppException(
@@ -307,12 +383,18 @@ def update_order(id_order):
                     400
                 )
 
+        # ----------- 💾 GUARDAR EN DB
+        save_with_retry(session, order)
+
+        logger.info("🔄 Order actualizado | order_id=%s", id_order)
+
         return order.model_dump(), 200
 
 
 # Ruta para eliminar una order
 @order_bp.delete("/<id_order>")
 @handle_exceptions()
+@audit("Order deleted", id_param="id_order", job_id_from="response")
 def delete_order(id_order):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -336,6 +418,19 @@ def delete_order(id_order):
 
         # ----------- 🟢 BORRAR EN PODIO (SI APLICA)
         if sync_podio:
+            if not order.job_podio_id:
+                raise AppException(
+                    "job_podio_id es obligatorio cuando sync_podio=true",
+                    "missing_job_podio_id",
+                    400
+                )
+
+            if order.change_orders:
+                raise AppException(
+                    "No se puede eliminar una Order con Change Orders asociados",
+                    "order_has_change_orders",
+                    400
+                )
 
             job = session.exec(
                 select(Job).where(Job.podio_item_id == order.job_podio_id)
@@ -352,8 +447,9 @@ def delete_order(id_order):
             payload = map_order_delete_to_podio(order, job.Job_type)
 
             try:
-                podio_service.update_item(order.job_podio_id, payload)
-                register_event(order.job_podio_id)
+                if payload:
+                    podio_service.update_item(order.job_podio_id, payload)
+                    register_event(order.job_podio_id)
 
             except Exception as podio_err:
                 raise AppException(

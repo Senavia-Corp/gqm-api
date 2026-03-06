@@ -51,14 +51,14 @@ def list_tlactivities():
 
             return tla_data, 200
 
-    except SQLAlchemyError as db_error:  # Para un fallo de db
+    except SQLAlchemyError as db_error:
         print(f"Error de base de datos al listar tlactivities: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
-    except Exception as e:  # Para un fallo general inesperado
+    except Exception as e:
         print(f"Error inesperado al listar tlactivities: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
@@ -94,8 +94,7 @@ def get_tlactivity(id_tlactivity):
             return jsonify(tla_data), 200
 
     except SQLAlchemyError as db_error:
-        print(
-            f"Error de base de datos al buscar tlactivity {id_tlactivity}: {db_error}")
+        print(f"Error de base de datos al buscar tlactivity {id_tlactivity}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
@@ -107,6 +106,55 @@ def get_tlactivity(id_tlactivity):
             "detail": "Error interno inesperado del servidor.",
             "code": "internal_error"
         }), 500
+
+
+# ── NEW ──────────────────────────────────────────────────────────────────────
+# Ruta para conseguir todos los registros de timeline de un Job específico
+# GET /tlactivity/job/<id_job>
+# Ordenado por Action_datetime DESC (más reciente primero)
+@tlactivity_bp.get("/job/<id_job>")
+@paginate()
+def get_tlactivities_by_job(id_job):
+    try:
+        with get_session() as session:
+
+            statement = (
+                select(TLActivity)
+                .options(
+                    joinedload(TLActivity.member),
+                    joinedload(TLActivity.technician),
+                    joinedload(TLActivity.subcontractor),
+                )
+                .where(TLActivity.ID_Jobs == id_job)
+                .order_by(TLActivity.Action_datetime.desc())
+            )
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 200   # @paginate() maneja el formato final
+
+            tla_data = [
+                add_relationships(tla, ["member", "technician", "subcontractor"])
+                for tla in results
+            ]
+
+            return tla_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al listar tlactivities del job {id_job}: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar tlactivities del job {id_job}: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
@@ -134,8 +182,8 @@ def create_tlactivity():
 
             return jsonify(obj.model_dump()), 201
 
-    except IntegrityError as e:  # Cuando viola una restricción UNIQUE o NOT NULL
-        session.rollback()  # Deshace los cambios realizados
+    except IntegrityError as e:
+        session.rollback()
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
             detail = "Ya existe un tlactivity con este valor único."
@@ -144,7 +192,7 @@ def create_tlactivity():
         print(f"Error de integridad: {e}")
         return jsonify({"detail": detail}), 409
 
-    except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
+    except SQLAlchemyError as db_error:
         session.rollback()
         print(f"Error de base de datos al crear tlactivity: {db_error}")
         return jsonify({
@@ -157,7 +205,6 @@ def create_tlactivity():
             session.rollback()
         except Exception:
             pass
-
         print(f"Error inesperado durante la creación de tlactivity: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
@@ -168,7 +215,7 @@ def create_tlactivity():
 # Ruta para actualizar un tlactivity
 @tlactivity_bp.patch("/<id_tlactivity>")
 def update_tlactivity(id_tlactivity):
-    session = None  # Para que funcione except
+    session = None
     try:
         data = request.get_json()
         with get_session() as session:
@@ -177,17 +224,15 @@ def update_tlactivity(id_tlactivity):
                 return jsonify({"error": "TLActivity not found"}), 404
 
             update_tlactivity = TLActivityUpdate.model_validate(data)
-            update_data_dict = update_tlactivity.model_dump(
-                exclude_unset=True)  # Crea dict limpio
+            update_data_dict = update_tlactivity.model_dump(exclude_unset=True)
 
-            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+            for key, value in update_data_dict.items():
                 setattr(obj, key, value)
 
             save_with_retry(session, obj)
 
             return jsonify(obj.model_dump()), 200
 
-    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
             "detail": "Error de validación: Datos de tlactivity inválidos para la actualización.",
@@ -204,8 +249,7 @@ def update_tlactivity(id_tlactivity):
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(
-            f"Error de base de datos al actualizar tlactivity: {db_error}")
+        print(f"Error de base de datos al actualizar tlactivity: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -238,8 +282,7 @@ def delete_tlactivity(id_tlactivity):
 
             return jsonify({"message": f"Deleted TLActivity {id_tlactivity}"}), 200
 
-    # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un tlactivity que tiene productos asociados con Foreign Key
+    except IntegrityError as e:
         if session:
             session.rollback()
         detail = "Error de integridad: No se puede eliminar el tlactivity porque tiene registros relacionados."

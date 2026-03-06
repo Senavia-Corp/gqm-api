@@ -34,11 +34,44 @@ def find_next_available_field(podio_fields: dict, candidate_fields: list[str]) -
 
     for external_id in candidate_fields:
 
-        field_value = podio_fields.get(external_id)
+        values = podio_fields.get(external_id)
 
         # Si no existe o está vacío
-        if not field_value:
+        if not values:
             return external_id
+
+        if isinstance(values, list) and len(values) == 0:
+            return external_id
+
+    return None
+
+
+# Encuentra el slot de acuerdo al subcontractor
+def find_field_with_subc(
+    job_type,
+    podio_fields,
+    subcontractor_podio_id
+):
+
+    field_config = JOB_TYPE_FIELD_REGISTRY[job_type]
+    order_fields_map = field_config["order"]
+
+    subcontractor_map = order_fields_map["ID_Subcontractor"]
+
+    for index, field_id in subcontractor_map.items():
+
+        values = podio_fields.get(field_id)
+
+        if not values:
+            continue
+
+        for v in values:
+            item_id = (
+                v.get("value", {})
+                 .get("item_id")
+            )
+            if item_id and str(item_id) == str(subcontractor_podio_id):
+                return index
 
     return None
 
@@ -91,45 +124,42 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
 
     formula_map = order_fields_map["Formula"]
 
-    # 1️⃣ Buscar el primer Formula vacío
-    available_field = find_next_available_field(
+    # ================= SUBCONTRACTOR =================
+    if not order.ID_Subcontractor:
+        raise Exception("Order requires a subcontractor")
+
+    subcontractor = session.get(Subcontractor, order.ID_Subcontractor)
+
+    if not subcontractor:
+        raise Exception(f"Subcontractor {order.ID_Subcontractor} not found")
+
+    if not subcontractor.podio_item_id:
+        raise Exception("Subcontractor has no podio_item_id")
+
+    # 🔥 1️⃣ Encontrar tech_index usando el subcontractor en Podio
+    tech_index = find_field_with_subc(
+        job_type,
         podio_job_fields,
-        list(formula_map.values())  # ← TODOS los slots posibles
+        subcontractor.podio_item_id
     )
 
-    if not available_field:
-        raise Exception("No available technician slots in Podio")
+    if not tech_index:
+        raise Exception("Subcontractor not linked to Job in Podio")
 
-    # 2️⃣ Guardar el external_id asignado
-    order.tech_field = available_field
+    # 🔥 2️⃣ Resolver Formula field
+    formula_field = formula_map[tech_index]
 
-    # 3️⃣ Resolver automáticamente el índice
-    tech_index = resolve_tech_index_from_field(job_type, available_field)
+    # 🔥 3️⃣ Guardar el campo asignado
+    order.tech_field = formula_field
 
     # ================= FORMULA =================
     if order.Formula is not None:
-        fields_to_update[available_field] = float(order.Formula)
-
-    # ================= SUBCONTRACTOR =================
-    subcontractor_external_id = order_fields_map["ID_Subcontractor"][tech_index]
-
-    if order.ID_Subcontractor:
-        subcontractor = session.get(Subcontractor, order.ID_Subcontractor)
-
-        if not subcontractor:
-            raise Exception(
-                f"Subcontractor {order.ID_Subcontractor} not found")
-
-        if not subcontractor.podio_item_id:
-            raise Exception("Subcontractor has no podio_item_id")
-
-        fields_to_update[subcontractor_external_id] = [
-            int(subcontractor.podio_item_id)
-        ]
+        fields_to_update[formula_field] = float(order.Formula)
 
     # ================= PTL =================
     if "Ptl_hd_materials" in order_fields_map:
         if tech_index in order_fields_map["Ptl_hd_materials"]:
+
             hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
 
             if getattr(order, "Ptl_hd_materials", None) is not None:
@@ -162,34 +192,6 @@ def map_order_patch_to_podio(order, job_type, session):
     # ================= FORMULA =================
     if order.Formula is not None:
         fields_to_update[order.tech_field] = float(order.Formula)
-    else:
-        fields_to_update[order.tech_field] = []
-
-    # ================= SUBCONTRACTOR =================
-    subcontractor_external_id = order_fields_map["ID_Subcontractor"][tech_index]
-
-    if order.ID_Subcontractor is not None:
-
-        if order.ID_Subcontractor == "":
-            # limpiar campo
-            fields_to_update[subcontractor_external_id] = []
-
-        else:
-            subcontractor = session.get(Subcontractor, order.ID_Subcontractor)
-
-            if not subcontractor:
-                raise Exception(
-                    f"Subcontractor {order.ID_Subcontractor} not found"
-                )
-
-            if not subcontractor.podio_item_id:
-                raise Exception(
-                    "Subcontractor has no podio_item_id"
-                )
-
-            fields_to_update[subcontractor_external_id] = [
-                int(subcontractor.podio_item_id)
-            ]
 
     # ================= PTL =================
     if "Ptl_hd_materials" in order_fields_map:
@@ -198,8 +200,6 @@ def map_order_patch_to_podio(order, job_type, session):
 
             if getattr(order, "Ptl_hd_materials", None) is not None:
                 fields_to_update[hd_field] = float(order.Ptl_hd_materials)
-            else:
-                fields_to_update[hd_field] = []
 
     # ================= PAR =================
     if "Notes" in order_fields_map:
@@ -207,8 +207,6 @@ def map_order_patch_to_podio(order, job_type, session):
 
         if getattr(order, "Notes", None):
             fields_to_update[notes_field] = order.Notes
-        else:
-            fields_to_update[notes_field] = []
 
     return fields_to_update
 
@@ -229,10 +227,6 @@ def map_order_delete_to_podio(order, job_type):
 
     # Formula
     fields_to_update[order.tech_field] = []
-
-    # Subcontractor
-    subcontractor_external_id = order_fields_map["ID_Subcontractor"][tech_index]
-    fields_to_update[subcontractor_external_id] = []
 
     # PTL
     if "Ptl_hd_materials" in order_fields_map:
@@ -256,6 +250,7 @@ def map_order_delete_to_podio(order, job_type):
 def map_chorder_create_to_podio(change_order, job_type, podio_job_fields, session):
 
     fields_to_update = {}
+    candidate_fields = []
 
     field_config = JOB_TYPE_FIELD_REGISTRY[job_type]
 
@@ -263,6 +258,8 @@ def map_chorder_create_to_podio(change_order, job_type, podio_job_fields, sessio
     if change_order.ID_Order:
 
         # ================= ORDER CHANGE ORDER =================
+        if "order_co" not in field_config:
+            return None
 
         if not change_order.order:
             raise Exception("Change Order has no associated Order")
@@ -288,10 +285,17 @@ def map_chorder_create_to_podio(change_order, job_type, podio_job_fields, sessio
     else:
 
         # ================= PROJECT CHANGE ORDER =================
+        if "project_co" not in field_config:
+            return None
 
         project_co_map = field_config["project_co"]
 
         candidate_fields = list(project_co_map.values())
+
+    # ====== Validación defensiva
+    if not candidate_fields:
+        raise Exception(
+            "No candidate Podio fields configured for Change Orders")
 
     # 2️⃣ Buscar siguiente slot disponible
     available_field = find_next_available_field(
@@ -326,8 +330,6 @@ def map_chorder_patch_to_podio(change_order, job_type, session):
     if change_order.ChangeOrderFormula is not None:
         fields_to_update[change_order.podio_field] = float(
             change_order.ChangeOrderFormula)
-    else:
-        fields_to_update[change_order.podio_field] = []
 
     return fields_to_update
 
