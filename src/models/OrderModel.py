@@ -40,6 +40,7 @@ class Order(OrderBase, table=True):
 
 class OrderCreate(OrderBase):
     ID_Subcontractor: Optional[str] = None
+    job_podio_id: Optional[str] = None
 
 
 class OrderUpdate(OrderBase):
