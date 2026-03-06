@@ -27,7 +27,8 @@ BASE_QID_FIELDS = {
     "Date_assigned": {
         "external_id": "date-received",
         "type": "date",
-        "end_attr": "Date_assigned_end"
+        "end_attr": "Date_assigned_end",
+        "no_end": True
     },
     "Additional_detail": {
         "external_id": "superintendent",

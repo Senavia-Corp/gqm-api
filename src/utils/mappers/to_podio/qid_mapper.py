@@ -30,8 +30,10 @@ def map_job_to_podio_qid(job_obj, session=None):
             if value is None:
                 continue
 
-            end_value = getattr(job_obj, config["end_attr"], None) if config.get(
-                "end_attr") else None
+            end_value = None if config.get("no_end") else (
+                getattr(job_obj, config["end_attr"], None) if config.get(
+                    "end_attr") else None
+            )
             converted = convert_value_for_podio(
                 value, config["type"], end_value=end_value)
 
