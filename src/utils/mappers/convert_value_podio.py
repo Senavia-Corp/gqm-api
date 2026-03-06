@@ -81,13 +81,13 @@ def convert_value_for_podio(value, field_type="text", end_value=None):
         if not isinstance(value, (datetime, date)):
             raise ValueError("Date fields must be datetime or date.")
 
-        formatted_start = value.strftime("%Y-%m-%d %H:%M:%S")
+        formatted_start = value.strftime("%Y-%m-%d")
 
         if end_value is not None:
             if isinstance(end_value, date) and not isinstance(end_value, datetime):
                 end_value = datetime(
                     end_value.year, end_value.month, end_value.day, 0, 0, 0)
-            formatted_end = end_value.strftime("%Y-%m-%d %H:%M:%S")
+            formatted_end = end_value.strftime("%Y-%m-%d")
         else:
             formatted_end = formatted_start
 
