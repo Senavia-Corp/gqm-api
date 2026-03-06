@@ -40,12 +40,15 @@ def get_job_field_value(fields: list, field_cfg: dict):
         # ----------------------------
         if f.get("type") == "date" and isinstance(raw, list) and raw:
             date_obj = raw[0]
-            value = (
+            start = (
                 date_obj.get("start_date")
                 or date_obj.get("start")
-                or date_obj.get("end_date")
+            )
+            end = (
+                date_obj.get("end_date")
                 or date_obj.get("end")
             )
+            value = (start, end) if start else None
 
         # ----------------------------
         # TAGS
