@@ -9,8 +9,9 @@ from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, load_only
 from ..utils.middleware.auth.password_hashing import hash_password
+from sqlalchemy import func
 
 # Blueprint de Member:
 member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
@@ -106,6 +107,74 @@ def get_member_by_id(id_member):
             "code": "internal_error"
         }), 500
 
+
+@member_bp.get("/member_table")
+def list_members_table():
+    try:
+        page = int(request.args.get("page", 1))
+        limit = int(request.args.get("limit", 10))
+
+        if page < 1:
+            page = 1
+        if limit < 1:
+            limit = 10
+        limit = min(limit, 200)
+
+        with get_session() as session:
+            # Query ligera: solo columnas necesarias
+            statement = (
+                select(Member)
+                .options(
+                    load_only(
+                        Member.ID_Member,
+                        Member.Member_Name,
+                        Member.Company_Role,
+                        Member.Email_Address,
+                        Member.Phone_Number,
+                    )
+                )
+            )
+
+            # total
+            count_stmt = select(func.count()).select_from(Member)
+            total = session.exec(count_stmt).one()
+
+            # paginación SQL
+            offset = (page - 1) * limit
+            statement = statement.order_by(Member.ID_Member.desc()).offset(offset).limit(limit)
+
+            results = session.exec(statement).unique().all()
+
+            out = []
+            for m in results:
+                out.append({
+                    "ID_Member": m.ID_Member,
+                    "Member_Name": m.Member_Name,
+                    "Company_Role": m.Company_Role,
+                    "Email_Address": m.Email_Address,
+                    "Phone_Number": m.Phone_Number,
+                })
+
+            return jsonify({
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "results": out
+            }), 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al listar members table: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar members table: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un miembro GQM

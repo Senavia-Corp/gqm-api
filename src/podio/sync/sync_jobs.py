@@ -10,6 +10,7 @@ from src.utils.mappers.from_podio.jobs_relationships import JOB_MEMBER_FIELDS, u
 from src.models.MemberModel import Member
 from src.models.SubcontractorModel import Subcontractor
 from src.models.link_models.JobSubcontractor import JobSubcontractorLink
+from src.utils.middleware.logs.logs import logger
 
 
 # ===============================
@@ -281,7 +282,10 @@ def sync_job_related_members(
     config = JOB_MEMBER_FIELDS.get((job_type, year))
 
     if not config:
-        print("⚠️ No hay configuración para esta app/año")
+        logger.warning(
+            "No hay configuración de miembros para job_type=%s year=%s", job_type, year)
+        logger.warning(
+            "Job podio_item_id=%s no existe en DB, se omite", podio_item_id)
         return {"processed": 0}
 
     service = podio_jobs_router.get_service(
@@ -387,7 +391,7 @@ def sync_job_related_members(
     return {
         "processed": len(items),
         "created": created,
-        "updated": updated,
+        "skipped": updated,
         "limit": limit,
         "offset": offset,
         "dry_run": dry_run,

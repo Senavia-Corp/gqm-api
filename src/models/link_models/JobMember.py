@@ -1,6 +1,5 @@
 
 from sqlmodel import SQLModel, Field
-from typing import Optional
 
 
 class JobMemberLink(SQLModel, table=True):
@@ -16,4 +15,4 @@ class JobMemberLink(SQLModel, table=True):
         primary_key=True
     )
 
-    rol: Optional[str] = Field(default=None)
+    rol: str = Field(primary_key=True)
