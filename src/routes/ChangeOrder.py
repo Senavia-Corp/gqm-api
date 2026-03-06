@@ -6,10 +6,9 @@ import json
 from ..database.db_sqlmodel import get_session
 from ..models.ChangeOrderModel import ChangeOrder, ChangeOrCreate, ChangeOrUpdate
 from ..models.JobModel import Job
+from ..models.OrderModel import Order
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from src.utils.id_generator import generate_custom_id
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -144,6 +143,14 @@ def create_changeOr():
             podio_job_fields = normalize_podio_fields(raw_fields)
 
             # 4️⃣ Construir payload
+            # Cargar la Order si existe
+            if obj.ID_Order:
+                order = session.get(Order, obj.ID_Order)
+                if not order:
+                    raise AppException("Order not found",
+                                       "order_not_found", 404)
+                obj.order = order  # asignar la relación manualmente
+
             payload = map_chorder_create_to_podio(
                 obj,
                 job.Job_type,
@@ -213,6 +220,8 @@ def update_changeOr(id_change_order):
         update_data_dict = update_changeOr.model_dump(
             exclude_unset=True)
         update_data_dict.pop("job_podio_id", None)
+        update_data_dict.pop("ID_Jobs", None)
+        update_data_dict.pop("ID_Order", None)
 
         # ----------- 🔄 ACTUALIZAR EN DB
         for key, value in update_data_dict.items():
@@ -220,6 +229,12 @@ def update_changeOr(id_change_order):
 
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio:
+            if not change_order.job_podio_id:
+                raise AppException(
+                    "Change Order no tiene job_podio_id asignado",
+                    "missing_job_podio_id",
+                    400
+                )
 
             job = session.exec(
                 select(Job).where(Job.podio_item_id ==
@@ -286,6 +301,12 @@ def delete_changeOr(id_change_order):
 
         # ----------- 🟢 BORRAR EN PODIO (SI APLICA)
         if sync_podio:
+            if not change_order.job_podio_id:
+                raise AppException(
+                    "Change Order no tiene job_podio_id asignado",
+                    "missing_job_podio_id",
+                    400
+                )
 
             job = session.exec(
                 select(Job).where(Job.podio_item_id ==

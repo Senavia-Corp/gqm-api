@@ -171,7 +171,8 @@ def get_orders_by_job(job_podio_id):
             return [], 200
 
         orders_data = [
-            add_relationships(order, ["estimate_costs", "subcontractor", "change_orders"])
+            add_relationships(
+                order, ["estimate_costs", "subcontractor", "change_orders"])
             for order in results
         ]
 
@@ -204,7 +205,8 @@ def get_orders_by_job_id(id_job):
             return [], 200
 
         orders_data = [
-            add_relationships(order, ["estimate_costs", "subcontractor", "change_orders"])
+            add_relationships(
+                order, ["estimate_costs", "subcontractor", "change_orders"])
             for order in results
         ]
 
@@ -212,6 +214,8 @@ def get_orders_by_job_id(id_job):
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear una order
+
+
 @order_bp.post("/")
 @handle_exceptions()
 def create_order():
@@ -240,6 +244,12 @@ def create_order():
 
         # ----------- 🟢 SINCRONIZAR EN PODIO (SI APLICA)
         if sync_podio:
+            if not obj.job_podio_id:
+                raise AppException(
+                    "job_podio_id es obligatorio cuando sync_podio=true",
+                    "missing_job_podio_id",
+                    400
+                )
 
             # 1️⃣ Buscar Job
             job = session.exec(
@@ -278,9 +288,6 @@ def create_order():
                     "no_available_order_slot",
                     400
                 )
-
-            print("🚀 Payload que se enviará a Podio:")
-            print(json.dumps(payload, indent=4))
 
             try:
                 podio_service.update_item(obj.job_podio_id, payload)
@@ -333,6 +340,7 @@ def update_order(id_order):
         update_data_dict = update_order.model_dump(
             exclude_unset=True)  # Crea dict limpio
         update_data_dict.pop("job_podio_id", None)
+        update_data_dict.pop("ID_Subcontractor", None)
 
         # ----------- 🔄 ACTUALIZAR EN DB
         for key, value in update_data_dict.items():
@@ -340,6 +348,12 @@ def update_order(id_order):
 
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio:
+            if not order.job_podio_id:
+                raise AppException(
+                    "job_podio_id es obligatorio cuando sync_podio=true",
+                    "missing_job_podio_id",
+                    400
+                )
 
             job = session.exec(
                 select(Job).where(Job.podio_item_id == order.job_podio_id)
@@ -401,6 +415,12 @@ def delete_order(id_order):
 
         # ----------- 🟢 BORRAR EN PODIO (SI APLICA)
         if sync_podio:
+            if not order.job_podio_id:
+                raise AppException(
+                    "job_podio_id es obligatorio cuando sync_podio=true",
+                    "missing_job_podio_id",
+                    400
+                )
 
             if order.change_orders:
                 raise AppException(
