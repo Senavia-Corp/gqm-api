@@ -23,7 +23,7 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
 )
 from ..utils.mappers.mapper_aux_functions import register_event
 from sqlalchemy import or_
-
+from src.utils.audit import audit   # ← NEW
 
 # Blueprint de Order:
 order_bp = Blueprint("order_blueprint", __name__, url_prefix="/order")
@@ -218,6 +218,7 @@ def get_orders_by_job_id(id_job):
 
 @order_bp.post("/")
 @handle_exceptions()
+@audit("Order created", job_id_from="body")
 def create_order():
 
     data = request.get_json()
@@ -315,6 +316,7 @@ def create_order():
 # Ruta para actualizar una order
 @order_bp.patch("/<id_order>")
 @handle_exceptions()
+@audit("Order updated", id_param="id_order", job_id_from="response")
 def update_order(id_order):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -392,6 +394,7 @@ def update_order(id_order):
 # Ruta para eliminar una order
 @order_bp.delete("/<id_order>")
 @handle_exceptions()
+@audit("Order deleted", id_param="id_order", job_id_from="response")
 def delete_order(id_order):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"

@@ -23,7 +23,7 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
     map_chorder_delete_to_podio
 )
 from ..utils.mappers.mapper_aux_functions import register_event
-
+from src.utils.audit import audit   # ← NEW
 
 # Blueprint de Change Orders:
 change_order_bp = Blueprint(
@@ -91,6 +91,7 @@ def get_changeOr_by_id(id_change_order):
 # Ruta para crear un change order
 @change_order_bp.post("/")
 @handle_exceptions()
+@audit("Change Order created", job_id_from="body")
 def create_changeOr():
 
     data = request.get_json()
@@ -196,6 +197,7 @@ def create_changeOr():
 # Ruta para actualizar un change order
 @change_order_bp.patch("/<id_change_order>")
 @handle_exceptions()
+@audit("Change Order updated", id_param="id_change_order", job_id_from="response")
 def update_changeOr(id_change_order):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -288,6 +290,7 @@ def update_changeOr(id_change_order):
 # Ruta para eliminar un change order
 @change_order_bp.delete("/<id_change_order>")
 @handle_exceptions()
+@audit("Change Order deleted", id_param="id_change_order", job_id_from="response")
 def delete_changeOr(id_change_order):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
