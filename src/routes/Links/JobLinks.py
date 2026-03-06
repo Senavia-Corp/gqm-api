@@ -13,6 +13,7 @@ from ...podio.services.job_services import podio_jobs_router
 from src.utils.mappers.convert_value_podio import convert_value_for_podio
 from src.utils.mappers.mapper_aux_functions import register_event
 from src.utils.mappers.to_podio.job_relationships import JOB_MEMBER_PODIO_MAP, get_technician_fields
+from src.utils.middleware.logs.logs import logger
 
 
 # ------------------- Link entre Job y Member -------------------#
@@ -323,16 +324,23 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
 
             technician_fields = get_technician_fields(job.Job_type)
 
+            logger.info("🔍 Technician fields para %s: %s",
+                        job.Job_type, technician_fields)
+            logger.info("🔍 Current values de Podio: %s", current_values)
+
             field_to_clear = None
 
             for field in technician_fields:
                 values = current_values.get(field)
+                logger.info("🔍 Campo: %s | Values: %s", field, values)
                 if not values:
                     continue
 
                 # Buscar si el subcontractor está en ese campo
                 for v in values:
                     item_id = v.get("value", {}).get("item_id")
+                    logger.info("🔍 item_id en Podio: %s | buscando: %s",
+                                item_id, subcontractor.podio_item_id)
                     if item_id and str(item_id) == str(subcontractor.podio_item_id):
                         field_to_clear = field
                         break
@@ -347,6 +355,11 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
                 )
 
                 register_event(job.podio_item_id)
+
+            else:
+                return jsonify({
+                    "error": "Subcontractor not found in Podio for this Job. Possible inconsistency between DB and Podio."
+                }), 404
 
         # ----------- 🔴 BORRAR EN DB
         session.delete(link)

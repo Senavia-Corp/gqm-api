@@ -157,26 +157,29 @@ def create_changeOr():
                 podio_job_fields,
                 session
             )
-            if not payload:
+            if payload is None:
+                logger.info(
+                    "⚠️ Job type '%s' no soporta Change Orders en Podio, se omite sincronización",
+                    job.Job_type
+                )
+            elif not payload:
+                # El mapper corrió pero no encontró campos disponibles → error real
                 raise AppException(
                     "No se encontró un campo disponible en Podio para la Order",
                     "no_available_order_slot",
                     400
                 )
+            else:
+                try:
+                    podio_service.update_item(obj.job_podio_id, payload)
+                    register_event(obj.job_podio_id)
 
-            print("🚀 Payload que se enviará a Podio:")
-            print(json.dumps(payload, indent=4))
-
-            try:
-                podio_service.update_item(obj.job_podio_id, payload)
-                register_event(obj.job_podio_id)
-
-            except Exception as podio_err:
-                raise AppException(
-                    f"No se pudo sincronizar Change Order con Podio: {podio_err}",
-                    "podio_sync_failed",
-                    400
-                )
+                except Exception as podio_err:
+                    raise AppException(
+                        f"No se pudo sincronizar Change Order con Podio: {podio_err}",
+                        "podio_sync_failed",
+                        400
+                    )
 
         # ----------- 💾 GUARDAR EN DB
         save_with_retry(session, obj)
@@ -229,41 +232,49 @@ def update_changeOr(id_change_order):
 
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio:
-            if not change_order.job_podio_id:
-                raise AppException(
-                    "Change Order no tiene job_podio_id asignado",
-                    "missing_job_podio_id",
-                    400
+
+            if not change_order.podio_field:
+                logger.info(
+                    "⚠️ Change Order '%s' no tiene campo Podio asignado, se omite sincronización",
+                    id_change_order
                 )
 
-            job = session.exec(
-                select(Job).where(Job.podio_item_id ==
-                                  change_order.job_podio_id)
-            ).first()
+            else:
+                if not change_order.job_podio_id:
+                    raise AppException(
+                        "Change Order no tiene job_podio_id asignado",
+                        "missing_job_podio_id",
+                        400
+                    )
 
-            if not job:
-                raise AppException("Job not found", "job_not_found", 404)
+                job = session.exec(
+                    select(Job).where(Job.podio_item_id ==
+                                      change_order.job_podio_id)
+                ).first()
 
-            podio_service = podio_jobs_router.get_service(
-                job_type=job.Job_type,
-                year=year
-            )
+                if not job:
+                    raise AppException("Job not found", "job_not_found", 404)
 
-            payload = map_chorder_patch_to_podio(
-                change_order, job.Job_type, session)
-
-            try:
-                if payload:
-                    podio_service.update_item(
-                        change_order.job_podio_id, payload)
-                    register_event(change_order.job_podio_id)
-
-            except Exception as podio_err:
-                raise AppException(
-                    f"No se pudo sincronizar Change Order con Podio: {podio_err}",
-                    "podio_sync_failed",
-                    400
+                podio_service = podio_jobs_router.get_service(
+                    job_type=job.Job_type,
+                    year=year
                 )
+
+                payload = map_chorder_patch_to_podio(
+                    change_order, job.Job_type, session)
+
+                try:
+                    if payload:
+                        podio_service.update_item(
+                            change_order.job_podio_id, payload)
+                        register_event(change_order.job_podio_id)
+
+                except Exception as podio_err:
+                    raise AppException(
+                        f"No se pudo sincronizar Change Order con Podio: {podio_err}",
+                        "podio_sync_failed",
+                        400
+                    )
 
         # ----------- 💾 GUARDAR EN DB
         save_with_retry(session, change_order)
@@ -301,40 +312,49 @@ def delete_changeOr(id_change_order):
 
         # ----------- 🟢 BORRAR EN PODIO (SI APLICA)
         if sync_podio:
-            if not change_order.job_podio_id:
-                raise AppException(
-                    "Change Order no tiene job_podio_id asignado",
-                    "missing_job_podio_id",
-                    400
+
+            if not change_order.podio_field:
+                logger.info(
+                    "⚠️ Change Order '%s' no tiene campo Podio asignado, se omite sincronización",
+                    id_change_order
                 )
 
-            job = session.exec(
-                select(Job).where(Job.podio_item_id ==
-                                  change_order.job_podio_id)
-            ).first()
+            else:
+                if not change_order.job_podio_id:
+                    raise AppException(
+                        "Change Order no tiene job_podio_id asignado",
+                        "missing_job_podio_id",
+                        400
+                    )
 
-            if not job:
-                raise AppException("Job not found", "job_not_found", 404)
+                job = session.exec(
+                    select(Job).where(Job.podio_item_id ==
+                                      change_order.job_podio_id)
+                ).first()
 
-            podio_service = podio_jobs_router.get_service(
-                job_type=job.Job_type,
-                year=year
-            )
+                if not job:
+                    raise AppException("Job not found", "job_not_found", 404)
 
-            payload = map_chorder_delete_to_podio(change_order, job.Job_type)
-
-            try:
-                if payload:
-                    podio_service.update_item(
-                        change_order.job_podio_id, payload)
-                    register_event(change_order.job_podio_id)
-
-            except Exception as podio_err:
-                raise AppException(
-                    f"No se pudo sincronizar Change Order con Podio: {podio_err}",
-                    "podio_sync_failed",
-                    400
+                podio_service = podio_jobs_router.get_service(
+                    job_type=job.Job_type,
+                    year=year
                 )
+
+                payload = map_chorder_delete_to_podio(
+                    change_order, job.Job_type)
+
+                try:
+                    if payload:
+                        podio_service.update_item(
+                            change_order.job_podio_id, payload)
+                        register_event(change_order.job_podio_id)
+
+                except Exception as podio_err:
+                    raise AppException(
+                        f"No se pudo sincronizar Change Order con Podio: {podio_err}",
+                        "podio_sync_failed",
+                        400
+                    )
 
         # ----------- 🔴 BORRAR EN DB
         delete_with_retry(session, change_order)
