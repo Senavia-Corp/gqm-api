@@ -11,157 +11,97 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from src.utils.audit import audit   # ← NEW
+
+tasks_bp = Blueprint("tasks_blueprint", __name__, url_prefix="/tasks")
 
 
-# Blueprint de Tasks:
-tasks_bp = Blueprint("tasks_blueprint", __name__,
-                     url_prefix="/tasks")
+# ── GETs (unchanged) ─────────────────────────────────────────────────────────
 
-
-# -------------------RUTAS CRUD-------------------#
-# Ruta para conseguir la lista de todos las tareas
 @tasks_bp.get("/")
 @handle_exceptions()
 @paginate()
 def list_tasks():
     with get_session() as session:
-        statement = (
-            select(Tasks)
-            .options(
-                joinedload(Tasks.job),
-                joinedload(Tasks.technician))
-        )
-        results = session.exec(statement).unique().all()
-
-        if not results:
-            return [], 200
-
-        tasks_data = [
-            add_relationships(
-                tasks, ["job", "technician"])
-            for tasks in results
-        ]
-
-        return tasks_data, 200
+        results = session.exec(
+            select(Tasks).options(joinedload(Tasks.job), joinedload(Tasks.technician))
+        ).unique().all()
+        if not results: return [], 200
+        return [add_relationships(t, ["job", "technician"]) for t in results], 200
 
 
-# Ruta para conseguir una tarea por ID
 @tasks_bp.get("/<id_tasks>")
 @handle_exceptions()
 def get_tasks(id_tasks):
     with get_session() as session:
-        statement = (
+        obj = session.exec(
             select(Tasks)
-            .options(
-                joinedload(Tasks.job),
-                joinedload(Tasks.technician))
+            .options(joinedload(Tasks.job), joinedload(Tasks.technician))
             .where(Tasks.ID_Tasks == id_tasks)
-        )
-
-        obj = session.exec(statement).unique().first()
-
-        if not obj:
-            raise AppException("Task no encontrado.", "task_not_found", 404)
-
-        tasks_data = add_relationships(
-            obj, ["job", "technician"])
-
-        return tasks_data, 200
+        ).unique().first()
+        if not obj: raise AppException("Task no encontrado.", "task_not_found", 404)
+        return add_relationships(obj, ["job", "technician"]), 200
 
 
-# Ruta para conseguir tareas por trabajo y technician
 @tasks_bp.get("/job/<id_jobs>/tech/<id_tech>")
 @handle_exceptions()
 @paginate()
 def get_tasks_by_job(id_jobs, id_tech):
     with get_session() as session:
-        statement = (
+        results = session.exec(
             select(Tasks)
-            .options(
-                joinedload(Tasks.job),
-                joinedload(Tasks.technician))
+            .options(joinedload(Tasks.job), joinedload(Tasks.technician))
             .where(Tasks.ID_Jobs == id_jobs)
             .where(Tasks.ID_Technician == id_tech)
-        )
-
-        results = session.exec(statement).unique().all()
-
-        if not results:
-            return [], 200
-
-        tasks_data = [
-            add_relationships(tasks, ["job", "technician"])
-            for tasks in results
-        ]
-
-        return tasks_data, 200
+        ).unique().all()
+        if not results: return [], 200
+        return [add_relationships(t, ["job", "technician"]) for t in results], 200
 
 
-# --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear una tarea
+# ── WRITE routes — @audit applied ────────────────────────────────────────────
+# Note: Tasks use ID_Tasks (not ID_Jobs) as primary URL param.
+# job_id_from="body" because Tasks body always includes ID_Jobs.
+
 @tasks_bp.post("/")
 @handle_exceptions()
+@audit("Task created", job_id_from="body")
 def create_tasks():
-
-    data = request.get_json()
+    data         = request.get_json()
     create_tasks = TasksCreate.model_validate(data)
-    obj = Tasks(
-        **create_tasks.model_dump(exclude_unset=False, exclude_none=False))
+    obj          = Tasks(**create_tasks.model_dump(exclude_unset=False, exclude_none=False))
 
     with get_session() as session:
-        new_id = generate_custom_id(
-            session, Tasks, "ID_Tasks", "TSK")
-        obj.ID_Tasks = new_id
-
+        obj.ID_Tasks = generate_custom_id(session, Tasks, "ID_Tasks", "TSK")
         save_with_retry(session, obj)
-
-        logger.info(
-            "✅ Task creada | task_id=%s",
-            obj.ID_Tasks
-        )
-
+        logger.info("✅ Task creada | task_id=%s", obj.ID_Tasks)
         return obj.model_dump(), 201
 
 
-# Ruta para actualizar una tarea
 @tasks_bp.patch("/<task_id>")
 @handle_exceptions()
+@audit("Task updated", id_param="task_id", job_id_from="response")
 def update_tasks(task_id):
     data = request.get_json()
     with get_session() as session:
-        obj = session.exec(
-            select(Tasks).where(Tasks.ID_Tasks == task_id)
-        ).first()
+        obj = session.exec(select(Tasks).where(Tasks.ID_Tasks == task_id)).first()
+        if not obj: raise AppException("Task no encontrado.", "task_not_found", 404)
 
-        if not obj:
-            raise AppException("Task no encontrado.", "task_not_found", 404)
-
-        update_tasks = TasksUpdate.model_validate(data)
-        update_data_dict = update_tasks.model_dump(exclude_unset=True)
-
-        for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+        update_data = TasksUpdate.model_validate(data).model_dump(exclude_unset=True)
+        for key, value in update_data.items():
             setattr(obj, key, value)
-
         save_with_retry(session, obj)
-
         logger.info("🔄 Task actualizada | task_id=%s", task_id)
-
         return obj.model_dump(), 200
 
 
-# Ruta para eliminar una tarea
 @tasks_bp.delete("/<task_id>")
 @handle_exceptions()
+@audit("Task deleted", id_param="task_id", job_id_from="response")
 def delete_tasks(task_id):
     with get_session() as session:
-        obj = session.exec(
-            select(Tasks).where(Tasks.ID_Tasks == task_id)
-        ).first()
-        if not obj:
-            raise AppException("Task no encontrado.", "task_not_found", 404)
+        obj = session.exec(select(Tasks).where(Tasks.ID_Tasks == task_id)).first()
+        if not obj: raise AppException("Task no encontrado.", "task_not_found", 404)
 
         delete_with_retry(session, obj)
-
         logger.info("🗑️ Task eliminado | task_id=%s", task_id)
-
         return jsonify({"message": f"Task {task_id} eliminada correctamente"}), 200
