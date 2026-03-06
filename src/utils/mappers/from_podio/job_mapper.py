@@ -2,6 +2,7 @@ from typing import Optional
 import re
 from .job_fields_map import FIELD_ALIASES_QID, FIELD_ALIASES_PTL, FIELD_ALIASES_PAR
 from ..podio_job_extractor import get_job_field_value
+from src.models.JobModel import JobBase
 
 
 # FASE 1: sin relaciones
@@ -65,7 +66,14 @@ def map_podio_item_to_job(item: dict, session=None, job_type: Optional[str] = No
     for db_field, field_cfg in field_aliases.items():
         value = get_job_field_value(fields, field_cfg)
         if value is not None:
-            job_dict[db_field] = value
+            if isinstance(value, tuple):
+                start, end = value
+                job_dict[db_field] = start
+                end_attr = f"{db_field}_end"
+                if end and end_attr in JobBase.model_fields:
+                    job_dict[end_attr] = end
+            else:
+                job_dict[db_field] = value
         else:
             print(
                 f"[MAP WARN] {job_type} → {db_field} = no viene en este payload, se ignora")
