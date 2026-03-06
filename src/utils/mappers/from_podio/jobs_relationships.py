@@ -82,23 +82,22 @@ def upsert_job_member_link(
     dry_run: bool = False
 ):
     created = 0
-    updated = 0
+    skipped = 0
 
+    # Ahora busca por los 3 campos — la PK completa
     link = session.exec(
         select(JobMemberLink).where(
             JobMemberLink.job_id == job_id,
-            JobMemberLink.member_id == member_id
+            JobMemberLink.member_id == member_id,
+            JobMemberLink.rol == rol
         )
     ).first()
 
     if link:
-        if link.rol != rol:
-            updated += 1
-            if not dry_run:
-                link.rol = rol
-                session.add(link)
-        return created, updated
+        # El registro ya existe exactamente igual, no hay nada que actualizar
+        return created, skipped
 
+    # No existe → crear
     created += 1
     if not dry_run:
         session.add(
@@ -109,4 +108,4 @@ def upsert_job_member_link(
             )
         )
 
-    return created, updated
+    return created, skipped

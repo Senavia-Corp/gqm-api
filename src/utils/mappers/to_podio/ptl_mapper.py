@@ -33,7 +33,7 @@ def map_job_to_podio_ptl(job_obj, session=None):
                 client.podio_item_id, "app"
             )
 
-    # Relaciones con Members (M:N) se manda desde el link
+    # Relaciones con Members y Subcontractors (M:N) se mandan desde los links
 
     # Para debug
     print("🚀 Payload final para Podio:", payload)

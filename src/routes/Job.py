@@ -470,7 +470,12 @@ def create_job():
             register_event(obj.podio_item_id)
 
         else:
-            prefix_map = {"QID": "QID", "PTL": "PTL", "PAR": "PAR"}
+            prefix_map = {
+                "QID": "QID-I",
+                "PTL": "PTL-I",
+                "PAR": "PAR-I"
+            }
+
             if obj.Job_type not in prefix_map:
                 raise AppException("Job no encontrado.", "job_not_found", 404)
             obj.ID_Jobs        = generate_custom_id(session, Job, "ID_Jobs", prefix_map[obj.Job_type])

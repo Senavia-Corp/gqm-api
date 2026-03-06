@@ -299,13 +299,13 @@ def sync_jobs_many_to_many_route():
             dry_run=dry_run
         )
 
-        subcontractors_result = sync_job_related_subcontractor(
-            job_type=job_type,
-            year=int(year),
-            limit=limit,
-            offset=offset,
-            dry_run=dry_run
-        )
+        # subcontractors_result = sync_job_related_subcontractor(
+        #     job_type=job_type,
+        #     year=int(year),
+        #     limit=limit,
+        #     offset=offset,
+        #     dry_run=dry_run
+        # )
 
         return jsonify({
             "resource": "jobs",
@@ -319,7 +319,7 @@ def sync_jobs_many_to_many_route():
                 "dry_run": dry_run
             },
             "members_mn": members_result,
-            "subcontractors_mn": subcontractors_result
+            # "subcontractors_mn": subcontractors_result
         }), 200
 
     except Exception as e:
