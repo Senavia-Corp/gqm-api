@@ -258,6 +258,8 @@ def map_chorder_create_to_podio(change_order, job_type, podio_job_fields, sessio
     if change_order.ID_Order:
 
         # ================= ORDER CHANGE ORDER =================
+        if "order_co" not in field_config:
+            return None
 
         if not change_order.order:
             raise Exception("Change Order has no associated Order")
@@ -283,6 +285,8 @@ def map_chorder_create_to_podio(change_order, job_type, podio_job_fields, sessio
     else:
 
         # ================= PROJECT CHANGE ORDER =================
+        if "project_co" not in field_config:
+            return None
 
         project_co_map = field_config["project_co"]
 

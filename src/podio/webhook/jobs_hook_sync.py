@@ -382,9 +382,7 @@ def add_job_orders_and_change_orders(
             adj_formula=data.get("adj_formula"),
             tech_field=data.get("formula_field"),
             hd_materials=data.get("hd_materials"),
-            hd_materials_field=data.get("hd_materials_field"),
-            notes=data.get("notes"),
-            notes_field=data.get("notes_field")
+            notes=data.get("notes")
         )
 
         orders_map[tech_index] = order
