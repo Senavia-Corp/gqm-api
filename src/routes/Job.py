@@ -707,9 +707,9 @@ def create_job():
         # ----------- 🔵 CREAR EN DB
         else:
             prefix_map = {
-                "QID": "QID",
-                "PTL": "PTL",
-                "PAR": "PAR"
+                "QID": "QID-I",
+                "PTL": "PTL-I",
+                "PAR": "PAR-I"
             }
 
             if obj.Job_type not in prefix_map:

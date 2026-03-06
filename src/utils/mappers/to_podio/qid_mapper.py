@@ -64,7 +64,7 @@ def map_job_to_podio_qid(job_obj, session=None):
                 bldg_dept.podio_item_id, "app"
             )
 
-    # Relaciones con Members (M:N) se manda desde el link
+    # Relaciones con Members y Subcontractors (M:N) se mandan desde los links
 
     # Para debug
     print("🚀 Payload final para Podio:", payload)

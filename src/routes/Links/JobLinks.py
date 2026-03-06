@@ -332,7 +332,8 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
 
                 # Buscar si el subcontractor está en ese campo
                 for v in values:
-                    if v.get("value", {}).get("item_id") == subcontractor.podio_item_id:
+                    item_id = v.get("value", {}).get("item_id")
+                    if item_id and str(item_id) == str(subcontractor.podio_item_id):
                         field_to_clear = field
                         break
 

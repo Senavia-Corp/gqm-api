@@ -128,10 +128,15 @@ def create_changeOr():
                 raise AppException("Job no encontrado", "job_not_found", 404)
 
             # 2️⃣ Obtener servicio
+            if not job.Job_type:
+                raise AppException(
+                    "El Job no tiene Job_type definido",
+                    "missing_job_type",
+                    400)
+
             podio_service = podio_jobs_router.get_service(
                 job_type=job.Job_type,
-                year=year
-            )
+                year=year)
 
             # 3️⃣ Obtener job actual desde Podio (necesario)
             podio_job = podio_service.get_item(obj.job_podio_id)
@@ -145,6 +150,12 @@ def create_changeOr():
                 podio_job_fields,
                 session
             )
+            if not payload:
+                raise AppException(
+                    "No se encontró un campo disponible en Podio para la Order",
+                    "no_available_order_slot",
+                    400
+                )
 
             print("🚀 Payload que se enviará a Podio:")
             print(json.dumps(payload, indent=4))
@@ -201,15 +212,11 @@ def update_changeOr(id_change_order):
         update_changeOr = ChangeOrUpdate.model_validate(data)
         update_data_dict = update_changeOr.model_dump(
             exclude_unset=True)
+        update_data_dict.pop("job_podio_id", None)
 
         # ----------- 🔄 ACTUALIZAR EN DB
         for key, value in update_data_dict.items():
             setattr(change_order, key, value)
-
-        save_with_retry(session, change_order)
-
-        logger.info("🔄 Change Order actualizado | chorder_id=%s",
-                    id_change_order)
 
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio:
@@ -231,8 +238,10 @@ def update_changeOr(id_change_order):
                 change_order, job.Job_type, session)
 
             try:
-                podio_service.update_item(change_order.job_podio_id, payload)
-                register_event(change_order.job_podio_id)
+                if payload:
+                    podio_service.update_item(
+                        change_order.job_podio_id, payload)
+                    register_event(change_order.job_podio_id)
 
             except Exception as podio_err:
                 raise AppException(
@@ -240,6 +249,12 @@ def update_changeOr(id_change_order):
                     "podio_sync_failed",
                     400
                 )
+
+        # ----------- 💾 GUARDAR EN DB
+        save_with_retry(session, change_order)
+
+        logger.info("🔄 Change Order actualizado | chorder_id=%s",
+                    id_change_order)
 
         return change_order.model_dump(), 200
 
@@ -288,8 +303,10 @@ def delete_changeOr(id_change_order):
             payload = map_chorder_delete_to_podio(change_order, job.Job_type)
 
             try:
-                podio_service.update_item(change_order.job_podio_id, payload)
-                register_event(change_order.job_podio_id)
+                if payload:
+                    podio_service.update_item(
+                        change_order.job_podio_id, payload)
+                    register_event(change_order.job_podio_id)
 
             except Exception as podio_err:
                 raise AppException(
