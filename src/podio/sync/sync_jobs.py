@@ -46,6 +46,11 @@ def sync_jobs(job_type: str, year: int, limit: int = 30, offset: int = 0, dry_ru
 
     with get_session() as session:
         for item in items:
+            for f in item.get("fields", []):
+                if f.get("type") == "date":
+                    print(
+                        f"[DATE FIELD] external_id={f.get('external_id')} values={f.get('values')}")
+
             mapped = map_podio_item_to_job(item)
 
             podio_item_id = mapped.get("podio_item_id")
