@@ -56,6 +56,7 @@ from src.quickbooks.qbo_auth import qbo_oauth_bp
 # Rutas de métricas
 from src.routes.MetricsJobs import metrics_bp
 from src.routes.financial_metrics_bp import financial_metrics_bp
+from src.routes.timeline_metrics_bp import timeline_metrics_bp
 
 
 # Test
@@ -141,6 +142,7 @@ def create_app():
     # Rutas de métricas
     app.register_blueprint(metrics_bp)
     app.register_blueprint(financial_metrics_bp)
+    app.register_blueprint(timeline_metrics_bp)
 
     # Ruta simple
 

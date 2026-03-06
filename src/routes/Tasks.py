@@ -1,8 +1,10 @@
 import json
+from datetime import date, timedelta
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.TasksModel import Tasks, TasksCreate, TasksUpdate
+from ..models.JobModel import Job, JobType
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
 from ..utils.relationships import add_relationships
@@ -11,12 +13,12 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
-from src.utils.audit import audit   # ← NEW
+from src.utils.audit import audit
 
 tasks_bp = Blueprint("tasks_blueprint", __name__, url_prefix="/tasks")
 
 
-# ── GETs (unchanged) ─────────────────────────────────────────────────────────
+# ── GETs ─────────────────────────────────────────────────────────────────────
 
 @tasks_bp.get("/")
 @handle_exceptions()
@@ -28,6 +30,61 @@ def list_tasks():
         ).unique().all()
         if not results: return [], 200
         return [add_relationships(t, ["job", "technician"]) for t in results], 200
+
+
+@tasks_bp.get("/weekly")
+@handle_exceptions()
+def get_weekly_tasks():
+    """
+    Retorna tareas cuya Delivery_date cae dentro de la semana actual (lun–dom).
+    Query param opcional: ?job_type=QID | PTL | PAR
+    Incluye relaciones: job y member.
+    """
+    today   = date.today()
+    monday  = today - timedelta(days=today.weekday())
+    sunday  = monday + timedelta(days=6)
+
+    job_type_param = request.args.get("job_type", None)
+
+    with get_session() as session:
+        query = (
+            select(Tasks)
+            .options(joinedload(Tasks.job), joinedload(Tasks.member))
+            .where(Tasks.Delivery_date >= monday)
+            .where(Tasks.Delivery_date <= sunday)
+        )
+
+        if job_type_param:
+            try:
+                job_type_enum = JobType(job_type_param)
+            except ValueError:
+                raise AppException(
+                    f"job_type inválido. Valores permitidos: {[e.value for e in JobType]}",
+                    "invalid_job_type",
+                    400
+                )
+            query = query.join(Tasks.job).where(Job.Job_type == job_type_enum)
+
+        results = session.exec(query).unique().all()
+
+        if not results:
+            return [], 200
+
+        payload = []
+        for t in results:
+            payload.append({
+                "ID_Tasks":         t.ID_Tasks,
+                "Name":             t.Name,
+                "Task_description": t.Task_description,
+                "Task_status":      t.Task_status,
+                "Priority":         t.Priority,
+                "Designation_date": t.Designation_date.isoformat() if t.Designation_date else None,
+                "Delivery_date":    t.Delivery_date.isoformat()    if t.Delivery_date    else None,
+                "job":              t.job.model_dump()              if t.job              else None,
+                "member":           t.member.model_dump()           if t.member           else None,
+            })
+
+        return payload, 200
 
 
 @tasks_bp.get("/<id_tasks>")
@@ -58,9 +115,7 @@ def get_tasks_by_job(id_jobs, id_tech):
         return [add_relationships(t, ["job", "technician"]) for t in results], 200
 
 
-# ── WRITE routes — @audit applied ────────────────────────────────────────────
-# Note: Tasks use ID_Tasks (not ID_Jobs) as primary URL param.
-# job_id_from="body" because Tasks body always includes ID_Jobs.
+# ── WRITE routes ──────────────────────────────────────────────────────────────
 
 @tasks_bp.post("/")
 @handle_exceptions()

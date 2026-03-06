@@ -102,6 +102,7 @@ def list_jobs_table():
         job_type = request.args.get("type")
         status   = request.args.get("status")
         year     = request.args.get("year")
+        search   = request.args.get("search", "").strip()  # ← NEW
 
         if job_type:
             job_type = job_type.upper()
@@ -132,6 +133,16 @@ def list_jobs_table():
             if job_type:  statement = statement.where(Job.Job_type   == job_type)
             if status:    statement = statement.where(Job.Job_status  == status)
 
+            # ← NEW: búsqueda global por Project_name o ID_Jobs
+            if search:
+                pattern = f"%{search}%"
+                statement = statement.where(
+                    or_(
+                        Job.Project_name.ilike(pattern),
+                        Job.ID_Jobs.ilike(pattern),
+                    )
+                )
+
             if year_int is not None:
                 if job_type == "PTL":
                     statement = statement.where(
@@ -153,6 +164,17 @@ def list_jobs_table():
             count_stmt = select(func.count()).select_from(Job)
             if job_type: count_stmt = count_stmt.where(Job.Job_type  == job_type)
             if status:   count_stmt = count_stmt.where(Job.Job_status == status)
+
+            # ← NEW: mismo filtro de búsqueda en el count
+            if search:
+                pattern = f"%{search}%"
+                count_stmt = count_stmt.where(
+                    or_(
+                        Job.Project_name.ilike(pattern),
+                        Job.ID_Jobs.ilike(pattern),
+                    )
+                )
+
             if year_int is not None:
                 if job_type == "PTL":
                     count_stmt = count_stmt.where(
@@ -414,12 +436,6 @@ def list_jobs_by_date(date):
 
 # ---------------------------------------------------------------------------
 # WRITE ROUTES — @audit applied here
-# ---------------------------------------------------------------------------
-# Orden de decoradores:
-#   @job_bp.post/patch/delete  ← Flask registra la ruta
-#   @handle_exceptions()       ← maneja errores y formatea respuesta
-#   @audit(...)                ← corre DESPUÉS de handle_exceptions,
-#                                 solo si el status fue 2xx
 # ---------------------------------------------------------------------------
 
 @job_bp.post("/")
