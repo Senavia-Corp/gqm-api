@@ -8,7 +8,7 @@ from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload, load_only
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..podio.services.subcontractor_services import podio_subc_router
@@ -62,91 +62,88 @@ def list_subcontractors():
 
 
 @subcontractor_bp.get("/subcontractors_table")
+@handle_exceptions()
 def list_subcontractors_table():
-    try:
-        page = int(request.args.get("page", 1))
-        limit = int(request.args.get("limit", 10))
-        if page < 1:
-            page = 1
-        if limit < 1:
-            limit = 10
-        limit = min(limit, 200)
+    """
+    Endpoint ligero para la tabla de subcontractors.
+    Soporta paginación server-side, filtro por status y búsqueda global.
 
-        status = request.args.get("status")  # filtro opcional por Status
+    Query params:
+        page   (int,  default 1)
+        limit  (int,  default 10, max 200)
+        status (str,  optional) — filtro exacto por Status
+        q      (str,  optional) — búsqueda global contra Name, Organization,
+                                  Email_Address, Specialty, ID_Subcontractor
+    """
+    page   = max(1, int(request.args.get("page",  1)))
+    limit  = min(200, max(1, int(request.args.get("limit", 10))))
+    status = request.args.get("status", "").strip() or None
+    q      = request.args.get("q", "").strip()
 
-        with get_session() as session:
-            # Query ligera solicitando solo las columnas necesarias
-            statement = (
-                select(Subcontractor)
-                .options(
-                    load_only(
-                        Subcontractor.ID_Subcontractor,
-                        Subcontractor.Name,
-                        Subcontractor.Organization,
-                        Subcontractor.Status,
-                        Subcontractor.Email_Address,
-                        Subcontractor.Score,
-                    )
+    with get_session() as session:
+
+        # ── Base statement ─────────────────────────────────────────────────
+        stmt = (
+            select(Subcontractor)
+            .options(
+                load_only(
+                    Subcontractor.ID_Subcontractor,
+                    Subcontractor.Name,
+                    Subcontractor.Organization,
+                    Subcontractor.Status,
+                    Subcontractor.Email_Address,
+                    Subcontractor.Score,
+                    Subcontractor.Specialty,
+                )
+            )
+        )
+
+        # ── Filtro por Status ──────────────────────────────────────────────
+        if status:
+            stmt = stmt.where(Subcontractor.Status == status)
+
+        # ── Búsqueda global ────────────────────────────────────────────────
+        if q:
+            pattern = f"%{q}%"
+            stmt = stmt.where(
+                or_(
+                    Subcontractor.ID_Subcontractor.ilike(pattern),
+                    Subcontractor.Name.ilike(pattern),
+                    Subcontractor.Organization.ilike(pattern),
+                    Subcontractor.Email_Address.ilike(pattern),
+                    Subcontractor.Specialty.ilike(pattern),
                 )
             )
 
-            # aplicar filtro si viene status
-            if status:
-                statement = statement.where(Subcontractor.Status == status)
+        # ── Total ──────────────────────────────────────────────────────────
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = session.exec(count_stmt).one()
 
-            # total
-            count_stmt = select(func.count()).select_from(Subcontractor)
-            if status:
-                count_stmt = count_stmt.where(Subcontractor.Status == status)
-            total = session.exec(count_stmt).one()
+        # ── Paginación SQL ─────────────────────────────────────────────────
+        offset = (page - 1) * limit
+        stmt = stmt.order_by(Subcontractor.ID_Subcontractor.desc()).offset(offset).limit(limit)
+        results = session.exec(stmt).all()
 
-            # paginación SQL
-            offset = (page - 1) * limit
-            statement = statement.order_by(
-                Subcontractor.ID_Subcontractor.desc()).offset(offset).limit(limit)
+        # ── Serializar ─────────────────────────────────────────────────────
+        rows = [
+            {
+                "ID_Subcontractor": s.ID_Subcontractor,
+                "Name":             s.Name,
+                "Organization":     s.Organization,
+                "Status":           s.Status,
+                "Email_Address":    s.Email_Address,
+                "Score":            s.Score,
+                "Specialty":        s.Specialty,
+            }
+            for s in results
+        ]
 
-            results = session.exec(statement).unique().all()
-
-            if not results:
-                return jsonify({
-                    "page": page,
-                    "limit": limit,
-                    "total": total,
-                    "results": []
-                }), 200
-
-            out = []
-            for s in results:
-                out.append({
-                    "ID_Subcontractor": s.ID_Subcontractor,
-                    "Name": s.Name,
-                    "Organization": s.Organization,
-                    "Status": s.Status,
-                    "Email_Address": s.Email_Address,
-                    "Score": s.Score,
-                })
-
-            return jsonify({
-                "page": page,
-                "limit": limit,
-                "total": total,
-                "results": out
-            }), 200
-
-    except SQLAlchemyError as db_error:
-        print(
-            f"Error de base de datos al listar subcontractors table: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al consultar la base de datos.",
-            "code": "db_error"
-        }), 500
-
-    except Exception as e:
-        print(f"Error inesperado al listar subcontractors table: {e}")
-        return jsonify({
-            "detail": "Error interno inesperado del servidor.",
-            "code": "internal_error"
-        }), 500
+        return {
+            "page":    page,
+            "limit":   limit,
+            "total":   total,
+            "results": rows,
+        }, 200
 
 
 # Ruta para conseguir un subcontratista por ID

@@ -111,18 +111,16 @@ def get_member_by_id(id_member):
 @member_bp.get("/member_table")
 def list_members_table():
     try:
-        page = int(request.args.get("page", 1))
-        limit = int(request.args.get("limit", 10))
+        page  = int(request.args.get("page",  1))
+        limit = int(request.args.get("limit", 20))
+        q     = request.args.get("q", "").strip()
 
-        if page < 1:
-            page = 1
-        if limit < 1:
-            limit = 10
+        if page  < 1: page  = 1
+        if limit < 1: limit = 20
         limit = min(limit, 200)
 
         with get_session() as session:
-            # Query ligera: solo columnas necesarias
-            statement = (
+            base_stmt = (
                 select(Member)
                 .options(
                     load_only(
@@ -135,46 +133,54 @@ def list_members_table():
                 )
             )
 
-            # total
-            count_stmt = select(func.count()).select_from(Member)
+            # ── Global search ──────────────────────────────────────────────
+            if q:
+                pattern = f"%{q}%"
+                base_stmt = base_stmt.where(
+                    or_(
+                        func.lower(Member.ID_Member).like(func.lower(pattern)),
+                        func.lower(Member.Member_Name).like(func.lower(pattern)),
+                        func.lower(Member.Company_Role).like(func.lower(pattern)),
+                        func.lower(Member.Email_Address).like(func.lower(pattern)),
+                        func.lower(Member.Phone_Number).like(func.lower(pattern)),
+                    )
+                )
+
+            # ── Total count (respects search filter) ───────────────────────
+            count_stmt = select(func.count()).select_from(base_stmt.subquery())
             total = session.exec(count_stmt).one()
 
-            # paginación SQL
+            # ── Paginated results ──────────────────────────────────────────
             offset = (page - 1) * limit
-            statement = statement.order_by(Member.ID_Member.desc()).offset(offset).limit(limit)
+            paged_stmt = base_stmt.order_by(Member.ID_Member.desc()).offset(offset).limit(limit)
+            results = session.exec(paged_stmt).unique().all()
 
-            results = session.exec(statement).unique().all()
-
-            out = []
-            for m in results:
-                out.append({
-                    "ID_Member": m.ID_Member,
-                    "Member_Name": m.Member_Name,
+            out = [
+                {
+                    "ID_Member":    m.ID_Member,
+                    "Member_Name":  m.Member_Name,
                     "Company_Role": m.Company_Role,
-                    "Email_Address": m.Email_Address,
+                    "Email_Address":m.Email_Address,
                     "Phone_Number": m.Phone_Number,
-                })
+                }
+                for m in results
+            ]
 
             return jsonify({
-                "page": page,
-                "limit": limit,
-                "total": total,
-                "results": out
+                "page":    page,
+                "limit":   limit,
+                "total":   total,
+                "results": out,
             }), 200
 
     except SQLAlchemyError as db_error:
         print(f"Error de base de datos al listar members table: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al consultar la base de datos.",
-            "code": "db_error"
-        }), 500
+        return jsonify({"detail": "Error interno del servidor.", "code": "db_error"}), 500
 
     except Exception as e:
         print(f"Error inesperado al listar members table: {e}")
-        return jsonify({
-            "detail": "Error interno inesperado del servidor.",
-            "code": "internal_error"
-        }), 500
+        return jsonify({"detail": "Error interno inesperado.", "code": "internal_error"}), 500
+
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un miembro GQM
