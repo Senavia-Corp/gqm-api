@@ -97,14 +97,22 @@ def convert_value_for_podio(value, field_type="text", end_value=None):
         }
 
     if field_type == "email":
-        if value is None:
-            return None
-        return [{"type": "work", "value": str(value)}]
+        if not value:
+            return []
+        if isinstance(value, str):
+            return [{"type": "work", "value": value}]
+        if isinstance(value, list):
+            return [{"type": "work", "value": str(v)} for v in value if v]
+        return []
 
     if field_type == "phone":
-        if value is None:
-            return None
-        return [{"type": "work", "value": str(value)}]
+        if not value:
+            return []
+        if isinstance(value, str):
+            return [{"type": "work", "value": value}]
+        if isinstance(value, list):
+            return [{"type": "work", "value": str(v)} for v in value if v]
+        return []
 
     if field_type == "contact":
         if not value:

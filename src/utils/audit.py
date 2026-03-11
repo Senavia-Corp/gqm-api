@@ -32,7 +32,7 @@ from .id_generator import generate_custom_id
 # Constants
 # ---------------------------------------------------------------------------
 
-SOURCE_APP   = "app"
+SOURCE_APP = "app"
 SOURCE_PODIO = "podio"
 
 STATUS_FIELD = "Job_status"
@@ -67,15 +67,16 @@ def log_activity(
     from ..models.TLActivityModel import TLActivity
 
     try:
-        new_id = generate_custom_id(session, TLActivity, "ID_TLActivity", "TLA")
+        new_id = generate_custom_id(
+            session, TLActivity, "ID_TLActivity", "TLA")
 
         entry = TLActivity(
-            ID_TLActivity    = new_id,
-            Action           = action,
-            Action_datetime  = datetime.now(),
-            Description      = _build_description(description, source),
-            ID_Jobs          = job_id,
-            ID_Member        = member_id,
+            ID_TLActivity=new_id,
+            Action=action,
+            Action_datetime=datetime.now(),
+            Description=_build_description(description, source),
+            ID_Jobs=job_id,
+            ID_Member=member_id,
         )
         session.add(entry)
         # No hacemos commit aquí — el caller lo maneja
@@ -116,6 +117,44 @@ def _status_changed(before: dict, after: dict) -> tuple[bool, str | None, str | 
 
 
 # ---------------------------------------------------------------------------
+# Internal DB write helper
+# ---------------------------------------------------------------------------
+
+def _write_audit(
+    action: str,
+    job_id: str | None,
+    member_id: str | None,
+    method: str,
+    body: dict,
+    track_fields: bool,
+) -> None:
+    """
+    Abre su propia sesión y persiste la entrada de auditoría.
+    Silencia cualquier excepción para no interrumpir la operación principal.
+    """
+    try:
+        from ..database.db_sqlmodel import get_session
+        description = _build_action_description(
+            method=method,
+            action=action,
+            body=body,
+            track_fields=track_fields,
+        )
+        with get_session() as session:
+            log_activity(
+                session,
+                action=action,
+                job_id=job_id,
+                member_id=member_id,
+                description=description,
+                source=SOURCE_APP,
+            )
+            session.commit()
+    except Exception as e:
+        print(f"⚠️  [audit] decorator DB write failed: {e}")
+
+
+# ---------------------------------------------------------------------------
 # @audit decorator
 # ---------------------------------------------------------------------------
 
@@ -127,8 +166,12 @@ def audit(
     track_fields: bool = True,
 ) -> Callable:
     """
-    Decorador que registra automáticamente una entrada en tlactivity
-    después de que la ruta ejecute exitosamente (status 2xx).
+    Decorador que registra automáticamente una entrada en tlactivity.
+
+    - Para DELETE: registra ANTES de ejecutar la función, mientras el job
+      todavía existe en la BD (evita ForeignKeyViolation).
+    - Para el resto (POST, PATCH, etc.): registra DESPUÉS de ejecutar,
+      solo si la respuesta fue exitosa (2xx).
 
     Extrae automáticamente:
       - ID_Jobs del parámetro URL (id_param), del body, o de la respuesta JSON
@@ -155,56 +198,41 @@ def audit(
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            # ── Snapshot del body ANTES de ejecutar (para PATCH diff) ──────
-            method      = flask_request.method.upper()
-            body_before: dict = {}
-            body_after: dict  = flask_request.get_json(silent=True) or {}
+            method = flask_request.method.upper()
+            body: dict = flask_request.get_json(silent=True) or {}
+            member_id = flask_request.headers.get("X-User-Id") or None
+
+            # ── PRE-LOG: DELETE ──────────────────────────────────────────
+            # El job aún existe en la BD → la FK se satisface correctamente.
+            if method == "DELETE":
+                job_id = _extract_job_id(
+                    job_id_from=job_id_from,
+                    id_param=id_param,
+                    kwargs=kwargs,
+                    body=body,
+                    response={},
+                )
+                _write_audit(action, job_id, member_id,
+                             method, body, track_fields)
 
             # ── Ejecutar la función original ─────────────────────────────
             result = fn(*args, **kwargs)
 
-            # ── Desempacar resultado (puede ser tuple (data, status) o Response) ──
-            response_obj, status_code = _unpack_result(result)
+            # ── POST-LOG: todo lo que NO sea DELETE ──────────────────────
+            if method != "DELETE":
+                response_obj, status_code = _unpack_result(result)
 
-            # Solo loguear si fue exitoso
-            if not _is_success(status_code):
-                return result
-
-            # ── Extraer job_id ───────────────────────────────────────────
-            job_id = _extract_job_id(
-                job_id_from=job_id_from,
-                id_param=id_param,
-                kwargs=kwargs,
-                body=body_after,
-                response=response_obj,
-            )
-
-            # ── Extraer member_id del header ─────────────────────────────
-            member_id = flask_request.headers.get("X-User-Id") or None
-
-            # ── Construir descripción ────────────────────────────────────
-            description = _build_action_description(
-                method=method,
-                action=action,
-                body=body_after,
-                track_fields=track_fields,
-            )
-
-            # ── Escribir en DB ───────────────────────────────────────────
-            try:
-                from ..database.db_sqlmodel import get_session
-                with get_session() as session:
-                    log_activity(
-                        session,
-                        action=action,
-                        job_id=job_id,
-                        member_id=member_id,
-                        description=description,
-                        source=SOURCE_APP,
+                # Solo loguear si fue exitoso
+                if _is_success(status_code):
+                    job_id = _extract_job_id(
+                        job_id_from=job_id_from,
+                        id_param=id_param,
+                        kwargs=kwargs,
+                        body=body,
+                        response=response_obj,
                     )
-                    session.commit()
-            except Exception as e:
-                print(f"⚠️  [audit] decorator DB write failed: {e}")
+                    _write_audit(action, job_id, member_id,
+                                 method, body, track_fields)
 
             return result
 
