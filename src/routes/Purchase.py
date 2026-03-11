@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from sqlalchemy import func, or_
 
 
 # Blueprint de Purchase:
@@ -67,6 +68,127 @@ def list_purchases():
             "code": "internal_error"
         }), 500
 
+
+@purchase_bp.get("/table")
+def list_purchases_table():
+    """
+    Endpoint liviano para la tabla de purchases.
+    Devuelve solo campos escalares + conteos de orders/items, sin cargar relaciones pesadas.
+    Soporta: ?q=  ?page=  ?limit=  ?status=
+    """
+    try:
+        q_param      = request.args.get("q",       "").strip()
+        status_param = request.args.get("status",  "").strip()
+        job_id_param = request.args.get("job_id",  "").strip()   # ← NEW
+        page         = max(1, int(request.args.get("page",  1)))
+        limit        = min(100, max(1, int(request.args.get("limit", 20))))
+        offset       = (page - 1) * limit
+
+        with get_session() as session:
+            stmt = select(
+                Purchase.ID_Purchase,
+                Purchase.Selling_rep,
+                Purchase.Description,
+                Purchase.PickUp_person,
+                Purchase.Delivery_location,
+                Purchase.Status,
+                Purchase.Return_request,
+                Purchase.Return_status,
+                Purchase.Total_spending,
+                Purchase.ID_Jobs,
+                Purchase.ID_Member,
+                Purchase.podio_item_id,
+            )
+
+            # Global search filter
+            if q_param:
+                like = f"%{q_param}%"
+                stmt = stmt.where(
+                    or_(
+                        Purchase.ID_Purchase.ilike(like),
+                        Purchase.Selling_rep.ilike(like),
+                        Purchase.Description.ilike(like),
+                        Purchase.PickUp_person.ilike(like),
+                        Purchase.Delivery_location.ilike(like),
+                    )
+                )
+
+            # Status filter
+            if status_param:
+                stmt = stmt.where(Purchase.Status == status_param)
+
+            # ── NEW: filter by job ─────────────────────────────────────────
+            if job_id_param:
+                stmt = stmt.where(Purchase.ID_Jobs == job_id_param)
+            # ──────────────────────────────────────────────────────────────
+
+            # Count (respects all filters)
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            total = session.exec(count_stmt).one()
+
+            stmt = stmt.order_by(Purchase.ID_Purchase.desc()).offset(offset).limit(limit)
+            rows = session.exec(stmt).all()
+
+            # ── Conteos de orders e items por purchase (1 query cada uno) ─────
+            from ..models.PurchaseOrderModel import PurchaseOrder
+            from ..models.PurchaseOrderItemModel import PurchaseOrderItem
+
+            purchase_ids = [r.ID_Purchase for r in rows]
+
+            order_counts = {}
+            item_counts  = {}
+
+            if purchase_ids:
+                # Conteo de orders agrupado por ID_Purchase
+                order_count_stmt = (
+                    select(PurchaseOrder.ID_Purchase, func.count(PurchaseOrder.ID_PurchaseOrder).label("cnt"))
+                    .where(PurchaseOrder.ID_Purchase.in_(purchase_ids))
+                    .group_by(PurchaseOrder.ID_Purchase)
+                )
+                for pid, cnt in session.exec(order_count_stmt).all():
+                    order_counts[pid] = cnt
+
+                # Conteo de items agrupado por ID_Purchase (join a través de PurchaseOrder)
+                item_count_stmt = (
+                    select(PurchaseOrder.ID_Purchase, func.count(PurchaseOrderItem.ID_PurchaseOrderItem).label("cnt"))
+                    .join(PurchaseOrderItem, PurchaseOrderItem.ID_PurchaseOrder == PurchaseOrder.ID_PurchaseOrder)
+                    .where(PurchaseOrder.ID_Purchase.in_(purchase_ids))
+                    .group_by(PurchaseOrder.ID_Purchase)
+                )
+                for pid, cnt in session.exec(item_count_stmt).all():
+                    item_counts[pid] = cnt
+
+            # ── Serializar ────────────────────────────────────────────────────
+            results = []
+            for r in rows:
+                pid = r.ID_Purchase
+                results.append({
+                    "ID_Purchase":       pid,
+                    "Selling_rep":       r.Selling_rep,
+                    "Description":       r.Description,
+                    "PickUp_person":     r.PickUp_person,
+                    "Delivery_location": r.Delivery_location,
+                    "Status":            r.Status,
+                    "Return_request":    r.Return_request,
+                    "Return_status":     r.Return_status,
+                    "Total_spending":    float(r.Total_spending) if r.Total_spending is not None else None,
+                    "ID_Jobs":           r.ID_Jobs,
+                    "ID_Member":         r.ID_Member,
+                    "podio_item_id":     r.podio_item_id,
+                    "order_count":       order_counts.get(pid, 0),
+                    "item_count":        item_counts.get(pid, 0),
+                })
+
+            return jsonify({
+                "results": results,
+                "total":   total,
+                "page":    page,
+                "limit":   limit,
+            }), 200
+
+    except Exception as e:
+        print(f"Error en /purchase/table: {e}")
+        return jsonify({"detail": "Error interno del servidor.", "code": "internal_error"}), 500
 
 # Ruta para conseguir un purchase por ID
 @purchase_bp.get("/<id_purchase>")
