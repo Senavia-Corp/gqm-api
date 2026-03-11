@@ -15,6 +15,7 @@ from src.utils.mappers.mapper_aux_functions import register_event
 from src.utils.mappers.to_podio.job_relationships import JOB_MEMBER_PODIO_MAP, get_technician_fields
 from src.utils.middleware.logs.logs import logger
 from src.utils.audit import log_activity
+from sqlmodel import select
 
 
 # ───────────────────────────── Job ↔ Member ─────────────────────────────────
@@ -27,17 +28,31 @@ def assign_member_to_job(job_id, member_id):
     rol = data.get("rol")
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
-    member_id_header = request.headers.get(
-        "X-User-Id") or None   # ← who did it
+    member_id_header = request.headers.get("X-User-Id") or None
+
+    # Validar rol antes de tocar la DB — es parte de la PK, no puede ser nulo
+    if not rol:
+        return jsonify({"error": "'rol' is required in the request body"}), 400
 
     with get_session() as session:
-        job = session.get(Job,    job_id)
+        job    = session.get(Job,    job_id)
         member = session.get(Member, member_id)
 
         if not job or not member:
             return jsonify({"error": "Job or Member not found"}), 404
 
-        existing_link = session.get(JobMemberLink, (job_id, member_id))
+        # FIX: session.get() necesita los 3 valores de la PK compuesta (job_id, member_id, rol)
+        # Antes solo se pasaban 2, lo que causaba el InvalidRequestError de SQLAlchemy.
+        # Usamos select() para buscar si ya existe el vínculo con ese rol específico,
+        # o cualquier vínculo entre job y member si quieres evitar duplicados por rol distinto.
+        existing_link = session.exec(
+            select(JobMemberLink).where(
+                JobMemberLink.job_id   == job_id,
+                JobMemberLink.member_id == member_id,
+                JobMemberLink.rol      == rol,
+            )
+        ).first()
+
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
 
@@ -53,12 +68,10 @@ def assign_member_to_job(job_id, member_id):
                 if value_to_send:
                     podio_service.update_item(
                         int(job.podio_item_id),
-                        {cfg["external_id"]: convert_value_for_podio(
-                            value_to_send, cfg["type"])}
+                        {cfg["external_id"]: convert_value_for_podio(value_to_send, cfg["type"])}
                     )
                     register_event(job.podio_item_id)
 
-        # ── audit ──────────────────────────────────────────────────────────
         log_activity(
             session,
             action="Member linked to Job",
@@ -66,10 +79,8 @@ def assign_member_to_job(job_id, member_id):
             member_id=member_id_header,
             description=f"Member: {member_id} | Role: {rol}",
         )
-        # ───────────────────────────────────────────────────────────────────
 
         session.commit()
-
         return jsonify({"status": "Linked 🔗", "job_id": job_id, "member_id": member_id}), 201
 
 
@@ -80,11 +91,20 @@ def remove_member_from_job(job_id, member_id):
     member_id_header = request.headers.get("X-User-Id") or None
 
     with get_session() as session:
-        link = session.get(JobMemberLink, (job_id, member_id))
+        # FIX: mismo problema — session.get() con PK de 3 columnas requería los 3 valores.
+        # Como en el DELETE no siempre sabemos el rol de antemano, usamos select()
+        # para encontrar el vínculo existente sin necesitar pasar los 3 valores.
+        link = session.exec(
+            select(JobMemberLink).where(
+                JobMemberLink.job_id    == job_id,
+                JobMemberLink.member_id == member_id,
+            )
+        ).first()
+
         if not link:
             return jsonify({"error": "Relationship does not exist"}), 404
 
-        job = session.get(Job, job_id)
+        job           = session.get(Job, job_id)
         rol_to_update = link.rol
 
         if sync_podio:
@@ -93,16 +113,13 @@ def remove_member_from_job(job_id, member_id):
             if job and job.podio_item_id and rol_to_update:
                 podio_service = podio_jobs_router.get_service(
                     job_type=job.Job_type, year=year)
-                cfg = JOB_MEMBER_PODIO_MAP.get(
-                    job.Job_type, {}).get(rol_to_update)
+                cfg = JOB_MEMBER_PODIO_MAP.get(job.Job_type, {}).get(rol_to_update)
                 if cfg and cfg.get("external_id"):
-                    podio_service.update_item(int(job.podio_item_id), {
-                                              cfg["external_id"]: []})
+                    podio_service.update_item(int(job.podio_item_id), {cfg["external_id"]: []})
                     register_event(job.podio_item_id)
 
         session.delete(link)
 
-        # ── audit ──────────────────────────────────────────────────────────
         log_activity(
             session,
             action="Member unlinked from Job",
@@ -110,10 +127,8 @@ def remove_member_from_job(job_id, member_id):
             member_id=member_id_header,
             description=f"Member: {member_id} | Role: {rol_to_update}",
         )
-        # ───────────────────────────────────────────────────────────────────
 
         session.commit()
-
         return jsonify({"status": "Unlinked ✖️", "job_id": job_id, "member_id": member_id}), 200
 
 
