@@ -33,20 +33,11 @@ def map_client_to_podio(client_obj, session=None):
     # Relación con Parent Mgmt Co (M:1)
     parent_internal_id = client_obj.ID_Community_Tracking
 
-    print(f"➡️ ID_Community_Tracking: {parent_internal_id}")
-    print(f"➡️ Session existe: {session is not None}")
-
     if parent_internal_id and session:
         parent_mgmt_co = session.exec(
             select(ParentMgmtCo).where(
                 ParentMgmtCo.ID_Community_Tracking == parent_internal_id)
         ).first()
-
-        # ¿Es None?
-        print(f"➡️ ParentMgmtCo encontrado: {parent_mgmt_co}")
-        # ¿Es None?
-        print(
-            f"➡️ podio_item_id: {getattr(parent_mgmt_co, 'podio_item_id', 'NO EXISTE')}")
 
         if parent_mgmt_co and parent_mgmt_co.podio_item_id:
             payload["relationship"] = convert_value_for_podio(

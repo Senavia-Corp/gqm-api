@@ -68,9 +68,9 @@ def list_clients_table():
         limit  (int,  default 20, max 200)
         q      (str,  optional) — búsqueda global contra múltiples columnas
     """
-    page  = max(1, int(request.args.get("page",  1)))
+    page = max(1, int(request.args.get("page",  1)))
     limit = min(200, max(1, int(request.args.get("limit", 20))))
-    q     = request.args.get("q", "").strip()
+    q = request.args.get("q", "").strip()
 
     with get_session() as session:
 
@@ -114,7 +114,8 @@ def list_clients_table():
 
         # ── Paginación SQL (solo trae la página pedida) ───────────────────────
         offset = (page - 1) * limit
-        stmt = stmt.order_by(Client.ID_Client.desc()).offset(offset).limit(limit)
+        stmt = stmt.order_by(Client.ID_Client.desc()
+                             ).offset(offset).limit(limit)
         results = session.exec(stmt).all()
 
         # ── Serializar manualmente ────────────────────────────────────────────
@@ -195,7 +196,7 @@ def create_client():
         # ----------- 🟢 CREAR EN PODIO (SI APLICA)
         if sync_podio:
 
-            podio_fields = map_client_to_podio(obj)
+            podio_fields = map_client_to_podio(obj, session=session)
             podio_service = podio_clients_router.get_service()
             podio_response = podio_service.create_item(podio_fields)
 
@@ -251,7 +252,7 @@ def update_client(client_id):
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio and obj.podio_item_id:
             podio_service = podio_clients_router.get_service()
-            podio_fields = map_client_to_podio(obj)
+            podio_fields = map_client_to_podio(obj, session=session)
 
             try:
                 podio_service.update_item(
