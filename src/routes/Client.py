@@ -5,6 +5,7 @@ from ..database.db_sqlmodel import get_session
 from ..models.ClientModel import Client, ClientCreate, ClientUpdate
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import load_only as _load_only
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -14,6 +15,7 @@ from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.client_mapper import map_client_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from sqlalchemy import func, or_
 
 # Blueprint de Client:
 client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")
@@ -51,6 +53,92 @@ def list_clients():
             for client in results]
 
         return clients_data, 200
+
+
+@client_bp.get("/table")
+@handle_exceptions()
+def list_clients_table():
+    """
+    Endpoint ligero para la tabla de comunidades.
+    NO carga relaciones (jobs, managers, members, parent_mgmt_co).
+    Solo devuelve las columnas necesarias para renderizar la tabla.
+
+    Query params:
+        page   (int,  default 1)
+        limit  (int,  default 20, max 200)
+        q      (str,  optional) — búsqueda global contra múltiples columnas
+    """
+    page  = max(1, int(request.args.get("page",  1)))
+    limit = min(200, max(1, int(request.args.get("limit", 20))))
+    q     = request.args.get("q", "").strip()
+
+    with get_session() as session:
+
+        # ── Base statement ────────────────────────────────────────────────────
+        # load_only hace que SQLAlchemy solo emita SELECT de esas columnas,
+        # sin disparar lazy loads ni joins de relaciones.
+        stmt = (
+            select(Client)
+            .options(
+                _load_only(
+                    Client.ID_Client,
+                    Client.Client_Community,
+                    Client.Address,
+                    Client.Email_Address,
+                    Client.Phone_Number,
+                    Client.Client_Status,
+                    Client.Compliance_Partner,
+                    Client.ID_Community_Tracking,
+                    Client.podio_item_id,
+                )
+            )
+        )
+
+        # ── Filtro de búsqueda global ─────────────────────────────────────────
+        if q:
+            pattern = f"%{q}%"
+            stmt = stmt.where(
+                or_(
+                    Client.ID_Client.ilike(pattern),
+                    Client.Client_Community.ilike(pattern),
+                    Client.Address.ilike(pattern),
+                    Client.Compliance_Partner.ilike(pattern),
+                    Client.Client_Status.ilike(pattern),
+                    Client.ID_Community_Tracking.ilike(pattern),
+                )
+            )
+
+        # ── Total (para paginación frontend) ──────────────────────────────────
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = session.exec(count_stmt).one()
+
+        # ── Paginación SQL (solo trae la página pedida) ───────────────────────
+        offset = (page - 1) * limit
+        stmt = stmt.order_by(Client.ID_Client.desc()).offset(offset).limit(limit)
+        results = session.exec(stmt).all()
+
+        # ── Serializar manualmente ────────────────────────────────────────────
+        # NO usar model_dump() aquí: dispara lazy loads de relaciones.
+        rows = []
+        for c in results:
+            rows.append({
+                "ID_Client":             c.ID_Client,
+                "Client_Community":      c.Client_Community,
+                "Address":               c.Address,
+                "Email_Address":         c.Email_Address,   # JSON list or None
+                "Phone_Number":          c.Phone_Number,    # JSON list or None
+                "Client_Status":         c.Client_Status,
+                "Compliance_Partner":    c.Compliance_Partner,
+                "ID_Community_Tracking": c.ID_Community_Tracking,
+                "podio_item_id":         c.podio_item_id,
+            })
+
+        return {
+            "page":    page,
+            "limit":   limit,
+            "total":   total,
+            "results": rows,
+        }, 200
 
 
 # Ruta para conseguir un cliente por ID
