@@ -68,7 +68,7 @@ class JobBase(SQLModel):
 
     Ptl_Superintendent: Optional[str] = Field(default=None)
     Ptl_property_id: Optional[str] = Field(default=None)
-    Ptl_gc_fee: Optional[str] = Field(default=None)
+    Ptl_gc_fee: Optional[float] = Field(default=None)
 
     Gqm_paid_fees: Optional[float] = Field(default=None)
     Bldg_dept_fees: Optional[List[str]] = Field(

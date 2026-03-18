@@ -18,12 +18,12 @@ def map_job_to_podio_qid(job_obj, session=None):
             for i, ext_id in enumerate(config["external_ids"]):
                 v = values[i] if i < len(values) else None
 
-                converted = convert_value_for_podio(
-                    v,
-                    config["type"])
+                converted = convert_value_for_podio(v, config["type"])
 
                 if converted is not None:
                     payload[ext_id] = converted
+                else:
+                    payload[ext_id] = None
 
         # 🔹 NORMAL FIELD
         else:
