@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from src.utils.middleware.exceptions_handler import handle_exceptions
 from src.podio.sync.sync_clients import (
     sync_clients,
     sync_client_related_apps,
@@ -16,6 +17,7 @@ from src.podio.sync.sync_jobs import (
 from src.podio.sync.sync_orders import sync_job_orders_and_change_orders
 from src.utils.mappers.from_podio.jobs_relationships import RELATION_CONFIG
 from src.podio.sync.sync_bldg_dept import sync_bldg_dept
+from src.podio.sync.sync_attachments import sync_job_attachments_by_id
 
 
 # ===============================
@@ -379,3 +381,31 @@ def sync_orders_changeorders():
             "status": "error",
             "error": str(e)
         }), 500
+
+
+# ---- Attachments relacionados
+@sync_phase2_bp.post("/jobs/attachments/<id_jobs>")
+@handle_exceptions()
+def sync_job_attachments_by_id_route(id_jobs):
+
+    year = request.args.get("year")
+    dry_run = request.args.get("dry_run", "false").lower() == "true"
+
+    if not year:
+        return jsonify({"error": "year es obligatorio"}), 400
+
+    result = sync_job_attachments_by_id(
+        id_jobs=id_jobs,
+        year=int(year),
+        dry_run=dry_run
+    )
+
+    return jsonify({
+        "resource": "jobs",
+        "phase":    2,
+        "module":   "attachments",
+        "id_jobs":  id_jobs,
+        "year":     int(year),
+        "message":  "Attachments del Job sincronizados ✅",
+        "result":   result
+    }), 200
