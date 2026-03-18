@@ -14,6 +14,7 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from sqlalchemy import func, or_
+from src.utils.job_calculator import recalculate_and_apply  # ← NEW
 
 
 # Blueprint de Purchase:
@@ -24,7 +25,7 @@ purchase_bp = Blueprint("purchase_blueprint",
 
 
 # --------------------RUTAS GET-------------------#
-# Ruta para conseguir la lista de todos los purchases
+
 @purchase_bp.get("/")
 @paginate()
 def list_purchases():
@@ -54,14 +55,14 @@ def list_purchases():
 
             return purc_data, 200
 
-    except SQLAlchemyError as db_error:  # Para un fallo de db
+    except SQLAlchemyError as db_error:
         print(f"Error de base de datos al listar purchases: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
-    except Exception as e:  # Para un fallo general inesperado
+    except Exception as e:
         print(f"Error inesperado al listar purchases: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
@@ -71,15 +72,10 @@ def list_purchases():
 
 @purchase_bp.get("/table")
 def list_purchases_table():
-    """
-    Endpoint liviano para la tabla de purchases.
-    Devuelve solo campos escalares + conteos de orders/items, sin cargar relaciones pesadas.
-    Soporta: ?q=  ?page=  ?limit=  ?status=
-    """
     try:
         q_param      = request.args.get("q",       "").strip()
         status_param = request.args.get("status",  "").strip()
-        job_id_param = request.args.get("job_id",  "").strip()   # ← NEW
+        job_id_param = request.args.get("job_id",  "").strip()
         page         = max(1, int(request.args.get("page",  1)))
         limit        = min(100, max(1, int(request.args.get("limit", 20))))
         offset       = (page - 1) * limit
@@ -100,7 +96,6 @@ def list_purchases_table():
                 Purchase.podio_item_id,
             )
 
-            # Global search filter
             if q_param:
                 like = f"%{q_param}%"
                 stmt = stmt.where(
@@ -113,23 +108,18 @@ def list_purchases_table():
                     )
                 )
 
-            # Status filter
             if status_param:
                 stmt = stmt.where(Purchase.Status == status_param)
 
-            # ── NEW: filter by job ─────────────────────────────────────────
             if job_id_param:
                 stmt = stmt.where(Purchase.ID_Jobs == job_id_param)
-            # ──────────────────────────────────────────────────────────────
 
-            # Count (respects all filters)
             count_stmt = select(func.count()).select_from(stmt.subquery())
             total = session.exec(count_stmt).one()
 
             stmt = stmt.order_by(Purchase.ID_Purchase.desc()).offset(offset).limit(limit)
             rows = session.exec(stmt).all()
 
-            # ── Conteos de orders e items por purchase (1 query cada uno) ─────
             from ..models.PurchaseOrderModel import PurchaseOrder
             from ..models.PurchaseOrderItemModel import PurchaseOrderItem
 
@@ -139,7 +129,6 @@ def list_purchases_table():
             item_counts  = {}
 
             if purchase_ids:
-                # Conteo de orders agrupado por ID_Purchase
                 order_count_stmt = (
                     select(PurchaseOrder.ID_Purchase, func.count(PurchaseOrder.ID_PurchaseOrder).label("cnt"))
                     .where(PurchaseOrder.ID_Purchase.in_(purchase_ids))
@@ -148,7 +137,6 @@ def list_purchases_table():
                 for pid, cnt in session.exec(order_count_stmt).all():
                     order_counts[pid] = cnt
 
-                # Conteo de items agrupado por ID_Purchase (join a través de PurchaseOrder)
                 item_count_stmt = (
                     select(PurchaseOrder.ID_Purchase, func.count(PurchaseOrderItem.ID_PurchaseOrderItem).label("cnt"))
                     .join(PurchaseOrderItem, PurchaseOrderItem.ID_PurchaseOrder == PurchaseOrder.ID_PurchaseOrder)
@@ -158,7 +146,6 @@ def list_purchases_table():
                 for pid, cnt in session.exec(item_count_stmt).all():
                     item_counts[pid] = cnt
 
-            # ── Serializar ────────────────────────────────────────────────────
             results = []
             for r in rows:
                 pid = r.ID_Purchase
@@ -190,7 +177,7 @@ def list_purchases_table():
         print(f"Error en /purchase/table: {e}")
         return jsonify({"detail": "Error interno del servidor.", "code": "internal_error"}), 500
 
-# Ruta para conseguir un purchase por ID
+
 @purchase_bp.get("/<id_purchase>")
 def get_purchase(id_purchase):
     try:
@@ -219,8 +206,7 @@ def get_purchase(id_purchase):
             return jsonify(purc_data), 200
 
     except SQLAlchemyError as db_error:
-        print(
-            f"Error de base de datos al buscar purchase {id_purchase}: {db_error}")
+        print(f"Error de base de datos al buscar purchase {id_purchase}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
@@ -234,8 +220,8 @@ def get_purchase(id_purchase):
         }), 500
 
 
-# --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear una purchase
+# --------------- RUTAS POST, PATCH AND DELETE ----------#
+
 @purchase_bp.post("/")
 def create_purchase():
     try:
@@ -251,16 +237,21 @@ def create_purchase():
 
     try:
         with get_session() as session:
-            new_id = generate_custom_id(
-                session, Purchase, "ID_Purchase", "IH")
+            new_id = generate_custom_id(session, Purchase, "ID_Purchase", "IH")
             obj.ID_Purchase = new_id
 
             save_with_retry(session, obj)
 
+            # ── Recálculo automático del Job asociado ─────────────────────
+            if obj.ID_Jobs:
+                recalculate_and_apply(obj.ID_Jobs, session)
+                session.commit()
+            # ─────────────────────────────────────────────────────────────
+
             return jsonify(obj.model_dump()), 201
 
-    except IntegrityError as e:  # Cuando viola una restricción UNIQUE o NOT NULL
-        session.rollback()  # Deshace los cambios realizados
+    except IntegrityError as e:
+        session.rollback()
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
             detail = "Ya existe un purchase con este valor único."
@@ -269,7 +260,7 @@ def create_purchase():
         print(f"Error de integridad: {e}")
         return jsonify({"detail": detail}), 409
 
-    except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
+    except SQLAlchemyError as db_error:
         session.rollback()
         print(f"Error de base de datos al crear purchase: {db_error}")
         return jsonify({
@@ -282,7 +273,6 @@ def create_purchase():
             session.rollback()
         except Exception:
             pass
-
         print(f"Error inesperado durante la creación de purchase: {e}")
         return jsonify({
             "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
@@ -290,10 +280,9 @@ def create_purchase():
         }), 500
 
 
-# Ruta para actualizar una purchase
 @purchase_bp.patch("/<id_purchase>")
 def update_purchase(id_purchase):
-    session = None  # Para que funcione except
+    session = None
     try:
         data = request.get_json()
         with get_session() as session:
@@ -301,18 +290,25 @@ def update_purchase(id_purchase):
             if not obj:
                 return jsonify({"error": "Purchase not found"}), 404
 
-            update_purchase = PurchaseUpdate.model_validate(data)
-            update_data_dict = update_purchase.model_dump(
-                exclude_unset=True)  # Crea dict limpio
+            # Capturar job_id antes de modificar por si cambiara
+            job_id_for_calc = obj.ID_Jobs
 
-            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+            update_purchase = PurchaseUpdate.model_validate(data)
+            update_data_dict = update_purchase.model_dump(exclude_unset=True)
+
+            for key, value in update_data_dict.items():
                 setattr(obj, key, value)
 
             save_with_retry(session, obj)
 
+            # ── Recálculo automático del Job asociado ─────────────────────
+            if job_id_for_calc:
+                recalculate_and_apply(job_id_for_calc, session)
+                session.commit()
+            # ─────────────────────────────────────────────────────────────
+
             return jsonify(obj.model_dump()), 200
 
-    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
     except ValidationError as e:
         return jsonify({
             "detail": "Error de validación: Datos de purchase inválidos para la actualización.",
@@ -329,8 +325,7 @@ def update_purchase(id_purchase):
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(
-            f"Error de base de datos al actualizar purchase: {db_error}")
+        print(f"Error de base de datos al actualizar purchase: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al interactuar con la base de datos.",
             "code": "db_error"
@@ -349,7 +344,6 @@ def update_purchase(id_purchase):
         }), 500
 
 
-# Ruta para eliminar una purchase
 @purchase_bp.delete("/<id_purchase>")
 def delete_purchase(id_purchase):
     session = None
@@ -359,12 +353,20 @@ def delete_purchase(id_purchase):
             if not obj:
                 return jsonify({"error": "Purchase not found"}), 404
 
+            # Capturar job_id ANTES de borrar — después el objeto ya no tiene relaciones
+            job_id_for_calc = obj.ID_Jobs
+
             delete_with_retry(session, obj)
+
+            # ── Recálculo automático del Job asociado ─────────────────────
+            if job_id_for_calc:
+                recalculate_and_apply(job_id_for_calc, session)
+                session.commit()
+            # ─────────────────────────────────────────────────────────────
 
             return jsonify({"message": f"Deleted Purchase {id_purchase}"}), 200
 
-    # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un purchase que tiene productos asociados con Foreign Key
+    except IntegrityError as e:
         if session:
             session.rollback()
         detail = "Error de integridad: No se puede eliminar el purchase porque tiene registros relacionados."
