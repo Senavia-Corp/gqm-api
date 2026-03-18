@@ -112,6 +112,10 @@ class Job(JobBase, table=True):
         back_populates="job")
     purchases: List["Purchase"] = Relationship(  # type: ignore
         back_populates="job")
+    chat_messages: List["ChatMessage"] = Relationship(  # type: ignore
+        back_populates="job",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"}
+    )
 
     # Relaciones de muchos a muchos
     multipliers: List[MultiplierR] = Relationship(
