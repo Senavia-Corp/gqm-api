@@ -71,7 +71,7 @@ class JobBase(SQLModel):
     Ptl_gc_fee: Optional[float] = Field(default=None)
 
     Gqm_paid_fees: Optional[float] = Field(default=None)
-    Bldg_dept_fees: Optional[List[str]] = Field(
+    Bldg_dept_fees: Optional[List[Optional[float]]] = Field(
         default=None, sa_column=Column(JSON))
 
 
