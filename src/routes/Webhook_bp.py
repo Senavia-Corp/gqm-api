@@ -17,7 +17,9 @@ from ..podio.services.pa_mgmt_co_services import podio_pa_mgmt_co_router
 from ..podio.services.subcontractor_services import podio_subc_router
 from ..podio.services.bldg_dept_services import podio_bldg_dept_router
 from src.utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
-from src.utils.podio_webhook_core import parse_and_validate_webhook, event_create, event_update, event_delete
+from src.utils.podio_webhook_core import (
+    parse_and_validate_webhook, event_create, event_update,
+    event_delete, process_file_change_event)
 from src.podio.webhook.client_hook_sync import process_clients_podio
 from src.podio.webhook.subc_hook_sync import process_subcs_podio
 from src.podio.webhook.jobs_hook_sync import process_jobs_podio
@@ -25,7 +27,6 @@ from src.utils.mappers.qbo_aux_functions import MODEL_MAP, QBO_API_NAME
 from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event_delete_qbo
 from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
 from src.utils.audit import log_activity
-from src.utils.podio_webhook_core import process_item_attachments, ATTACHMENT_MODEL_MAP
 
 
 webhook_bp = Blueprint("webhook", __name__)
@@ -40,7 +41,7 @@ def podio_general_webhook(app_type):
 
     APP_ROUTER_MAP = {
         "PMC":  (podio_pa_mgmt_co_router, map_podio_item_to_parent_mgmt_co, ParentMgmtCo, "ID_Community_Tracking"),
-        "BDEP": (podio_bldg_dept_router,  map_podio_item_to_bldg_dept,       BuildingDept, "ID_BldgDept"),
+        "BDEP": (podio_bldg_dept_router, map_podio_item_to_bldg_dept, BuildingDept, "ID_BldgDept")
     }
 
     try:
@@ -61,7 +62,7 @@ def podio_general_webhook(app_type):
 
         with get_session() as session:
             existing = None
-            if event_type != "item.delete":
+            if event_type != "item.delete" and event_type != "file.change":
                 podio_item = data.get(
                     "item") or get_podio_item(item_id, app_type)
                 item_data = mapper(podio_item, session)
@@ -82,6 +83,20 @@ def podio_general_webhook(app_type):
             elif event_type == "item.delete":
                 event_delete(session=session, Model=Model,
                              item_unique_id=item_unique_id)
+
+            elif event_type == "file.change":
+                updated_entity = session.exec(
+                    select(Model).where(Model.podio_item_id == str(item_id))
+                ).first()
+                if updated_entity:
+                    process_file_change_event(
+                        session=session,
+                        data=data,
+                        app_type=app_type,
+                        fk_field=id_field,
+                        fk_value=getattr(updated_entity, id_field)
+                    )
+
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
 
@@ -98,8 +113,8 @@ def podio_general_webhook(app_type):
 def podio_relations_webhook(app_type):
 
     APP_ROUTER_MAP = {
-        "CLI":  (podio_clients_router, process_clients_podio, Client),
-        "SUBC": (podio_subc_router,    process_subcs_podio,   Subcontractor),
+        "CLI":  (podio_clients_router, process_clients_podio, Client, "ID_Client"),
+        "SUBC": (podio_subc_router, process_subcs_podio, Subcontractor, "ID_Subcontractor")
     }
 
     try:
@@ -112,7 +127,7 @@ def podio_relations_webhook(app_type):
             print(f"⚠️ App_type no soportado: {app_type}")
             return jsonify({"status": "ok"}), 200
 
-        router, processor, Model = APP_ROUTER_MAP[app_type]
+        router, processor, Model, fk_field = APP_ROUTER_MAP[app_type]
         item_id = data.get("item_id")
         event_type = data.get("type")
 
@@ -123,10 +138,23 @@ def podio_relations_webhook(app_type):
                 podio_item = data.get(
                     "item") or get_podio_item(item_id, app_type)
                 processor(session, podio_item)
-
             elif event_type == "item.delete":
                 event_delete(session=session, Model=Model,
                              item_unique_id=str(item_id))
+
+            elif event_type == "file.change":
+                updated_entity = session.exec(
+                    select(Model).where(Model.podio_item_id == str(item_id))
+                ).first()
+                if updated_entity:
+                    process_file_change_event(
+                        session=session,
+                        data=data,
+                        app_type=app_type,
+                        fk_field=fk_field,
+                        fk_value=getattr(updated_entity, fk_field)
+                    )
+
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
 
@@ -207,14 +235,6 @@ def podio_jobs_webhook(app_type, year):
                         source="podio",
                     )
 
-                    process_item_attachments(
-                        session=session,
-                        files=item.get("files", []),
-                        app_type=app_type,
-                        year=year,
-                        id_jobs=updated_job.ID_Jobs
-                    )
-
             # ── DELETE ────────────────────────────────────────────────────
             elif event_type == "item.delete":
                 # Capturar job_id antes de borrar
@@ -252,6 +272,43 @@ def podio_jobs_webhook(app_type, year):
                     description=f"Podio item_id: {item_id}",
                     source="podio",
                 )
+
+            # ── FILE CHANGE ───────────────────────────────────────────────
+            elif event_type == "file.change":
+                updated_job = session.exec(
+                    select(Job).where(Job.podio_item_id == str(item_id))
+                ).first()
+
+                if not updated_job:
+                    print(
+                        f"⚠️ Job con podio_item_id={item_id} no existe en DB.")
+                else:
+                    action_type = data.get("action_type")
+                    file_ids = data.get("file_ids", "")
+
+                    process_file_change_event(
+                        session=session,
+                        data=data,
+                        app_type=app_type,
+                        year=year,
+                        id_jobs=updated_job.ID_Jobs
+                    )
+
+                    action_map = {
+                        "file_created":  "File added from Podio",
+                        "file_deleted":  "File deleted from Podio",
+                        "file_replaced": "File replaced from Podio",
+                    }
+
+                    log_activity(
+                        session,
+                        action=action_map.get(
+                            action_type, "File change from Podio"),
+                        job_id=updated_job.ID_Jobs,
+                        member_id=None,
+                        description=f"Podio item_id: {item_id} | file_ids: {file_ids}",
+                        source="podio",
+                    )
 
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
