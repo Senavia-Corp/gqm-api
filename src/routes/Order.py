@@ -23,7 +23,8 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
 )
 from ..utils.mappers.mapper_aux_functions import register_event
 from sqlalchemy import or_
-from src.utils.audit import audit   # ← NEW
+from src.utils.audit import audit
+from src.utils.job_calculator import recalculate_and_apply  # ← NEW
 
 # Blueprint de Order:
 order_bp = Blueprint("order_blueprint", __name__, url_prefix="/order")
@@ -32,7 +33,7 @@ order_bp = Blueprint("order_blueprint", __name__, url_prefix="/order")
 
 
 # --------------------RUTAS GET-------------------#
-# Ruta para conseguir la lista de todas las orders
+
 @order_bp.get("/")
 @handle_exceptions()
 @paginate()
@@ -59,7 +60,6 @@ def list_orders():
         return order_data, 200
 
 
-# Ruta para conseguir una order por ID
 @order_bp.get("/<id_order>")
 @handle_exceptions()
 def get_order(id_order):
@@ -85,7 +85,6 @@ def get_order(id_order):
         return order_data, 200
 
 
-# Ruta para conseguir orders por subc y job (CUBRE AMBOS CASOS: PODIO Y ESTIMATE COSTS)
 @order_bp.get("/subcontractor/<id_subcontractor>/job/<id_job>")
 @handle_exceptions()
 @paginate()
@@ -93,7 +92,6 @@ def get_orders_by_subc_and_job(id_subcontractor, id_job):
 
     with get_session() as session:
 
-        # 1) Buscar Job para conocer podio_item_id (si existe)
         job = session.exec(
             select(Job).where(Job.ID_Jobs == id_job)
         ).first()
@@ -101,15 +99,11 @@ def get_orders_by_subc_and_job(id_subcontractor, id_job):
         if not job:
             raise AppException("Job no encontrado.", "job_not_found", 404)
 
-        # 2) Construir condición combinada
-        # - Si el job NO tiene podio_item_id, solo aplica la relación por estimate_costs
         conditions = [
-            # relación real por estimate costs (Order <- EstimateCost -> Job)
             Order.estimate_costs.any(EstimateCost.ID_Jobs == id_job)
         ]
 
         if job.podio_item_id:
-            # relación por podio (Order.job_podio_id == Job.podio_item_id)
             conditions.append(Order.job_podio_id == job.podio_item_id)
 
         statement = (
@@ -139,12 +133,10 @@ def get_orders_by_subc_and_job(id_subcontractor, id_job):
         return orders_data, 200
 
 
-# Ruta para conseguir una order por job
 @order_bp.get("/job/<job_podio_id>")
 @handle_exceptions()
 @paginate()
 def get_orders_by_job(job_podio_id):
-    # Acepta opcionalmente ?subcontractor=ID o ?id_subcontractor=ID o ?ID_Subcontractor=ID
     subc_id = (
         request.args.get("subcontractor")
         or request.args.get("id_subcontractor")
@@ -179,19 +171,14 @@ def get_orders_by_job(job_podio_id):
         return orders_data, 200
 
 
-# Ruta para conseguir una Order por ID_Jobs
 @order_bp.get("/job-id/<id_job>")
 @handle_exceptions()
 @paginate()
 def get_orders_by_job_id(id_job):
-    """
-    Retorna orders asociadas a un Job por ID_Jobs, usando el vínculo real:
-    Order -> EstimateCost (ID_Order) y EstimateCost.ID_Jobs.
-    """
     with get_session() as session:
         statement = (
             select(Order)
-            .join(Order.estimate_costs)  # requires relationship
+            .join(Order.estimate_costs)
             .options(
                 joinedload(Order.estimate_costs),
                 joinedload(Order.subcontractor),
@@ -212,9 +199,8 @@ def get_orders_by_job_id(id_job):
 
         return orders_data, 200
 
-# --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear una order
 
+# --------------- RUTAS POST, PATCH AND DELETE ----------#
 
 @order_bp.post("/")
 @handle_exceptions()
@@ -226,7 +212,6 @@ def create_order():
     obj = Order(
         **create_order.model_dump(exclude_unset=False, exclude_none=False))
 
-    # 🔘 Función de sincronización
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
 
@@ -239,8 +224,7 @@ def create_order():
     with get_session() as session:
 
         # ----------- 🔵 CREAR EN DB
-        new_id = generate_custom_id(
-            session, Order, "ID_Order", "ORD")
+        new_id = generate_custom_id(session, Order, "ID_Order", "ORD")
         obj.ID_Order = new_id
 
         # ----------- 🟢 SINCRONIZAR EN PODIO (SI APLICA)
@@ -252,7 +236,6 @@ def create_order():
                     400
                 )
 
-            # 1️⃣ Buscar Job
             job = session.exec(
                 select(Job).where(Job.podio_item_id == obj.job_podio_id)
             ).first()
@@ -260,7 +243,6 @@ def create_order():
             if not job:
                 raise AppException("Job not found", "job_not_found", 404)
 
-            # 2️⃣ Obtener servicio
             if not job.Job_type:
                 raise AppException(
                     "El Job no tiene Job_type definido",
@@ -271,12 +253,10 @@ def create_order():
                 job_type=job.Job_type,
                 year=year)
 
-            # 3️⃣ Obtener job actual desde Podio (necesario)
             podio_job = podio_service.get_item(obj.job_podio_id)
             raw_fields = podio_job.get("fields", {})
             podio_job_fields = normalize_podio_fields(raw_fields)
 
-            # 4️⃣ Construir payload
             payload = map_order_create_to_podio(
                 obj,
                 job.Job_type,
@@ -310,10 +290,23 @@ def create_order():
             obj.job_podio_id
         )
 
+        # ── Recálculo automático del Job asociado ─────────────────────────
+        # Resolver job_id: primero por podio_item_id, luego por estimate_costs
+        job_id_for_calc = None
+        if obj.job_podio_id:
+            linked_job = session.exec(
+                select(Job).where(Job.podio_item_id == obj.job_podio_id)
+            ).first()
+            job_id_for_calc = linked_job.ID_Jobs if linked_job else None
+
+        if job_id_for_calc:
+            recalculate_and_apply(job_id_for_calc, session)
+            session.commit()
+        # ─────────────────────────────────────────────────────────────────
+
         return obj.model_dump(), 201
 
 
-# Ruta para actualizar una order
 @order_bp.patch("/<id_order>")
 @handle_exceptions()
 @audit("Order updated", id_param="id_order", job_id_from="response")
@@ -338,9 +331,16 @@ def update_order(id_order):
         if not order:
             raise AppException("Order not found", "order_not_found", 404)
 
+        # Capturar job_id ANTES de modificar el objeto (por si job_podio_id cambiara)
+        job_id_for_calc = None
+        if order.job_podio_id:
+            linked_job = session.exec(
+                select(Job).where(Job.podio_item_id == order.job_podio_id)
+            ).first()
+            job_id_for_calc = linked_job.ID_Jobs if linked_job else None
+
         update_order = OrderUpdate.model_validate(data)
-        update_data_dict = update_order.model_dump(
-            exclude_unset=True)  # Crea dict limpio
+        update_data_dict = update_order.model_dump(exclude_unset=True)
         update_data_dict.pop("job_podio_id", None)
         update_data_dict.pop("ID_Subcontractor", None)
 
@@ -388,10 +388,15 @@ def update_order(id_order):
 
         logger.info("🔄 Order actualizado | order_id=%s", id_order)
 
+        # ── Recálculo automático del Job asociado ─────────────────────────
+        if job_id_for_calc:
+            recalculate_and_apply(job_id_for_calc, session)
+            session.commit()
+        # ─────────────────────────────────────────────────────────────────
+
         return order.model_dump(), 200
 
 
-# Ruta para eliminar una order
 @order_bp.delete("/<id_order>")
 @handle_exceptions()
 @audit("Order deleted", id_param="id_order", job_id_from="response")
@@ -415,6 +420,14 @@ def delete_order(id_order):
 
         if not order:
             raise AppException("Order not found", "order_not_found", 404)
+
+        # Capturar job_id ANTES de borrar — después el objeto ya no tiene relaciones
+        job_id_for_calc = None
+        if order.job_podio_id:
+            linked_job = session.exec(
+                select(Job).where(Job.podio_item_id == order.job_podio_id)
+            ).first()
+            job_id_for_calc = linked_job.ID_Jobs if linked_job else None
 
         # ----------- 🟢 BORRAR EN PODIO (SI APLICA)
         if sync_podio:
@@ -461,10 +474,13 @@ def delete_order(id_order):
         # ----------- 🔴 BORRAR EN DB
         delete_with_retry(session, order)
 
-        logger.info(
-            "🗑️ Order eliminado | order_id=%s",
-            id_order
-        )
+        logger.info("🗑️ Order eliminado | order_id=%s", id_order)
+
+        # ── Recálculo automático del Job asociado ─────────────────────────
+        if job_id_for_calc:
+            recalculate_and_apply(job_id_for_calc, session)
+            session.commit()
+        # ─────────────────────────────────────────────────────────────────
 
         return jsonify({
             "message": f"Order {id_order} eliminado correctamente"

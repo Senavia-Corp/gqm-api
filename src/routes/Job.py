@@ -23,7 +23,8 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
-from ..utils.audit import audit  # ← NEW
+from ..utils.audit import audit
+from ..utils.job_calculator import recalculate_and_apply  # ← NEW
 
 # Blueprint de Jobs:
 job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
@@ -32,9 +33,7 @@ job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
 
 
 # --------------------RUTAS GET-------------------#
-# (GET routes unchanged — no audit needed)
 
-# Ruta para conseguir la lista de todos los trabajos
 @job_bp.get("/")
 @handle_exceptions()
 @paginate()
@@ -102,9 +101,9 @@ def list_jobs_table():
         limit = min(limit, 200)
 
         job_type = request.args.get("type")
-        status = request.args.get("status")
-        year = request.args.get("year")
-        search = request.args.get("search", "").strip()  # ← NEW
+        status   = request.args.get("status")
+        year     = request.args.get("year")
+        search   = request.args.get("search", "").strip()
 
         if job_type:
             job_type = job_type.upper()
@@ -137,7 +136,6 @@ def list_jobs_table():
             if status:
                 statement = statement.where(Job.Job_status == status)
 
-            # ← NEW: búsqueda global por Project_name o ID_Jobs
             if search:
                 pattern = f"%{search}%"
                 statement = statement.where(
@@ -171,7 +169,6 @@ def list_jobs_table():
             if status:
                 count_stmt = count_stmt.where(Job.Job_status == status)
 
-            # ← NEW: mismo filtro de búsqueda en el count
             if search:
                 pattern = f"%{search}%"
                 count_stmt = count_stmt.where(
@@ -454,7 +451,7 @@ def list_jobs_by_date(date):
 
 
 # ---------------------------------------------------------------------------
-# WRITE ROUTES — @audit applied here
+# WRITE ROUTES
 # ---------------------------------------------------------------------------
 
 @job_bp.post("/")
@@ -549,6 +546,13 @@ def update_job(id_job):
         if not dry_run:
             save_with_retry(session, obj)
             logger.info("🔄 Job actualizado | job_id=%s", id_job)
+
+        # ── Recálculo automático de campos derivados ──────────────────────
+        recalculate_and_apply(id_job, session)
+        session.commit()
+        # Refrescar obj para que model_dump() devuelva los valores recalculados
+        session.refresh(obj)
+        # ─────────────────────────────────────────────────────────────────
 
         if (sync_podio or dry_run) and obj.podio_item_id:
             if obj.Job_type == "QID":

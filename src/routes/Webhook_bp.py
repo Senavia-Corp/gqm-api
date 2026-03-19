@@ -27,6 +27,7 @@ from src.utils.mappers.qbo_aux_functions import MODEL_MAP, QBO_API_NAME
 from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event_delete_qbo
 from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
 from src.utils.audit import log_activity
+from src.utils.job_calculator import recalculate_and_apply
 
 
 webhook_bp = Blueprint("webhook", __name__)
@@ -216,10 +217,15 @@ def podio_jobs_webhook(app_type, year):
                 ).first()
 
                 if updated_job:
+                    # ── Recálculo automático de campos derivados ──────────
+                    # Se ejecuta ANTES del commit final para que todo quede
+                    # consistente en una sola transacción
+                    recalculate_and_apply(updated_job.ID_Jobs, session)
+                    # ─────────────────────────────────────────────────────
+
                     is_create = event_type == "item.create"
                     action = "Job created from Podio" if is_create else "Job updated from Podio"
 
-                    # Construir descripción con cambio de status si aplica
                     desc_parts = [f"Podio item_id: {item_id}"]
                     if not is_create and old_status != updated_job.Job_status:
                         desc_parts.append(
@@ -230,14 +236,13 @@ def podio_jobs_webhook(app_type, year):
                         session,
                         action=action,
                         job_id=updated_job.ID_Jobs,
-                        member_id=None,          # desconocido desde Podio
+                        member_id=None,
                         description="  |  ".join(desc_parts),
                         source="podio",
                     )
 
             # ── DELETE ────────────────────────────────────────────────────
             elif event_type == "item.delete":
-                # Capturar job_id antes de borrar
                 job_to_delete = session.exec(
                     select(Job).where(Job.podio_item_id == str(item_id))
                 ).first()
@@ -246,7 +251,6 @@ def podio_jobs_webhook(app_type, year):
                 event_delete(session=session, Model=Job,
                              item_unique_id=str(item_id))
 
-                # Eliminar Orders y Change Orders asociados
                 orders = session.exec(
                     select(Order).where(Order.job_podio_id == str(item_id))).all()
                 for order in orders:
@@ -263,7 +267,6 @@ def podio_jobs_webhook(app_type, year):
                     print(
                         f"🗑️ {len(ch_orders)} Change Orders eliminados para Job {item_id}")
 
-                # Log de eliminación (job_id puede ser None si ya no existe)
                 log_activity(
                     session,
                     action="Job deleted from Podio",
@@ -313,6 +316,8 @@ def podio_jobs_webhook(app_type, year):
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
 
+            # El commit único al final cubre tanto process_jobs_podio
+            # como recalculate_and_apply en la misma transacción
             session.commit()
 
     except Exception as e:
