@@ -8,11 +8,12 @@
 # El llamador es responsable de aplicar los valores y guardar.
 #
 # Puntos de disparo (dónde se llama recalculate_and_apply):
-#   1. job_routes.py        → update_job()        (PATCH /jobs/<id>)
-#   2. order_routes.py      → create/update/delete order
-#   3. purchase_routes.py   → create/update/delete purchase
-#   4. estimate_routes.py   → create/update/delete estimate cost
-#   5. webhook.py           → podio_jobs_webhook() (item.create / item.update)
+#   1. job_routes.py          → update_job()              (PATCH /jobs/<id>)
+#   2. order_routes.py        → create/update/delete order
+#   3. purchase_routes.py     → create/update/delete purchase
+#   4. estimate_routes.py     → create/update/delete estimate cost
+#   5. change_order_routes.py → create/update/delete change order  ← NEW
+#   6. webhook.py             → podio_jobs_webhook()      (item.create / item.update)
 # =============================================================================
 
 from __future__ import annotations
@@ -52,7 +53,6 @@ def _resolve_multiplier(formula_value: float, job: Job, session: Session) -> flo
     if job.Job_type and job.Job_type.upper() == "PTL":
         return DEFAULT_MULTIPLIER_FALLBACK
 
-    # Cargar multipliers asociados al Job via tabla intermedia
     multipliers: list[MultiplierR] = list(
         session.exec(
             select(MultiplierR)
@@ -67,7 +67,6 @@ def _resolve_multiplier(formula_value: float, job: Job, session: Session) -> flo
         if start <= formula_value <= end:
             return float(m.Multiplier) if m.Multiplier is not None else DEFAULT_MULTIPLIER_FALLBACK
 
-    # Sin multiplier asociado que cubra el valor → rangos por defecto
     for start, end, factor in DEFAULT_MULTIPLIER_RANGES:
         if start <= formula_value <= end:
             return factor
@@ -75,15 +74,56 @@ def _resolve_multiplier(formula_value: float, job: Job, session: Session) -> flo
     return DEFAULT_MULTIPLIER_FALLBACK
 
 
+def _resolve_job_id_from_change_order(co: ChangeOrder, session: Session) -> Optional[str]:
+    """
+    Dado un ChangeOrder, resuelve el ID_Jobs del Job al que pertenece.
+
+    Para change orders generales (ID_Order is None):
+        ID_Jobs está directamente en el objeto.
+
+    Para change orders vinculados a una Order (ID_Order is not None):
+        Se busca la Order y desde ahí se llega al Job por EstimateCost o por
+        job_podio_id, según cómo esté vinculada la Order al Job.
+    """
+    # Caso 1: change order general — el job_id está directo
+    if co.ID_Jobs:
+        return co.ID_Jobs
+
+    # Caso 2: change order de Order — llegar al Job via la Order
+    if co.ID_Order:
+        order = session.exec(
+            select(Order).where(Order.ID_Order == co.ID_Order)
+        ).first()
+        if not order:
+            return None
+
+        # Intentar resolver el job por job_podio_id de la Order
+        if order.job_podio_id:
+            linked_job = session.exec(
+                select(Job).where(Job.podio_item_id == order.job_podio_id)
+            ).first()
+            if linked_job:
+                return linked_job.ID_Jobs
+
+        # Intentar resolver el job vía EstimateCost → ID_Jobs
+        ec = session.exec(
+            select(EstimateCost).where(
+                EstimateCost.ID_Order == co.ID_Order,
+                EstimateCost.ID_Jobs.is_not(None),
+            )
+        ).first()
+        if ec and ec.ID_Jobs:
+            return ec.ID_Jobs
+
+    return None
+
+
 def recalculate_job_fields(job_id: str, session: Session) -> dict:
     """
     Calcula todos los campos derivados del Job identificado por job_id.
 
-    Retorna un dict { campo_python: valor_calculado } con TODOS los campos
-    que deben actualizarse. El llamador debe aplicar los valores al objeto Job
-    y hacer save/commit.
-
-    Si job_id no existe, retorna {}.
+    Retorna un dict { campo_python: valor_calculado }. Retorna {} si el Job
+    no existe.
     """
     job = session.exec(select(Job).where(Job.ID_Jobs == job_id)).first()
     if not job:
@@ -100,7 +140,7 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
     estimated_material = 0.0
     estimated_city     = 0.0
     ptl_gc_fee_num     = 0.0
-    bldg_dept_fees_list: list[str] = []
+    bldg_dept_fees_list: list[float] = []   # float — modelo actualizado
 
     for ec in estimate_costs:
         cost = float(ec.Builder_cost or 0)
@@ -115,13 +155,12 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
         elif ct == "PTLGCF":
             ptl_gc_fee_num += cost
         elif ct == "BDF":
-            # Cada BDF es un elemento string del array Bldg_dept_fees
             bldg_dept_fees_list.append(
-                str(ec.Builder_cost) if ec.Builder_cost is not None else "0"
+                float(ec.Builder_cost) if ec.Builder_cost is not None else 0.0
             )
 
-    # Gqm_paid_fees = suma de los strings de Bldg_dept_fees casteados a float
-    gqm_paid_fees = sum(float(v) for v in bldg_dept_fees_list if v)
+    # Gqm_paid_fees = suma directa de los floats
+    gqm_paid_fees = sum(bldg_dept_fees_list)
 
     # -------------------------------------------------------------------------
     # 2. Purchases → Gqm_total_materials_fees
@@ -133,12 +172,17 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
 
     # -------------------------------------------------------------------------
     # 3. Orders → suma de Adj_formula
-    #    Vinculación dual: por job_podio_id (Podio) y por EstimateCost.ID_Order (DB)
+    #
+    #    Vinculación dual: job_podio_id (Podio) y EstimateCost.ID_Order (DB).
+    #
+    #    Nota: los change orders de Order modifican el Adj_formula de la Order
+    #    en Podio, pero aquí leemos el valor ya persistido en Order.Adj_formula.
+    #    El change_order_routes dispara este recálculo después de cada mutación,
+    #    por lo que el valor recalculado siempre refleja el estado actual de la DB.
     # -------------------------------------------------------------------------
     counted_order_ids: set[str] = set()
     orders_adj: list[float] = []
 
-    # Vía podio_item_id
     if job.podio_item_id:
         podio_orders = session.exec(
             select(Order).where(Order.job_podio_id == job.podio_item_id)
@@ -148,7 +192,6 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
                 counted_order_ids.add(o.ID_Order)
             orders_adj.append(float(o.Adj_formula or 0))
 
-    # Vía EstimateCosts → ID_Order (evita doble conteo)
     ec_order_ids = {
         ec.ID_Order for ec in estimate_costs if ec.ID_Order is not None
     }
@@ -165,7 +208,8 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
     sum_adj_formula = sum(orders_adj)
 
     # -------------------------------------------------------------------------
-    # 4. ChangeOrders vinculadas al Job sin Order específica
+    # 4. ChangeOrders GENERALES vinculadas al Job sin Order específica
+    #    → afectan Gqm_total_change_orders, Gqm_final_sold_pricing, Acc_receivable
     # -------------------------------------------------------------------------
     change_orders_job = session.exec(
         select(ChangeOrder).where(
@@ -178,7 +222,7 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
     )
 
     # -------------------------------------------------------------------------
-    # 5. Campos manuales del Job que son inputs del usuario (no se recalculan)
+    # 5. Campos manuales del Job (inputs del usuario — no se recalculan)
     # -------------------------------------------------------------------------
     gqm_target_sold_pricing = float(job.Gqm_target_sold_pricing or 0)
 
@@ -186,16 +230,16 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
     # 6. Cálculo en orden de dependencias
     # -------------------------------------------------------------------------
 
-    # Nivel 1 — directos desde EstimateCosts y Purchases
+    # Nivel 1
     calc_estimated_rent           = estimated_rent
     calc_estimated_material       = estimated_material
     calc_estimated_city           = estimated_city
-    calc_ptl_gc_fee               = ptl_gc_fee_num       # float para fórmulas
-    calc_bldg_dept_fees           = bldg_dept_fees_list  # list[str] para el campo JSON
+    calc_ptl_gc_fee               = ptl_gc_fee_num        # float nativo
+    calc_bldg_dept_fees           = bldg_dept_fees_list   # list[float]
     calc_gqm_paid_fees            = gqm_paid_fees
     calc_gqm_total_materials_fees = gqm_total_materials_fees
 
-    # Nivel 2 — Orders + EstimateCosts
+    # Nivel 2
     calc_tech_formula_pricing = sum_adj_formula
     calc_gqm_formula_pricing  = (
         sum_adj_formula
@@ -204,14 +248,13 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
         + calc_estimated_city
     )
 
-    # Nivel 3 — multiplier
+    # Nivel 3
     calc_gqm_adj_formula_pricing = (
         calc_gqm_formula_pricing
         * _resolve_multiplier(calc_gqm_formula_pricing, job, session)
     )
 
-    # Nivel 4 — ChangeOrders + Ptl_gc_fee + input manual
-    # Gqm_final_sold_pricing y Acc_receivable tienen la misma fórmula (confirmado)
+    # Nivel 4
     calc_gqm_final_sold_pricing = (
         gqm_target_sold_pricing
         + gqm_total_change_orders
@@ -219,7 +262,7 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
     )
     calc_acc_receivable = calc_gqm_final_sold_pricing
 
-    # Nivel 5 — dependen de Gqm_final_sold_pricing y Gqm_adj_formula_pricing
+    # Nivel 5
     calc_gqm_premium_in_money = (
         calc_gqm_final_sold_pricing - calc_gqm_adj_formula_pricing
     )
@@ -230,7 +273,7 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
         else 0.0
     )
 
-    # Nivel 6 — cierre financiero
+    # Nivel 6
     calc_gqm_final_form_pricing = (
         sum_adj_formula
         + calc_gqm_total_materials_fees
@@ -238,7 +281,6 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
     )
     calc_gqm_final_adj_form_pricing = calc_gqm_final_form_pricing * 1.027
 
-    # Gqm_final_percentage y Gqm_final_target_return tienen la misma fórmula (confirmado)
     calc_gqm_final_percentage = (
         (calc_acc_receivable - calc_gqm_final_adj_form_pricing)
         / calc_acc_receivable
@@ -254,28 +296,21 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
     # 7. Retornar todos los campos calculados
     # -------------------------------------------------------------------------
     return {
-        # EstimateCost-derived
         "Estimated_rent":             calc_estimated_rent,
         "Estimated_material":         calc_estimated_material,
         "Estimated_city":             calc_estimated_city,
-        "Ptl_gc_fee":                 str(calc_ptl_gc_fee),  # tipo string en el modelo
-        "Bldg_dept_fees":             calc_bldg_dept_fees,   # list[str] → JSON
+        "Ptl_gc_fee":                 calc_ptl_gc_fee,       # float
+        "Bldg_dept_fees":             calc_bldg_dept_fees,   # list[float]
         "Gqm_paid_fees":              calc_gqm_paid_fees,
-        # Purchase-derived
         "Gqm_total_materials_fees":   calc_gqm_total_materials_fees,
-        # Order-derived
         "Tech_formula_pricing":       calc_tech_formula_pricing,
         "Gqm_formula_pricing":        calc_gqm_formula_pricing,
-        # Multiplier-derived
         "Gqm_adj_formula_pricing":    calc_gqm_adj_formula_pricing,
-        # ChangeOrder + manual inputs
         "Gqm_total_change_orders":    gqm_total_change_orders,
         "Gqm_final_sold_pricing":     calc_gqm_final_sold_pricing,
         "Acc_receivable":             calc_acc_receivable,
-        # Pricing returns
         "Gqm_premium_in_money":       calc_gqm_premium_in_money,
         "Gqm_target_return":          calc_gqm_target_return,
-        # Financial close
         "Gqm_final_form_pricing":     calc_gqm_final_form_pricing,
         "Gqm_final_adj_form_pricing": calc_gqm_final_adj_form_pricing,
         "Gqm_final_percentage":       calc_gqm_final_percentage,
@@ -290,10 +325,6 @@ def recalculate_and_apply(job_id: str, session: Session) -> Optional[Job]:
     NO hace commit — el llamador decide cuándo commitear.
 
     Retorna el objeto Job actualizado, o None si no existe.
-
-    Uso típico:
-        recalculate_and_apply(job_id, session)
-        session.commit()   # o save_with_retry si tu helper lo incluye
     """
     calculated = recalculate_job_fields(job_id, session)
     if not calculated:
@@ -308,3 +339,19 @@ def recalculate_and_apply(job_id: str, session: Session) -> Optional[Job]:
 
     session.add(job)
     return job
+
+
+def recalculate_and_apply_from_change_order(
+    change_order: ChangeOrder, session: Session
+) -> Optional[Job]:
+    """
+    Wrapper para disparar el recálculo del Job a partir de un ChangeOrder,
+    resolviendo automáticamente el job_id independientemente de si el CO
+    es general (ID_Jobs directo) o está vinculado a una Order (ID_Order).
+
+    Retorna el Job actualizado, o None si no se pudo resolver el job_id.
+    """
+    job_id = _resolve_job_id_from_change_order(change_order, session)
+    if not job_id:
+        return None
+    return recalculate_and_apply(job_id, session)
