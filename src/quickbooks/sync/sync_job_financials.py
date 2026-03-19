@@ -4,8 +4,6 @@ from .sync_bills_with_payments import sync_qbo_bills_and_payments_by_job
 
 
 # -------------------------- SINCRONIZAR GLOBAL POR JOB -------------------------- #
-
-
 def sync_job_financials(realm_id, job_code, start, limit, dry_run):
     print(f"\n🚀 INICIANDO SINCRONIZACIÓN TOTAL - Job: {job_code}")
     print("-" * 50)

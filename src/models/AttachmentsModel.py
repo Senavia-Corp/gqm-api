@@ -14,6 +14,7 @@ class AttachmentsBase(SQLModel):
     Attachment_descr: Optional[str] = Field(default=None)
     Link: Optional[str] = Field(default=None)
     Document_type: Optional[str] = Field(default=None)
+    podio_file_id: Optional[str] = Field(default=None, index=True)
 
 
 class Attachments(AttachmentsBase, table=True):

@@ -68,10 +68,10 @@ class JobBase(SQLModel):
 
     Ptl_Superintendent: Optional[str] = Field(default=None)
     Ptl_property_id: Optional[str] = Field(default=None)
-    Ptl_gc_fee: Optional[str] = Field(default=None)
+    Ptl_gc_fee: Optional[float] = Field(default=None)
 
     Gqm_paid_fees: Optional[float] = Field(default=None)
-    Bldg_dept_fees: Optional[List[str]] = Field(
+    Bldg_dept_fees: Optional[List[Optional[float]]] = Field(
         default=None, sa_column=Column(JSON))
 
 
@@ -112,6 +112,10 @@ class Job(JobBase, table=True):
         back_populates="job")
     purchases: List["Purchase"] = Relationship(  # type: ignore
         back_populates="job")
+    chat_messages: List["ChatMessage"] = Relationship(  # type: ignore
+        back_populates="job",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"}
+    )
 
     # Relaciones de muchos a muchos
     multipliers: List[MultiplierR] = Relationship(

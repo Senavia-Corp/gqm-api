@@ -10,6 +10,7 @@ from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from sqlalchemy.orm import joinedload, load_only
+from sqlalchemy import func, or_
 from ..utils.middleware.auth.password_hashing import hash_password
 from sqlalchemy import func
 
@@ -111,12 +112,14 @@ def get_member_by_id(id_member):
 @member_bp.get("/member_table")
 def list_members_table():
     try:
-        page  = int(request.args.get("page",  1))
+        page = int(request.args.get("page",  1))
         limit = int(request.args.get("limit", 20))
-        q     = request.args.get("q", "").strip()
+        q = request.args.get("q", "").strip()
 
-        if page  < 1: page  = 1
-        if limit < 1: limit = 20
+        if page < 1:
+            page = 1
+        if limit < 1:
+            limit = 20
         limit = min(limit, 200)
 
         with get_session() as session:
@@ -139,10 +142,14 @@ def list_members_table():
                 base_stmt = base_stmt.where(
                     or_(
                         func.lower(Member.ID_Member).like(func.lower(pattern)),
-                        func.lower(Member.Member_Name).like(func.lower(pattern)),
-                        func.lower(Member.Company_Role).like(func.lower(pattern)),
-                        func.lower(Member.Email_Address).like(func.lower(pattern)),
-                        func.lower(Member.Phone_Number).like(func.lower(pattern)),
+                        func.lower(Member.Member_Name).like(
+                            func.lower(pattern)),
+                        func.lower(Member.Company_Role).like(
+                            func.lower(pattern)),
+                        func.lower(Member.Email_Address).like(
+                            func.lower(pattern)),
+                        func.lower(Member.Phone_Number).like(
+                            func.lower(pattern)),
                     )
                 )
 
@@ -152,7 +159,8 @@ def list_members_table():
 
             # ── Paginated results ──────────────────────────────────────────
             offset = (page - 1) * limit
-            paged_stmt = base_stmt.order_by(Member.ID_Member.desc()).offset(offset).limit(limit)
+            paged_stmt = base_stmt.order_by(
+                Member.ID_Member.desc()).offset(offset).limit(limit)
             results = session.exec(paged_stmt).unique().all()
 
             out = [
@@ -160,7 +168,7 @@ def list_members_table():
                     "ID_Member":    m.ID_Member,
                     "Member_Name":  m.Member_Name,
                     "Company_Role": m.Company_Role,
-                    "Email_Address":m.Email_Address,
+                    "Email_Address": m.Email_Address,
                     "Phone_Number": m.Phone_Number,
                 }
                 for m in results
