@@ -24,7 +24,9 @@ from src.podio.webhook.jobs_hook_sync import process_jobs_podio
 from src.utils.mappers.qbo_aux_functions import MODEL_MAP, QBO_API_NAME
 from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event_delete_qbo
 from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
-from src.utils.audit import log_activity  # ← NEW
+from src.utils.audit import log_activity
+from src.utils.job_calculator import recalculate_and_apply  # ← NEW
+from src.utils.podio_webhook_core import process_item_attachments, ATTACHMENT_MODEL_MAP
 
 
 webhook_bp = Blueprint("webhook", __name__)
@@ -43,11 +45,12 @@ def podio_general_webhook(app_type):
     }
 
     try:
-        app_type, data, early_resp, status = parse_and_validate_webhook(app_type)
+        app_type, data, early_resp, status = parse_and_validate_webhook(
+            app_type)
         if early_resp:
             return early_resp, status
 
-        item_id    = data.get("item_id")
+        item_id = data.get("item_id")
         event_type = data.get("type")
 
         if app_type not in APP_ROUTER_MAP:
@@ -60,10 +63,12 @@ def podio_general_webhook(app_type):
         with get_session() as session:
             existing = None
             if event_type != "item.delete":
-                podio_item     = data.get("item") or get_podio_item(item_id, app_type)
-                item_data      = mapper(podio_item, session)
-                existing       = session.exec(
-                    select(Model).where(getattr(Model, "podio_item_id") == str(item_id))
+                podio_item = data.get(
+                    "item") or get_podio_item(item_id, app_type)
+                item_data = mapper(podio_item, session)
+                existing = session.exec(
+                    select(Model).where(
+                        getattr(Model, "podio_item_id") == str(item_id))
                 ).first()
                 item_unique_id = str(item_data.get(id_field) or item_id)
             else:
@@ -76,7 +81,8 @@ def podio_general_webhook(app_type):
                 event_update(session=session, Model=Model,
                              item_id=item_id, item_data=item_data)
             elif event_type == "item.delete":
-                event_delete(session=session, Model=Model, item_unique_id=item_unique_id)
+                event_delete(session=session, Model=Model,
+                             item_unique_id=item_unique_id)
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
 
@@ -98,7 +104,8 @@ def podio_relations_webhook(app_type):
     }
 
     try:
-        app_type, data, early_resp, status = parse_and_validate_webhook(app_type)
+        app_type, data, early_resp, status = parse_and_validate_webhook(
+            app_type)
         if early_resp:
             return early_resp, status
 
@@ -107,17 +114,20 @@ def podio_relations_webhook(app_type):
             return jsonify({"status": "ok"}), 200
 
         router, processor, Model = APP_ROUTER_MAP[app_type]
-        item_id    = data.get("item_id")
+        item_id = data.get("item_id")
         event_type = data.get("type")
 
         print(f"📩 Evento recibido: {event_type} | Item ID: {item_id}")
 
         with get_session() as session:
             if event_type in ["item.create", "item.update"]:
-                podio_item = data.get("item") or get_podio_item(item_id, app_type)
+                podio_item = data.get(
+                    "item") or get_podio_item(item_id, app_type)
                 processor(session, podio_item)
+
             elif event_type == "item.delete":
-                event_delete(session=session, Model=Model, item_unique_id=str(item_id))
+                event_delete(session=session, Model=Model,
+                             item_unique_id=str(item_id))
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
 
@@ -139,7 +149,8 @@ def podio_jobs_webhook(app_type, year):
     JOB_TYPES = {"QID", "PTL", "PAR"}
 
     try:
-        app_type, data, early_resp, status = parse_and_validate_webhook(app_type, year=year)
+        app_type, data, early_resp, status = parse_and_validate_webhook(
+            app_type, year=year)
         if early_resp:
             return early_resp, status
 
@@ -147,7 +158,7 @@ def podio_jobs_webhook(app_type, year):
             print(f"⚠️ App_type no soportado: {app_type}")
             return jsonify({"status": "ok"}), 200
 
-        item_id    = data.get("item_id")
+        item_id = data.get("item_id")
         event_type = data.get("type")
 
         print(f"📩 Evento recibido: {event_type} | Item ID: {item_id}")
@@ -156,7 +167,8 @@ def podio_jobs_webhook(app_type, year):
 
             # ── CREATE & UPDATE ───────────────────────────────────────────
             if event_type in ["item.create", "item.update"]:
-                item = data.get("item") or get_podio_item(item_id, app_type, year=year)
+                item = data.get("item") or get_podio_item(
+                    item_id, app_type, year=year)
 
                 # Snapshot del Job ANTES de procesar (para detectar status change)
                 existing_job = session.exec(
@@ -177,10 +189,15 @@ def podio_jobs_webhook(app_type, year):
                 ).first()
 
                 if updated_job:
-                    is_create = event_type == "item.create"
-                    action    = "Job created from Podio" if is_create else "Job updated from Podio"
+                    # ── Recálculo automático de campos derivados ──────────
+                    # Se ejecuta ANTES del commit final para que todo quede
+                    # consistente en una sola transacción
+                    recalculate_and_apply(updated_job.ID_Jobs, session)
+                    # ─────────────────────────────────────────────────────
 
-                    # Construir descripción con cambio de status si aplica
+                    is_create = event_type == "item.create"
+                    action = "Job created from Podio" if is_create else "Job updated from Podio"
+
                     desc_parts = [f"Podio item_id: {item_id}"]
                     if not is_create and old_status != updated_job.Job_status:
                         desc_parts.append(
@@ -191,37 +208,45 @@ def podio_jobs_webhook(app_type, year):
                         session,
                         action=action,
                         job_id=updated_job.ID_Jobs,
-                        member_id=None,          # desconocido desde Podio
+                        member_id=None,
                         description="  |  ".join(desc_parts),
                         source="podio",
                     )
 
+                    process_item_attachments(
+                        session=session,
+                        files=item.get("files", []),
+                        app_type=app_type,
+                        year=year,
+                        id_jobs=updated_job.ID_Jobs
+                    )
+
             # ── DELETE ────────────────────────────────────────────────────
             elif event_type == "item.delete":
-                # Capturar job_id antes de borrar
                 job_to_delete = session.exec(
                     select(Job).where(Job.podio_item_id == str(item_id))
                 ).first()
                 job_id_for_log = job_to_delete.ID_Jobs if job_to_delete else None
 
-                event_delete(session=session, Model=Job, item_unique_id=str(item_id))
+                event_delete(session=session, Model=Job,
+                             item_unique_id=str(item_id))
 
-                # Eliminar Orders y Change Orders asociados
                 orders = session.exec(
                     select(Order).where(Order.job_podio_id == str(item_id))).all()
                 for order in orders:
                     delete_with_retry(session, order)
                 if orders:
-                    print(f"🗑️ {len(orders)} Orders eliminados para Job {item_id}")
+                    print(
+                        f"🗑️ {len(orders)} Orders eliminados para Job {item_id}")
 
                 ch_orders = session.exec(
                     select(ChangeOrder).where(ChangeOrder.job_podio_id == str(item_id))).all()
                 for ch_order in ch_orders:
                     delete_with_retry(session, ch_order)
                 if ch_orders:
-                    print(f"🗑️ {len(ch_orders)} Change Orders eliminados para Job {item_id}")
+                    print(
+                        f"🗑️ {len(ch_orders)} Change Orders eliminados para Job {item_id}")
 
-                # Log de eliminación (job_id puede ser None si ya no existe)
                 log_activity(
                     session,
                     action="Job deleted from Podio",
@@ -234,6 +259,8 @@ def podio_jobs_webhook(app_type, year):
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
 
+            # El commit único al final cubre tanto process_jobs_podio
+            # como recalculate_and_apply en la misma transacción
             session.commit()
 
     except Exception as e:
@@ -252,24 +279,26 @@ def podio_jobs_webhook(app_type, year):
 def qbo_webhook():
     print("\n🔥 --- QBO WEBHOOK START ---", flush=True)
     try:
-        raw_body  = request.get_data()
+        raw_body = request.get_data()
         signature = request.headers.get("intuit-signature")
 
         if not validate_qbo_signature(raw_body, signature):
             return jsonify({"error": "Invalid signature"}), 401
 
         payload = request.get_json()
-        events  = payload if isinstance(payload, list) else [payload]
+        events = payload if isinstance(payload, list) else [payload]
         print(f"📦 Recibidos {len(events)} evento(s)", flush=True)
 
         for event in events:
             if "intuitentityid" in event:
-                entity_id   = event.get("intuitentityid")
-                realm_id    = event.get("intuitaccountid")
-                e_type      = event.get("type", "")
-                parts       = e_type.split(".")
-                entity_name = parts[1].capitalize() if len(parts) > 1 else "Unknown"
-                operation   = parts[2].capitalize() if len(parts) > 2 else "Update"
+                entity_id = event.get("intuitentityid")
+                realm_id = event.get("intuitaccountid")
+                e_type = event.get("type", "")
+                parts = e_type.split(".")
+                entity_name = parts[1].capitalize() if len(
+                    parts) > 1 else "Unknown"
+                operation = parts[2].capitalize() if len(
+                    parts) > 2 else "Update"
                 _process_event(realm_id, entity_name, entity_id, operation)
 
         return jsonify({"status": "success"}), 200
@@ -280,11 +309,12 @@ def qbo_webhook():
 
 
 def _process_event(realm_id, entity_name, entity_id, operation):
-    print(f"📩 Procesando: {entity_name} | ID: {entity_id} | Op: {operation}", flush=True)
+    print(
+        f"📩 Procesando: {entity_name} | ID: {entity_id} | Op: {operation}", flush=True)
 
     clean_entity = entity_name.lower()
-    model_class  = MODEL_MAP.get(clean_entity)
-    api_name     = QBO_API_NAME.get(clean_entity, entity_name)
+    model_class = MODEL_MAP.get(clean_entity)
+    api_name = QBO_API_NAME.get(clean_entity, entity_name)
 
     try:
         if operation in ["Delete", "Deleted"]:

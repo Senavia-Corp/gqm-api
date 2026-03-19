@@ -42,6 +42,9 @@ class Member(MemberBase, table=True):
         back_populates="member")
     tasks: List["Tasks"] = Relationship(  # type: ignore
         back_populates="member")
+    chat_messages: List["ChatMessage"] = Relationship(  # type: ignore
+        back_populates="member"
+    )
 
     # Relación de muchos a muchos
     jobs: List["Job"] = Relationship(  # type: ignore

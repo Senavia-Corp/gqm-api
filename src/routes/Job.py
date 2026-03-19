@@ -23,7 +23,8 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
-from ..utils.audit import audit  # ← NEW
+from ..utils.audit import audit
+from ..utils.job_calculator import recalculate_and_apply  # ← NEW
 
 # Blueprint de Jobs:
 job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
@@ -32,9 +33,7 @@ job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
 
 
 # --------------------RUTAS GET-------------------#
-# (GET routes unchanged — no audit needed)
 
-# Ruta para conseguir la lista de todos los trabajos
 @job_bp.get("/")
 @handle_exceptions()
 @paginate()
@@ -93,16 +92,18 @@ def list_jobs():
 @job_bp.get("/jobs_table")
 def list_jobs_table():
     try:
-        page  = int(request.args.get("page",  1))
+        page = int(request.args.get("page",  1))
         limit = int(request.args.get("limit", 10))
-        if page  < 1: page  = 1
-        if limit < 1: limit = 10
+        if page < 1:
+            page = 1
+        if limit < 1:
+            limit = 10
         limit = min(limit, 200)
 
         job_type = request.args.get("type")
         status   = request.args.get("status")
         year     = request.args.get("year")
-        search   = request.args.get("search", "").strip()  # ← NEW
+        search   = request.args.get("search", "").strip()
 
         if job_type:
             job_type = job_type.upper()
@@ -130,10 +131,11 @@ def list_jobs_table():
                 )
             )
 
-            if job_type:  statement = statement.where(Job.Job_type   == job_type)
-            if status:    statement = statement.where(Job.Job_status  == status)
+            if job_type:
+                statement = statement.where(Job.Job_type == job_type)
+            if status:
+                statement = statement.where(Job.Job_status == status)
 
-            # ← NEW: búsqueda global por Project_name o ID_Jobs
             if search:
                 pattern = f"%{search}%"
                 statement = statement.where(
@@ -162,10 +164,11 @@ def list_jobs_table():
                              extract("year", Job.Date_assigned) == year_int)))
 
             count_stmt = select(func.count()).select_from(Job)
-            if job_type: count_stmt = count_stmt.where(Job.Job_type  == job_type)
-            if status:   count_stmt = count_stmt.where(Job.Job_status == status)
+            if job_type:
+                count_stmt = count_stmt.where(Job.Job_type == job_type)
+            if status:
+                count_stmt = count_stmt.where(Job.Job_status == status)
 
-            # ← NEW: mismo filtro de búsqueda en el count
             if search:
                 pattern = f"%{search}%"
                 count_stmt = count_stmt.where(
@@ -193,16 +196,17 @@ def list_jobs_table():
                              Job.Date_assigned.is_not(None),
                              extract("year", Job.Date_assigned) == year_int)))
 
-            total  = session.exec(count_stmt).one()
+            total = session.exec(count_stmt).one()
             offset = (page - 1) * limit
-            statement = statement.order_by(Job.ID_Jobs.desc()).offset(offset).limit(limit)
-            results   = session.exec(statement).unique().all()
+            statement = statement.order_by(
+                Job.ID_Jobs.desc()).offset(offset).limit(limit)
+            results = session.exec(statement).unique().all()
 
             if not results:
                 return jsonify({"page": page, "limit": limit, "total": total, "results": []}), 200
 
-            job_ids  = [j.ID_Jobs for j in results if j.ID_Jobs]
-            roles    = session.exec(
+            job_ids = [j.ID_Jobs for j in results if j.ID_Jobs]
+            roles = session.exec(
                 select(JobMemberLink).where(JobMemberLink.job_id.in_(job_ids))).all()
             roles_map = {(l.job_id, l.member_id): l.rol for l in roles}
 
@@ -245,8 +249,10 @@ def get_job_by_id(id_job):
                 joinedload(Job.multipliers), joinedload(Job.attachments),
                 joinedload(Job.tasks), joinedload(Job.estimate_costs),
                 joinedload(Job.payment_units),
-                joinedload(Job.subcontractors).joinedload(Subcontractor.technicians),
-                joinedload(Job.subcontractors).joinedload(Subcontractor.orders),
+                joinedload(Job.subcontractors).joinedload(
+                    Subcontractor.technicians),
+                joinedload(Job.subcontractors).joinedload(
+                    Subcontractor.orders),
                 joinedload(Job.tlactivity), joinedload(Job.change_orders),
                 joinedload(Job.building_dept),
                 selectinload(Job.financial_docs).options(
@@ -258,7 +264,8 @@ def get_job_by_id(id_job):
         if not obj:
             raise AppException("Job no encontrado.", "job_not_found", 404)
 
-        roles_statement = select(JobMemberLink).where(JobMemberLink.job_id == obj.ID_Jobs)
+        roles_statement = select(JobMemberLink).where(
+            JobMemberLink.job_id == obj.ID_Jobs)
         roles = session.exec(roles_statement).all()
         roles_map = {link.member_id: link.rol for link in roles}
 
@@ -280,11 +287,12 @@ def get_job_by_id(id_job):
 @paginate()
 def get_jobs_by_type_year():
     job_type = request.args.get("type")
-    year     = request.args.get("year")
+    year = request.args.get("year")
     if not job_type or not year:
-        raise AppException("Debes enviar los parámetros 'type' y 'year'.", "missing_query_params", 400)
+        raise AppException(
+            "Debes enviar los parámetros 'type' y 'year'.", "missing_query_params", 400)
     year_digit = year[-1]
-    pattern    = f"{job_type.upper()}{year_digit}%"
+    pattern = f"{job_type.upper()}{year_digit}%"
     with get_session() as session:
         statement = (
             select(Job)
@@ -293,8 +301,10 @@ def get_jobs_by_type_year():
                 joinedload(Job.multipliers), joinedload(Job.attachments),
                 joinedload(Job.tasks), joinedload(Job.estimate_costs),
                 joinedload(Job.payment_units),
-                joinedload(Job.subcontractors).joinedload(Subcontractor.technicians),
-                joinedload(Job.subcontractors).joinedload(Subcontractor.orders),
+                joinedload(Job.subcontractors).joinedload(
+                    Subcontractor.technicians),
+                joinedload(Job.subcontractors).joinedload(
+                    Subcontractor.orders),
                 joinedload(Job.tlactivity), joinedload(Job.change_orders),
                 joinedload(Job.building_dept))
             .where(Job.ID_Jobs.like(pattern))
@@ -303,7 +313,7 @@ def get_jobs_by_type_year():
         if not results:
             return [], 200
         job_ids = [job.ID_Jobs for job in results]
-        roles   = session.exec(
+        roles = session.exec(
             select(JobMemberLink).where(JobMemberLink.job_id.in_(job_ids))).all()
         roles_map = {(l.job_id, l.member_id): l.rol for l in roles}
         jobs_data = []
@@ -332,8 +342,9 @@ def list_jobs_by_status(status):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Job.Job_status == status)
         )
-        results   = session.exec(statement).unique().all()
-        if not results: return [], 200
+        results = session.exec(statement).unique().all()
+        if not results:
+            return [], 200
         jobs_data = [add_relationships(job, ["client", "members", "multipliers",
                      "attachments", "subcontractors.technicians"]) for job in results]
         return jobs_data, 200
@@ -352,8 +363,9 @@ def get_job_by_clientID(id_client):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Job.ID_Client == id_client)
         )
-        results   = session.exec(statement).unique().all()
-        if not results: return [], 200
+        results = session.exec(statement).unique().all()
+        if not results:
+            return [], 200
         return [add_relationships(job, ["client", "members", "multipliers",
                 "attachments", "subcontractors.technicians"]) for job in results], 200
 
@@ -371,8 +383,9 @@ def get_job_by_memberID(id_member):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Member.ID_Member == id_member)
         )
-        results   = session.exec(statement).unique().all()
-        if not results: return [], 200
+        results = session.exec(statement).unique().all()
+        if not results:
+            return [], 200
         return [add_relationships(job, ["client", "members", "multipliers",
                 "attachments", "subcontractors.technicians"]) for job in results], 200
 
@@ -390,8 +403,9 @@ def get_job_by_subcontrID(id_subcontractor):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Subcontractor.ID_Subcontractor == id_subcontractor)
         )
-        results   = session.exec(statement).unique().all()
-        if not results: return [], 200
+        results = session.exec(statement).unique().all()
+        if not results:
+            return [], 200
         return [add_relationships(job, ["client", "members", "multipliers",
                 "attachments", "subcontractors.technicians"]) for job in results], 200
 
@@ -409,8 +423,9 @@ def list_jobs_by_type(type):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Job.Job_type == type)
         )
-        results   = session.exec(statement).unique().all()
-        if not results: return [], 200
+        results = session.exec(statement).unique().all()
+        if not results:
+            return [], 200
         return [add_relationships(job, ["client", "members", "multipliers",
                 "attachments", "subcontractors.technicians"]) for job in results], 200
 
@@ -428,14 +443,15 @@ def list_jobs_by_date(date):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Job.Date_assigned == date)
         )
-        results   = session.exec(statement).unique().all()
-        if not results: return [], 200
+        results = session.exec(statement).unique().all()
+        if not results:
+            return [], 200
         return [add_relationships(job, ["client", "members", "multipliers",
                 "attachments", "subcontractors.technicians"]) for job in results], 200
 
 
 # ---------------------------------------------------------------------------
-# WRITE ROUTES — @audit applied here
+# WRITE ROUTES
 # ---------------------------------------------------------------------------
 
 @job_bp.post("/")
@@ -443,12 +459,12 @@ def list_jobs_by_date(date):
 @audit("Job created", job_id_from="response")
 def create_job():
 
-    data     = request.get_json()
+    data = request.get_json()
     job_data = JobCreate.model_validate(data)
-    obj      = Job(**job_data.model_dump(exclude_unset=False, exclude_none=False))
+    obj = Job(**job_data.model_dump(exclude_unset=False, exclude_none=False))
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
-    year       = request.args.get("year", type=int)
+    year = request.args.get("year", type=int)
 
     if sync_podio and not year:
         raise AppException(
@@ -465,17 +481,20 @@ def create_job():
             elif obj.Job_type == "PAR":
                 podio_fields = map_job_to_podio_par(obj, session=session)
             else:
-                raise AppException(f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)
+                raise AppException(
+                    f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)
 
-            podio_service  = podio_jobs_router.get_service(job_type=obj.Job_type, year=year)
+            podio_service = podio_jobs_router.get_service(
+                job_type=obj.Job_type, year=year)
             podio_response = podio_service.create_item(podio_fields)
 
             if not podio_response or not podio_response.get("item_id"):
-                raise AppException("No se pudo crear el item en Podio.", "podio_creation_failed", 502)
+                raise AppException(
+                    "No se pudo crear el item en Podio.", "podio_creation_failed", 502)
 
             obj.podio_item_id = podio_response["item_id"]
-            item              = podio_service.get_item(obj.podio_item_id)
-            formatted_id      = item.get("app_item_id_formatted")
+            item = podio_service.get_item(obj.podio_item_id)
+            formatted_id = item.get("app_item_id_formatted")
 
             if not formatted_id:
                 raise AppException(
@@ -494,11 +513,13 @@ def create_job():
 
             if obj.Job_type not in prefix_map:
                 raise AppException("Job no encontrado.", "job_not_found", 404)
-            obj.ID_Jobs        = generate_custom_id(session, Job, "ID_Jobs", prefix_map[obj.Job_type])
-            obj.podio_item_id  = None
+            obj.ID_Jobs = generate_custom_id(
+                session, Job, "ID_Jobs", prefix_map[obj.Job_type])
+            obj.podio_item_id = None
 
         save_with_retry(session, obj)
-        logger.info("✅ Job creado | job_id=%s | podio_item_id=%s", obj.ID_Jobs, obj.podio_item_id)
+        logger.info("✅ Job creado | job_id=%s | podio_item_id=%s",
+                    obj.ID_Jobs, obj.podio_item_id)
         return obj.model_dump(), 201
 
 
@@ -507,23 +528,33 @@ def create_job():
 @audit("Job updated", id_param="id_job")
 def update_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
-    year       = request.args.get("year", type=int)
-    data       = request.get_json()
+    dry_run = request.args.get("dry_run", "false").lower() == "true"
+    year = request.args.get("year", type=int)
+    data = request.get_json()
 
     with get_session() as session:
         obj = session.exec(select(Job).where(Job.ID_Jobs == id_job)).first()
         if not obj:
             raise AppException("Job no encontrado.", "job_not_found", 404)
 
-        update_data = JobUpdate.model_validate(data).model_dump(exclude_unset=True)
+        update_data = JobUpdate.model_validate(
+            data).model_dump(exclude_unset=True)
 
         for key, value in update_data.items():
             setattr(obj, key, value)
 
-        save_with_retry(session, obj)
-        logger.info("🔄 Job actualizado | job_id=%s", id_job)
+        if not dry_run:
+            save_with_retry(session, obj)
+            logger.info("🔄 Job actualizado | job_id=%s", id_job)
 
-        if sync_podio and obj.podio_item_id:
+        # ── Recálculo automático de campos derivados ──────────────────────
+        recalculate_and_apply(id_job, session)
+        session.commit()
+        # Refrescar obj para que model_dump() devuelva los valores recalculados
+        session.refresh(obj)
+        # ─────────────────────────────────────────────────────────────────
+
+        if (sync_podio or dry_run) and obj.podio_item_id:
             if obj.Job_type == "QID":
                 podio_fields = map_job_to_podio_qid(obj, session=session)
             elif obj.Job_type == "PTL":
@@ -531,9 +562,14 @@ def update_job(id_job):
             elif obj.Job_type == "PAR":
                 podio_fields = map_job_to_podio_par(obj, session=session)
             else:
-                raise AppException(f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)
+                raise AppException(
+                    f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)
 
-            podio_service = podio_jobs_router.get_service(job_type=obj.Job_type, year=year)
+            if dry_run:
+                return {"dry_run": True, "podio_payload": podio_fields}, 200
+
+            podio_service = podio_jobs_router.get_service(
+                job_type=obj.Job_type, year=year)
             try:
                 podio_service.update_item(int(obj.podio_item_id), podio_fields)
                 register_event(obj.podio_item_id)
@@ -542,7 +578,8 @@ def update_job(id_job):
             except Exception:
                 logger.exception("❌ Error actualizando Job en Podio | job_id=%s | podio_item_id=%s",
                                  id_job, obj.podio_item_id)
-                raise AppException("Error al actualizar el Job en Podio.", "podio_update_failed", 502)
+                raise AppException(
+                    "Error al actualizar el Job en Podio.", "podio_update_failed", 502)
 
         return obj.model_dump(), 200
 
@@ -552,7 +589,7 @@ def update_job(id_job):
 @audit("Job deleted", id_param="id_job")
 def delete_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
-    year       = request.args.get("year", type=int)
+    year = request.args.get("year", type=int)
 
     with get_session() as session:
         obj = session.exec(select(Job).where(Job.ID_Jobs == id_job)).first()
@@ -560,7 +597,8 @@ def delete_job(id_job):
             raise AppException("Job no encontrado.", "job_not_found", 404)
 
         if sync_podio and obj.podio_item_id:
-            podio_service = podio_jobs_router.get_service(job_type=obj.Job_type, year=year)
+            podio_service = podio_jobs_router.get_service(
+                job_type=obj.Job_type, year=year)
             try:
                 podio_service.delete_item(int(obj.podio_item_id))
                 register_event(obj.podio_item_id)
@@ -569,7 +607,8 @@ def delete_job(id_job):
             except Exception:
                 logger.exception("❌ Error eliminando Job en Podio | job_id=%s | podio_item_id=%s",
                                  id_job, obj.podio_item_id)
-                raise AppException("Error al eliminar el Job en Podio.", "podio_delete_failed", 502)
+                raise AppException(
+                    "Error al eliminar el Job en Podio.", "podio_delete_failed", 502)
 
         delete_with_retry(session, obj)
         logger.info("🗑️ Job eliminado | job_id=%s", id_job)

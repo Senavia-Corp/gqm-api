@@ -98,6 +98,10 @@ PODIO_PAR2024_APP_TOKEN = os.getenv("PODIO_PAR2024_APP_TOKEN")
 PODIO_PAR2023_APP_ID = os.getenv("PODIO_PAR2023_APP_ID")
 PODIO_PAR2023_APP_TOKEN = os.getenv("PODIO_PAR2023_APP_TOKEN")
 
+# Credenciales de Cloudinary
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 
 # Verificar que las credenciales esten en .env
 _missing = [k for k, v in {

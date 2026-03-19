@@ -2,7 +2,6 @@
 
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
-import json
 from ..database.db_sqlmodel import get_session
 from ..models.ChangeOrderModel import ChangeOrder, ChangeOrCreate, ChangeOrUpdate
 from ..models.JobModel import Job
@@ -23,72 +22,85 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
     map_chorder_delete_to_podio
 )
 from ..utils.mappers.mapper_aux_functions import register_event
-from src.utils.audit import audit   # ← NEW
+from src.utils.audit import audit
+from src.utils.job_calculator import recalculate_and_apply_from_change_order
 
 # Blueprint de Change Orders:
 change_order_bp = Blueprint(
     "change_order_blueprint", __name__, url_prefix="/change_order")
 
+
+# ---------------------------------------------------------------------------
+# Helper — recalcula Order.Adj_formula en DB y guarda
+#
+# Adj_formula = Order.Formula + Σ ChangeOrderFormula de todos los COs
+#               donde ChangeOrder.ID_Order == order_id
+#
+# Se llama ANTES de recalculate_and_apply_from_change_order para que cuando
+# el calculador del Job lea Order.Adj_formula ya tenga el valor correcto.
+# ---------------------------------------------------------------------------
+def _sync_order_adj_formula(order_id: str, session) -> None:
+    """
+    Recalcula y persiste Order.Adj_formula para la Order indicada.
+    No hace commit — el llamador es responsable.
+    """
+    order = session.exec(select(Order).where(Order.ID_Order == order_id)).first()
+    if not order:
+        return
+
+    cos = session.exec(
+        select(ChangeOrder).where(ChangeOrder.ID_Order == order_id)
+    ).all()
+
+    base_formula = float(order.Formula or 0)
+    co_sum       = sum(float(co.ChangeOrderFormula or 0) for co in cos)
+    new_adj      = base_formula + co_sum
+
+    order.Adj_formula = new_adj
+    session.add(order)
+    logger.info(
+        "🔢 Order.Adj_formula actualizado | order_id=%s | base=%.2f | co_sum=%.2f | adj=%.2f",
+        order_id, base_formula, co_sum, new_adj
+    )
+
+
 # -------------------RUTAS CRUD-------------------#
 
 
 # --------------------RUTAS GET-------------------#
-# Ruta para conseguir la lista de todos las Change Orders
+
 @change_order_bp.get("/")
 @handle_exceptions()
-@paginate()  # decorador de paginación
+@paginate()
 def list_change_orders():
-
     with get_session() as session:
-
         statement = (
             select(ChangeOrder)
-            .options(
-                joinedload(ChangeOrder.job)
-            )
+            .options(joinedload(ChangeOrder.job))
         )
         results = session.exec(statement).unique().all()
-
         if not results:
-            return [], 200   # El decorador se encarga del formato final
-
-        change_data = [
-            # se agrega la relacion FK
-            add_relationships(
-                changeOr, ["job"])
-            for changeOr in results
-        ]
-
-        return change_data, 200
+            return [], 200
+        return [add_relationships(co, ["job"]) for co in results], 200
 
 
-# Ruta para conseguir un change order por ID
 @change_order_bp.get("/<id_change_order>")
 @handle_exceptions()
 def get_changeOr_by_id(id_change_order):
-
     with get_session() as session:
         statement = (
             select(ChangeOrder)
-            .options(
-                joinedload(ChangeOrder.job)
-            )
+            .options(joinedload(ChangeOrder.job))
             .where(ChangeOrder.ID_ChangeOrder == id_change_order)
         )
         obj = session.exec(statement).unique().first()
-
         if not obj:
-            raise AppException("Change Order no encontrado.",
-                               "ch_order_not_found", 404)
-
-        changeOr_data = add_relationships(
-            obj,  ["job"])
-
-        return changeOr_data, 200
+            raise AppException("Change Order no encontrado.", "ch_order_not_found", 404)
+        return add_relationships(obj, ["job"]), 200
 
 
-# --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear un change order
+# --------------- RUTAS POST, PATCH AND DELETE ----------#
+
 @change_order_bp.post("/")
 @handle_exceptions()
 @audit("Change Order created", job_id_from="body")
@@ -99,102 +111,91 @@ def create_changeOr():
     obj = ChangeOrder(
         **create_changeOr.model_dump(exclude_unset=False, exclude_none=False))
 
-    # 🔘 Función de sincronización
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
 
     if sync_podio and not year:
         raise AppException(
             "El parámetro 'year' es obligatorio cuando sync_podio=true.",
-            "missing_year",
-            400)
+            "missing_year", 400)
 
     with get_session() as session:
 
         # ----------- 🔵 CREAR EN DB
-        new_id = generate_custom_id(
-            session, ChangeOrder, "ID_ChangeOrder", "ChO")
+        new_id = generate_custom_id(session, ChangeOrder, "ID_ChangeOrder", "ChO")
         obj.ID_ChangeOrder = new_id
 
         # ----------- 🟢 SINCRONIZAR EN PODIO (SI APLICA)
         if sync_podio:
 
-            # 1️⃣ Buscar Job
             job = session.exec(
                 select(Job).where(Job.podio_item_id == obj.job_podio_id)
             ).first()
-
             if not job:
                 raise AppException("Job no encontrado", "job_not_found", 404)
 
-            # 2️⃣ Obtener servicio
             if not job.Job_type:
                 raise AppException(
-                    "El Job no tiene Job_type definido",
-                    "missing_job_type",
-                    400)
+                    "El Job no tiene Job_type definido", "missing_job_type", 400)
 
             podio_service = podio_jobs_router.get_service(
-                job_type=job.Job_type,
-                year=year)
+                job_type=job.Job_type, year=year)
 
-            # 3️⃣ Obtener job actual desde Podio (necesario)
-            podio_job = podio_service.get_item(obj.job_podio_id)
-            raw_fields = podio_job.get("fields", {})
+            podio_job        = podio_service.get_item(obj.job_podio_id)
+            raw_fields       = podio_job.get("fields", {})
             podio_job_fields = normalize_podio_fields(raw_fields)
 
-            # 4️⃣ Construir payload
-            # Cargar la Order si existe
             if obj.ID_Order:
                 order = session.get(Order, obj.ID_Order)
                 if not order:
-                    raise AppException("Order not found",
-                                       "order_not_found", 404)
-                obj.order = order  # asignar la relación manualmente
+                    raise AppException("Order not found", "order_not_found", 404)
+                obj.order = order
 
             payload = map_chorder_create_to_podio(
-                obj,
-                job.Job_type,
-                podio_job_fields,
-                session
-            )
+                obj, job.Job_type, podio_job_fields, session)
+
             if payload is None:
                 logger.info(
                     "⚠️ Job type '%s' no soporta Change Orders en Podio, se omite sincronización",
                     job.Job_type
                 )
             elif not payload:
-                # El mapper corrió pero no encontró campos disponibles → error real
                 raise AppException(
                     "No se encontró un campo disponible en Podio para la Order",
-                    "no_available_order_slot",
-                    400
+                    "no_available_order_slot", 400
                 )
             else:
                 try:
                     podio_service.update_item(obj.job_podio_id, payload)
                     register_event(obj.job_podio_id)
-
                 except Exception as podio_err:
                     raise AppException(
                         f"No se pudo sincronizar Change Order con Podio: {podio_err}",
-                        "podio_sync_failed",
-                        400
+                        "podio_sync_failed", 400
                     )
 
-        # ----------- 💾 GUARDAR EN DB
+        # ----------- 💾 GUARDAR CO EN DB
         save_with_retry(session, obj)
 
         logger.info(
             "✅ Change Order creado | chorder_id=%s | job_item_id=%s",
-            obj.ID_ChangeOrder,
-            obj.job_podio_id
+            obj.ID_ChangeOrder, obj.job_podio_id
         )
+
+        # ── Si el CO está vinculado a una Order, actualizar su Adj_formula ──
+        # Esto debe ocurrir ANTES del recálculo del Job para que el calculador
+        # lea el Adj_formula correcto al sumar los Adj_formula de las Orders.
+        if obj.ID_Order:
+            _sync_order_adj_formula(obj.ID_Order, session)
+
+        # ── Recálculo automático del Job ──────────────────────────────────
+        recalculate_and_apply_from_change_order(obj, session)
+        session.commit()
+        # ─────────────────────────────────────────────────────────────────
 
         return obj.model_dump(), 201
 
 
-# Ruta para actualizar un change order
 @change_order_bp.patch("/<id_change_order>")
 @handle_exceptions()
 @audit("Change Order updated", id_param="id_change_order", job_id_from="response")
@@ -207,23 +208,18 @@ def update_changeOr(id_change_order):
     if sync_podio and not year:
         raise AppException(
             "El parámetro 'year' es obligatorio cuando sync_podio=true.",
-            "missing_year",
-            400)
+            "missing_year", 400)
 
     with get_session() as session:
 
         change_order = session.exec(
-            select(ChangeOrder).where(
-                ChangeOrder.ID_ChangeOrder == id_change_order)
+            select(ChangeOrder).where(ChangeOrder.ID_ChangeOrder == id_change_order)
         ).first()
-
         if not change_order:
-            raise AppException("Change Order not found",
-                               "chorder_not_found", 404)
+            raise AppException("Change Order not found", "chorder_not_found", 404)
 
-        update_changeOr = ChangeOrUpdate.model_validate(data)
-        update_data_dict = update_changeOr.model_dump(
-            exclude_unset=True)
+        update_changeOr   = ChangeOrUpdate.model_validate(data)
+        update_data_dict  = update_changeOr.model_dump(exclude_unset=True)
         update_data_dict.pop("job_podio_id", None)
         update_data_dict.pop("ID_Jobs", None)
         update_data_dict.pop("ID_Order", None)
@@ -234,60 +230,56 @@ def update_changeOr(id_change_order):
 
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio:
-
             if not change_order.podio_field:
                 logger.info(
                     "⚠️ Change Order '%s' no tiene campo Podio asignado, se omite sincronización",
                     id_change_order
                 )
-
             else:
                 if not change_order.job_podio_id:
                     raise AppException(
                         "Change Order no tiene job_podio_id asignado",
-                        "missing_job_podio_id",
-                        400
+                        "missing_job_podio_id", 400
                     )
 
                 job = session.exec(
-                    select(Job).where(Job.podio_item_id ==
-                                      change_order.job_podio_id)
+                    select(Job).where(Job.podio_item_id == change_order.job_podio_id)
                 ).first()
-
                 if not job:
                     raise AppException("Job not found", "job_not_found", 404)
 
                 podio_service = podio_jobs_router.get_service(
-                    job_type=job.Job_type,
-                    year=year
-                )
+                    job_type=job.Job_type, year=year)
 
-                payload = map_chorder_patch_to_podio(
-                    change_order, job.Job_type, session)
+                payload = map_chorder_patch_to_podio(change_order, job.Job_type, session)
 
                 try:
                     if payload:
-                        podio_service.update_item(
-                            change_order.job_podio_id, payload)
+                        podio_service.update_item(change_order.job_podio_id, payload)
                         register_event(change_order.job_podio_id)
-
                 except Exception as podio_err:
                     raise AppException(
                         f"No se pudo sincronizar Change Order con Podio: {podio_err}",
-                        "podio_sync_failed",
-                        400
+                        "podio_sync_failed", 400
                     )
 
-        # ----------- 💾 GUARDAR EN DB
+        # ----------- 💾 GUARDAR CO EN DB
         save_with_retry(session, change_order)
 
-        logger.info("🔄 Change Order actualizado | chorder_id=%s",
-                    id_change_order)
+        logger.info("🔄 Change Order actualizado | chorder_id=%s", id_change_order)
+
+        # ── Si el CO está vinculado a una Order, actualizar su Adj_formula ──
+        if change_order.ID_Order:
+            _sync_order_adj_formula(change_order.ID_Order, session)
+
+        # ── Recálculo automático del Job ──────────────────────────────────
+        recalculate_and_apply_from_change_order(change_order, session)
+        session.commit()
+        # ─────────────────────────────────────────────────────────────────
 
         return change_order.model_dump(), 200
 
 
-# Ruta para eliminar un change order
 @change_order_bp.delete("/<id_change_order>")
 @handle_exceptions()
 @audit("Change Order deleted", id_param="id_change_order", job_id_from="response")
@@ -299,74 +291,74 @@ def delete_changeOr(id_change_order):
     if sync_podio and not year:
         raise AppException(
             "El parámetro 'year' es obligatorio cuando sync_podio=true.",
-            "missing_year",
-            400
-        )
+            "missing_year", 400)
 
     with get_session() as session:
-        change_order = session.exec(
-            select(ChangeOrder).where(
-                ChangeOrder.ID_ChangeOrder == id_change_order)
-        ).first()
 
+        change_order = session.exec(
+            select(ChangeOrder).where(ChangeOrder.ID_ChangeOrder == id_change_order)
+        ).first()
         if not change_order:
-            raise AppException("Change Order not found",
-                               "chorder_not_found", 404)
+            raise AppException("Change Order not found", "chorder_not_found", 404)
+
+        # Capturar referencias ANTES de borrar
+        order_id_for_sync = change_order.ID_Order   # None si es CO general
+        co_snapshot = ChangeOrder(
+            ID_ChangeOrder=change_order.ID_ChangeOrder,
+            ID_Jobs=change_order.ID_Jobs,
+            ID_Order=change_order.ID_Order,
+            job_podio_id=change_order.job_podio_id,
+        )
 
         # ----------- 🟢 BORRAR EN PODIO (SI APLICA)
         if sync_podio:
-
             if not change_order.podio_field:
                 logger.info(
                     "⚠️ Change Order '%s' no tiene campo Podio asignado, se omite sincronización",
                     id_change_order
                 )
-
             else:
                 if not change_order.job_podio_id:
                     raise AppException(
                         "Change Order no tiene job_podio_id asignado",
-                        "missing_job_podio_id",
-                        400
+                        "missing_job_podio_id", 400
                     )
 
                 job = session.exec(
-                    select(Job).where(Job.podio_item_id ==
-                                      change_order.job_podio_id)
+                    select(Job).where(Job.podio_item_id == change_order.job_podio_id)
                 ).first()
-
                 if not job:
                     raise AppException("Job not found", "job_not_found", 404)
 
                 podio_service = podio_jobs_router.get_service(
-                    job_type=job.Job_type,
-                    year=year
-                )
+                    job_type=job.Job_type, year=year)
 
-                payload = map_chorder_delete_to_podio(
-                    change_order, job.Job_type)
+                payload = map_chorder_delete_to_podio(change_order, job.Job_type)
 
                 try:
                     if payload:
-                        podio_service.update_item(
-                            change_order.job_podio_id, payload)
+                        podio_service.update_item(change_order.job_podio_id, payload)
                         register_event(change_order.job_podio_id)
-
                 except Exception as podio_err:
                     raise AppException(
                         f"No se pudo sincronizar Change Order con Podio: {podio_err}",
-                        "podio_sync_failed",
-                        400
+                        "podio_sync_failed", 400
                     )
 
-        # ----------- 🔴 BORRAR EN DB
+        # ----------- 🔴 BORRAR CO EN DB
         delete_with_retry(session, change_order)
 
-        logger.info(
-            "🗑️ Change Order eliminado | chorder_id=%s",
-            id_change_order
-        )
+        logger.info("🗑️ Change Order eliminado | chorder_id=%s", id_change_order)
 
-        return jsonify({
-            "message": f"Deleted Change Order {id_change_order}"
-        }), 200
+        # ── Si el CO estaba vinculado a una Order, actualizar su Adj_formula ─
+        # El CO ya fue borrado, así que _sync_order_adj_formula lo excluirá
+        # automáticamente al recalcular la suma desde la DB.
+        if order_id_for_sync:
+            _sync_order_adj_formula(order_id_for_sync, session)
+
+        # ── Recálculo automático del Job ──────────────────────────────────
+        recalculate_and_apply_from_change_order(co_snapshot, session)
+        session.commit()
+        # ─────────────────────────────────────────────────────────────────
+
+        return jsonify({"message": f"Deleted Change Order {id_change_order}"}), 200

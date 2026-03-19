@@ -9,12 +9,13 @@ from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
-from src.utils.audit import audit   # ← NEW
+from src.utils.audit import audit
+from src.utils.job_calculator import recalculate_and_apply  # ← NEW
 
 estimate_bp = Blueprint("estimate_blueprint", __name__, url_prefix="/estimate")
 
 
-# ── GETs — migrated to @handle_exceptions(), unchanged logic ─────────────────
+# ── GETs ─────────────────────────────────────────────────────────────────────
 
 @estimate_bp.get("/")
 @handle_exceptions()
@@ -41,7 +42,7 @@ def get_estimates(id_estimate):
         return add_relationships(obj, ["job", "order"]), 200
 
 
-# ── WRITE routes — @audit applied ────────────────────────────────────────────
+# ── WRITE routes ──────────────────────────────────────────────────────────────
 
 @estimate_bp.post("/")
 @handle_exceptions()
@@ -54,6 +55,13 @@ def create_estimate():
     with get_session() as session:
         obj.ID_EstimateCost = generate_custom_id(session, EstimateCost, "ID_EstimateCost", "EST")
         save_with_retry(session, obj)
+
+        # ── Recálculo automático del Job asociado ─────────────────────────
+        if obj.ID_Jobs:
+            recalculate_and_apply(obj.ID_Jobs, session)
+            session.commit()
+        # ─────────────────────────────────────────────────────────────────
+
         return obj.model_dump(), 201
 
 
@@ -66,10 +74,20 @@ def update_estimate(id_estimate):
         obj = session.get(EstimateCost, id_estimate)
         if not obj: raise AppException("Estimate Cost not found", "estimate_not_found", 404)
 
+        # Capturar job_id antes de modificar por si ID_Jobs cambiara
+        job_id_for_calc = obj.ID_Jobs
+
         update_data = EstimateUpdate.model_validate(data).model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(obj, key, value)
         save_with_retry(session, obj)
+
+        # ── Recálculo automático del Job asociado ─────────────────────────
+        if job_id_for_calc:
+            recalculate_and_apply(job_id_for_calc, session)
+            session.commit()
+        # ─────────────────────────────────────────────────────────────────
+
         return obj.model_dump(), 200
 
 
@@ -81,5 +99,15 @@ def delete_estimate(id_estimate):
         obj = session.get(EstimateCost, id_estimate)
         if not obj: raise AppException("Estimate Cost not found", "estimate_not_found", 404)
 
+        # Capturar job_id ANTES de borrar — después el objeto ya no tiene relaciones
+        job_id_for_calc = obj.ID_Jobs
+
         delete_with_retry(session, obj)
+
+        # ── Recálculo automático del Job asociado ─────────────────────────
+        if job_id_for_calc:
+            recalculate_and_apply(job_id_for_calc, session)
+            session.commit()
+        # ─────────────────────────────────────────────────────────────────
+
         return jsonify({"message": f"Deleted Estimate Cost {id_estimate}"}), 200
