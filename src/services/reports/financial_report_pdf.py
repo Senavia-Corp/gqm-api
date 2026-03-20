@@ -1,18 +1,5 @@
-# src/services/reports/financial_report_pdf.py
 from __future__ import annotations
-
-import io
-from datetime import datetime
-from pathlib import Path
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-from reportlab.lib.pagesizes import LETTER
-from reportlab.lib.units import inch
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
@@ -21,31 +8,73 @@ from reportlab.platypus import (
     TableStyle,
     Image,
     KeepTogether,
-    HRFlowable,
 )
-from reportlab.lib.utils import ImageReader
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.lib.pagesizes import LETTER
+import matplotlib.pyplot as plt
+
+import io
+from datetime import datetime
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+
 
 # ---------------------------------------------------------------------------
-# Brand palette (matches jobs_report_pdf.py)
+# Brand palette
 # ---------------------------------------------------------------------------
-GQM_GREEN    = colors.HexColor("#0B2E1E")
-GQM_GREEN_2  = colors.HexColor("#0F3A27")
-GQM_ORANGE   = colors.HexColor("#F28C00")
-GQM_YELLOW   = colors.HexColor("#F2C100")
-LIGHT_BG     = colors.HexColor("#F6F7F8")
-CARD_BORDER  = colors.HexColor("#D9E1DD")
+GQM_GREEN = colors.HexColor("#0B2E1E")
+GQM_ORANGE = colors.HexColor("#F28C00")
+LIGHT_BG = colors.HexColor("#F6F7F8")
+CARD_BORDER = colors.HexColor("#D9E1DD")
 TABLE_HEADER = colors.HexColor("#EDF3F0")
-TABLE_GRID   = colors.HexColor("#DCE6E1")
-TEXT_MUTED   = colors.HexColor("#5B6B63")
-EMERALD      = colors.HexColor("#059669")
-ORANGE_ACC   = colors.HexColor("#EA580C")
-BLUE_ACC     = colors.HexColor("#2563EB")
-PURPLE_ACC   = colors.HexColor("#7C3AED")
+TABLE_GRID = colors.HexColor("#DCE6E1")
+TEXT_MUTED = colors.HexColor("#5B6B63")
+EMERALD = colors.HexColor("#059669")
+ORANGE_ACC = colors.HexColor("#EA580C")   # kept for internal use
+TEAL_ACC = colors.HexColor("#0D7377")   # Invoices
+CORAL_ACC = colors.HexColor("#C2410C")   # Bills
+BLUE_ACC = colors.HexColor("#2563EB")
+PURPLE_ACC = colors.HexColor("#7C3AED")
+RED_ACC = colors.HexColor("#DC2626")
+AMBER_ACC = colors.HexColor("#D97706")
+GREEN_LIGHT = colors.HexColor("#D1FAE5")
+RED_LIGHT = colors.HexColor("#FEE2E2")
+AMBER_LIGHT = colors.HexColor("#FEF3C7")
+BLUE_LIGHT = colors.HexColor("#DBEAFE")
+GRAY_LIGHT = colors.HexColor("#F3F4F6")
 
 MONTH_NAMES = [
     "", "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 ]
+
+STATUS_COLORS = {
+    "Paid":    EMERALD,
+    "Partial": AMBER_ACC,
+    "Pending": BLUE_ACC,
+    "Overdue": RED_ACC,
+    "Voided":  TEXT_MUTED,
+}
+STATUS_BG_COLORS = {
+    "Paid":    GREEN_LIGHT,
+    "Partial": AMBER_LIGHT,
+    "Pending": BLUE_LIGHT,
+    "Overdue": RED_LIGHT,
+    "Voided":  GRAY_LIGHT,
+}
+JOB_STATUS_COLORS = {
+    "Settled": EMERALD,
+    "Partial": AMBER_ACC,
+    "Overdue": RED_ACC,
+}
+
+# Usable page width: 8.5in - 2*0.55in margins
+PAGE_W = 7.4 * inch
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -66,11 +95,85 @@ def _fit_logo(path: str, max_w: float, max_h: float) -> Image:
     return Image(path, width=iw * scale, height=ih * scale)
 
 
+# ---------------------------------------------------------------------------
+# Style factory
+# ---------------------------------------------------------------------------
+
+def _make_styles():
+    base = getSampleStyleSheet()
+
+    styles = {}
+    styles["H1"] = ParagraphStyle("FH1", parent=base["Title"],
+                                  fontName="Helvetica-Bold", fontSize=17, leading=20,
+                                  textColor=colors.white, alignment=1, spaceAfter=2)
+
+    styles["SmallWhite"] = ParagraphStyle("FSmallWhite", parent=base["Normal"],
+                                          fontName="Helvetica", fontSize=7.5, leading=10,
+                                          textColor=colors.white, alignment=2)
+
+    styles["SectionTitle"] = ParagraphStyle("FSectionTitle", parent=base["Heading2"],
+                                            fontName="Helvetica-Bold", fontSize=11, leading=13,
+                                            textColor=GQM_GREEN, spaceBefore=10, spaceAfter=5)
+
+    styles["Muted"] = ParagraphStyle("FMuted", parent=base["Normal"],
+                                     fontName="Helvetica", fontSize=8, leading=10,
+                                     textColor=TEXT_MUTED, spaceAfter=4)
+
+    styles["CardLabel"] = ParagraphStyle("FCardLabel", parent=base["Normal"],
+                                         fontName="Helvetica-Bold", fontSize=8, leading=10,
+                                         textColor=GQM_GREEN, spaceAfter=2)
+
+    styles["CardValue"] = ParagraphStyle("FCardValue", parent=base["Normal"],
+                                         fontName="Helvetica-Bold", fontSize=14, leading=16,
+                                         textColor=colors.black, spaceAfter=0)
+
+    styles["CardSub"] = ParagraphStyle("FCardSub", parent=base["Normal"],
+                                       fontName="Helvetica", fontSize=7, leading=9,
+                                       textColor=TEXT_MUTED, spaceAfter=0)
+
+    # Table cell styles
+    styles["Cell"] = ParagraphStyle("FCell", parent=base["Normal"],
+                                    fontName="Helvetica", fontSize=7.5, leading=9, textColor=colors.black)
+    styles["CellHdr"] = ParagraphStyle("FCellHdr", parent=base["Normal"],
+                                       fontName="Helvetica-Bold", fontSize=7.5, leading=9, textColor=GQM_GREEN)
+    styles["CellR"] = ParagraphStyle("FCellR", parent=base["Normal"],
+                                     fontName="Helvetica", fontSize=7.5, leading=9, textColor=colors.black, alignment=2)
+    styles["CellRB"] = ParagraphStyle("FCellRB", parent=base["Normal"],
+                                      fontName="Helvetica-Bold", fontSize=7.5, leading=9, textColor=colors.black, alignment=2)
+    styles["CellB"] = ParagraphStyle("FCellB", parent=base["Normal"],
+                                     fontName="Helvetica-Bold", fontSize=7.5, leading=9, textColor=colors.black)
+    styles["CellC"] = ParagraphStyle("FCellC", parent=base["Normal"],
+                                     fontName="Helvetica", fontSize=7.5, leading=9, textColor=colors.black, alignment=1)
+
+    return styles
+
+
+# ---------------------------------------------------------------------------
+# Shared base table style
+# ---------------------------------------------------------------------------
+
+def _base_table_style() -> list:
+    return [
+        ("BACKGROUND",    (0, 0),  (-1, 0),  TABLE_HEADER),
+        ("GRID",          (0, 0),  (-1, -1), 0.4, TABLE_GRID),
+        ("VALIGN",        (0, 0),  (-1, -1), "MIDDLE"),
+        ("FONTSIZE",      (0, 0),  (-1, -1), 7.5),
+        ("BOTTOMPADDING", (0, 0),  (-1, -1), 5),
+        ("TOPPADDING",    (0, 0),  (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0),  (-1, -1), 5),
+        ("RIGHTPADDING",  (0, 0),  (-1, -1), 5),
+        ("ROWBACKGROUNDS", (0, 1),  (-1, -2), [colors.white, LIGHT_BG]),
+        ("FONTNAME",      (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("LINEABOVE",     (0, -1), (-1, -1), 1, GQM_GREEN),
+        ("BACKGROUND",    (0, -1), (-1, -1), TABLE_HEADER),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Charts
+# ---------------------------------------------------------------------------
+
 def _make_bar_chart_png(monthly: list[dict]) -> bytes:
-    """
-    Grouped bar chart: Invoices Due · Bills Due · Payments Collected per month.
-    Only plots months that have data.
-    """
     if not monthly:
         fig, ax = plt.subplots(figsize=(7, 3), dpi=150)
         ax.text(0.5, 0.5, "No monthly data available",
@@ -81,34 +184,44 @@ def _make_bar_chart_png(monthly: list[dict]) -> bytes:
         plt.close(fig)
         return buf.getvalue()
 
-    labels    = [r["month_name"][:3] for r in monthly]
-    inv_due   = [r["invoices_due"]     for r in monthly]
-    bill_due  = [r["bills_due"]        for r in monthly]
-    inv_paid  = [r["invoice_payments"] for r in monthly]
-    bill_paid = [r["bill_payments"]    for r in monthly]
-    collected = [a + b for a, b in zip(inv_paid, bill_paid)]
+    labels = [r["month_name"][:3] for r in monthly]
+    inv_total = [r["invoices_total"] for r in monthly]
+    inv_coll = [r["invoices_collected"] for r in monthly]
+    bill_tot = [r["bills_total"] for r in monthly]
+    bill_paid = [r["bills_paid"] for r in monthly]
+    net_flow = [r["net_flow"] for r in monthly]
 
     x = range(len(labels))
-    width = 0.25
+    w = 0.18
 
-    fig, ax = plt.subplots(figsize=(7.4, 3.4), dpi=160)
-
-    ax.bar([i - width for i in x], inv_due,   width, label="Invoiced",   color="#059669", alpha=0.85)
-    ax.bar([i         for i in x], bill_due,  width, label="Billed",     color="#EA580C", alpha=0.85)
-    ax.bar([i + width for i in x], collected, width, label="Collected",  color="#2563EB", alpha=0.85)
+    fig, ax = plt.subplots(figsize=(7.2, 3.6), dpi=160)
+    ax.bar([i - 1.5*w for i in x], inv_total, w,
+           label="Invoiced",  color="#0D7377", alpha=0.90)
+    ax.bar([i - 0.5*w for i in x], inv_coll,  w,
+           label="Collected", color="#0D7377", alpha=0.55)
+    ax.bar([i + 0.5*w for i in x], bill_tot,  w,
+           label="Billed",    color="#C2410C", alpha=0.90)
+    ax.bar([i + 1.5*w for i in x], bill_paid, w,
+           label="Paid",      color="#C2410C", alpha=0.55)
+    ax.plot(list(x), net_flow, color="#2563EB", linewidth=1.8,
+            marker="o", markersize=4, label="Net Flow", zorder=5)
 
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels, fontsize=8)
     ax.yaxis.set_major_formatter(
-        plt.FuncFormatter(lambda v, _: f"${v/1000:.0f}k" if v >= 1000 else f"${v:.0f}")
-    )
+        plt.FuncFormatter(lambda v, _: f"${v/1000:.0f}k" if v >= 1000 else f"${v:.0f}"))
     ax.tick_params(axis="y", labelsize=7)
-    ax.legend(fontsize=7, frameon=False)
+    ax.axhline(0, color="#ccc", linewidth=0.5)
+    ax.legend(fontsize=7, frameon=False, ncol=5, loc="upper right")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.set_title("Monthly Financial Overview", fontsize=10, fontweight="bold", pad=8)
+    ax.set_title("Monthly Financial Overview",
+                 fontsize=10, fontweight="bold", pad=12)
+    # Margen superior para que el título no se solape con las barras más altas
+    ymax = max(max(inv_total or [0]), max(bill_tot or [0]))
+    ax.set_ylim(top=ymax * 1.22)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
 
-    fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
     plt.close(fig)
@@ -116,33 +229,67 @@ def _make_bar_chart_png(monthly: list[dict]) -> bytes:
 
 
 def _make_donut_png(inv_total: float, bill_total: float) -> bytes:
-    """Donut: Invoice vs Bill split."""
     if inv_total == 0 and bill_total == 0:
-        inv_total = bill_total = 1  # placeholder
+        inv_total = bill_total = 1
+    total = inv_total + bill_total
 
-    fig = plt.figure(figsize=(4.2, 2.8), dpi=160)
+    fig = plt.figure(figsize=(4.0, 2.6), dpi=160)
     ax = fig.add_subplot(111)
-
-    values = [inv_total, bill_total]
-    labels_pct = [
-        f"Invoices  ({inv_total/(inv_total+bill_total)*100:.1f}%)",
-        f"Bills  ({bill_total/(inv_total+bill_total)*100:.1f}%)",
-    ]
-    wedge_colors = ["#059669", "#EA580C"]
-
     wedges, _ = ax.pie(
-        values,
-        startangle=90,
-        labels=None,
-        autopct=None,
+        [inv_total, bill_total], startangle=90,
         wedgeprops={"width": 0.42, "edgecolor": "white", "linewidth": 1},
-        colors=wedge_colors,
+        colors=["#0D7377", "#C2410C"],
     )
     ax.axis("equal")
-    ax.legend(wedges, labels_pct, loc="center left",
-              bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=8)
-
+    ax.legend(wedges,
+              [f"Invoices ({inv_total/total*100:.1f}%)",
+               f"Bills ({bill_total/total*100:.1f}%)"],
+              loc="center left", bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=8)
     fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _make_aging_chart_png(aging: dict) -> bytes:
+    rows = aging.get("rows", [])
+    if not rows:
+        fig, ax = plt.subplots(figsize=(6, 2), dpi=150)
+        ax.text(0.5, 0.5, "No outstanding balances",
+                ha="center", va="center", transform=ax.transAxes, color="#888")
+        ax.axis("off")
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+
+    buckets = [r["bucket"] for r in rows]
+    inv_vals = [r["inv_balance"] for r in rows]
+    bill_vals = [r["bill_balance"] for r in rows]
+    y = range(len(buckets))
+    h = 0.35
+
+    fig, ax = plt.subplots(
+        figsize=(6.0, max(2.0, len(buckets) * 0.6 + 0.8)), dpi=160)
+    ax.barh([i + h/2 for i in y], inv_vals,  h,
+            label="Invoices", color="#0D7377", alpha=0.90)
+    ax.barh([i - h/2 for i in y], bill_vals, h,
+            label="Bills",    color="#C2410C", alpha=0.90)
+    ax.set_yticks(list(y))
+    ax.set_yticklabels(buckets, fontsize=8)
+    ax.xaxis.set_major_formatter(
+        plt.FuncFormatter(lambda v, _: f"${v/1000:.0f}k" if v >= 1000 else f"${v:.0f}"))
+    ax.tick_params(axis="x", labelsize=7)
+    ax.legend(fontsize=7, frameon=False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.set_title("Outstanding Balance by Aging Bucket",
+                 fontsize=9, fontweight="bold", pad=6)
+    ax.invert_yaxis()
+    fig.tight_layout()
+
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
     plt.close(fig)
@@ -150,156 +297,120 @@ def _make_donut_png(inv_total: float, bill_total: float) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Style factory
+# Header
 # ---------------------------------------------------------------------------
-
-def _make_styles():
-    base = getSampleStyleSheet()
-
-    H1 = ParagraphStyle(
-        "FH1", parent=base["Title"],
-        fontName="Helvetica-Bold", fontSize=17, leading=20,
-        textColor=colors.white, alignment=1, spaceAfter=2,
-    )
-    SmallWhite = ParagraphStyle(
-        "FSmallWhite", parent=base["Normal"],
-        fontName="Helvetica", fontSize=8, leading=10,
-        textColor=colors.white, alignment=1,
-    )
-    SectionTitle = ParagraphStyle(
-        "FSectionTitle", parent=base["Heading2"],
-        fontName="Helvetica-Bold", fontSize=11, leading=13,
-        textColor=GQM_GREEN, spaceBefore=10, spaceAfter=5,
-    )
-    Muted = ParagraphStyle(
-        "FMuted", parent=base["Normal"],
-        fontName="Helvetica", fontSize=8, leading=10,
-        textColor=TEXT_MUTED, spaceAfter=4,
-    )
-    CardLabel = ParagraphStyle(
-        "FCardLabel", parent=base["Normal"],
-        fontName="Helvetica-Bold", fontSize=8, leading=10,
-        textColor=GQM_GREEN, spaceAfter=2,
-    )
-    CardValue = ParagraphStyle(
-        "FCardValue", parent=base["Normal"],
-        fontName="Helvetica-Bold", fontSize=16, leading=18,
-        textColor=colors.black, spaceAfter=0,
-    )
-    CardSub = ParagraphStyle(
-        "FCardSub", parent=base["Normal"],
-        fontName="Helvetica", fontSize=7, leading=9,
-        textColor=TEXT_MUTED, spaceAfter=0,
-    )
-    TableCell = ParagraphStyle(
-        "FTableCell", parent=base["Normal"],
-        fontName="Helvetica", fontSize=7.5, leading=9,
-        textColor=colors.black,
-    )
-    TableHeader = ParagraphStyle(
-        "FTableHeader", parent=base["Normal"],
-        fontName="Helvetica-Bold", fontSize=8, leading=10,
-        textColor=GQM_GREEN,
-    )
-
-    return {
-        "H1": H1, "SmallWhite": SmallWhite,
-        "SectionTitle": SectionTitle, "Muted": Muted,
-        "CardLabel": CardLabel, "CardValue": CardValue, "CardSub": CardSub,
-        "TableCell": TableCell, "TableHeader": TableHeader,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Section builders
-# ---------------------------------------------------------------------------
-
-_COMMON_TABLE_STYLE = TableStyle([
-    ("BACKGROUND",   (0, 0), (-1, 0),  TABLE_HEADER),
-    ("TEXTCOLOR",    (0, 0), (-1, 0),  GQM_GREEN),
-    ("FONTNAME",     (0, 0), (-1, 0),  "Helvetica-Bold"),
-    ("GRID",         (0, 0), (-1, -1), 0.4, TABLE_GRID),
-    ("ALIGN",        (0, 0), (-1, -1), "LEFT"),
-    ("ALIGN",        (2, 1), (-1, -1), "RIGHT"),   # numeric cols right
-    ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-    ("ROWBACKGROUNDS",(0, 1),(-1, -1), [colors.white, LIGHT_BG]),
-    ("FONTSIZE",     (0, 0), (-1, -1), 7.5),
-    ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
-    ("TOPPADDING",   (0, 0), (-1, -1), 5),
-    ("LEFTPADDING",  (0, 0), (-1, -1), 6),
-    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-])
-
 
 def _build_header(logo_path: str | None, filters: dict, styles: dict) -> Table:
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
-    type_txt  = filters.get("type") or "ALL"
-    year_txt  = filters.get("year") or "ALL"
+    type_txt = filters.get("type") or "ALL"
+    year_txt = filters.get("year") or "ALL"
     month_num = filters.get("month")
     month_txt = MONTH_NAMES[month_num] if month_num else "ALL"
-    doc_txt   = (filters.get("doc_type") or "all").upper()
+    doc_txt = (filters.get("doc_type") or "all").upper()
 
-    meta_line = (
-        f"Type: {type_txt}  •  Year: {year_txt}  •  Month: {month_txt}  •  "
-        f"Docs: {doc_txt}  •  Generated: {generated}"
-    )
+    meta = (f"Type: {type_txt}  •  Year: {year_txt}  •  Month: {month_txt}  •  "
+            f"Docs: {doc_txt}  •  Generated: {generated}")
 
     logo_cell: object = Paragraph("", getSampleStyleSheet()["Normal"])
     if logo_path:
         p = Path(logo_path)
         if p.exists():
-            logo_cell = _fit_logo(str(p), max_w=1.55 * inch, max_h=0.75 * inch)
+            logo_cell = _fit_logo(str(p), max_w=1.55*inch, max_h=0.75*inch)
 
-    header_tbl = Table(
-        [[logo_cell, Paragraph("Financial Documents Report", styles["H1"]),
-          Paragraph(meta_line, styles["SmallWhite"])]],
-        colWidths=[1.7 * inch, 3.5 * inch, 2.4 * inch],
-        rowHeights=[0.85 * inch],
+    tbl = Table(
+        [[logo_cell,
+          Paragraph("Financial Documents Report", styles["H1"]),
+          Paragraph(meta, styles["SmallWhite"])]],
+        colWidths=[1.6*inch, 3.6*inch, 2.2*inch],
+        rowHeights=[0.85*inch],
     )
-    header_tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), GQM_GREEN),
-        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN",      (0, 0), (0,  0),  "LEFT"),
-        ("ALIGN",      (1, 0), (1,  0),  "CENTER"),
-        ("ALIGN",      (2, 0), (2,  0),  "RIGHT"),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-        ("TOPPADDING",   (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), GQM_GREEN),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN",         (0, 0), (0,  0),  "LEFT"),
+        ("ALIGN",         (1, 0), (1,  0),  "CENTER"),
+        ("ALIGN",         (2, 0), (2,  0),  "RIGHT"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
+        ("TOPPADDING",    (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
-    return header_tbl
+    return tbl
 
+
+# ---------------------------------------------------------------------------
+# Summary cards
+# ---------------------------------------------------------------------------
 
 def _build_summary_cards(summary: dict, styles: dict) -> Table:
-    """2-row grid of 4 KPI cards each."""
-    def card(label: str, value: str, sub: str = "", accent: colors.Color = GQM_GREEN):
+    def card(label, value, sub="", accent=GQM_GREEN):
         return [
             Paragraph(label, styles["CardLabel"]),
-            Spacer(1, 3),
-            Paragraph(f'<font color="{accent.hexval()}">{value}</font>', styles["CardValue"]),
+            Spacer(1, 4),
+            Paragraph(
+                f'<font color="{accent.hexval()}">{value}</font>', styles["CardValue"]),
+            Spacer(1, 5),
             Paragraph(sub, styles["CardSub"]),
         ]
 
-    inv_pct  = _fmt_pct(summary["avg_invoice_pct_paid"])
+    def card_status(label, paid, partial, overdue, sub=""):
+        """Card variant for status counts — styled to match other cards visually."""
+        base = getSampleStyleSheet()["Normal"]
+        row_style = ParagraphStyle("FCardStatusRow", parent=base,
+                                   fontName="Helvetica-Bold", fontSize=9, leading=13, textColor=colors.black)
+        num_style = ParagraphStyle("FCardStatusNum", parent=base,
+                                   fontName="Helvetica-Bold", fontSize=13, leading=15, textColor=colors.black)
+        return [
+            Paragraph(label, styles["CardLabel"]),
+            Spacer(1, 4),
+            Paragraph(
+                f'<font color="{EMERALD.hexval()}">Paid</font>'
+                f'<font color="{TEXT_MUTED.hexval()}">  {paid}</font>',
+                row_style),
+            Paragraph(
+                f'<font color="{AMBER_ACC.hexval()}">Partial</font>'
+                f'<font color="{TEXT_MUTED.hexval()}">  {partial}</font>',
+                row_style),
+            Paragraph(
+                f'<font color="{RED_ACC.hexval()}">Overdue</font>'
+                f'<font color="{TEXT_MUTED.hexval()}">  {overdue}</font>',
+                row_style),
+            Spacer(1, 5),
+            Paragraph(sub, styles["CardSub"]),
+        ]
+
+    inv_pct = _fmt_pct(summary["avg_invoice_pct_paid"])
     bill_pct = _fmt_pct(summary["avg_bill_pct_paid"])
+    isc = summary["inv_status_counts"]
+    bsc = summary["bill_status_counts"]
+    net = summary["net_flow"]
+    net_c = EMERALD if net >= 0 else RED_ACC
 
     row1 = [
-        card("Total Invoiced",   _fmt_money(summary["total_invoiced"]),
-             f'{summary["invoice_count"]} invoices  •  avg {inv_pct} paid', EMERALD),
-        card("Total Billed",     _fmt_money(summary["total_billed"]),
-             f'{summary["bill_count"]} bills  •  avg {bill_pct} paid', ORANGE_ACC),
-        card("Total Collected",  _fmt_money(summary["total_collected"]),
-             f'Inv payments: {_fmt_money(summary["inv_payment_total"])}  •  '
-             f'Bill payments: {_fmt_money(summary["bill_payment_total"])}', BLUE_ACC),
-        card("Outstanding Balance", _fmt_money(summary["total_outstanding"]),
-             f'Inv: {_fmt_money(summary["invoice_balance"])}  •  '
-             f'Bills: {_fmt_money(summary["bill_balance"])}', PURPLE_ACC),
+        card("Total Invoiced",     _fmt_money(summary["total_invoiced"]),
+             f'{summary["invoice_count"]} invoices  •  avg {inv_pct} paid', TEAL_ACC),
+        card("Total Collected",    _fmt_money(summary["inv_collected"]),
+             f'Balance: {_fmt_money(summary["inv_balance"])}', TEAL_ACC),
+        card("Total Billed",       _fmt_money(summary["total_billed"]),
+             f'{summary["bill_count"]} bills  •  avg {bill_pct} paid', CORAL_ACC),
+        card("Total Paid (Bills)", _fmt_money(summary["bill_paid"]),
+             f'Balance: {_fmt_money(summary["bill_balance"])}', CORAL_ACC),
+    ]
+    row2 = [
+        card("Net Cash Flow",     _fmt_money(net),
+             "Collected − Paid (expenses)", net_c),
+        card("Total Outstanding", _fmt_money(summary["total_outstanding"]),
+             f'Inv: {_fmt_money(summary["inv_balance"])}  •  Bills: {_fmt_money(summary["bill_balance"])}',
+             PURPLE_ACC),
+        card_status("Invoice Status",
+                    isc["Paid"], isc["Partial"], isc["Overdue"],
+                    f'Pending: {isc["Pending"]}  •  Voided: {isc["Voided"]}'),
+        card_status("Bill Status",
+                    bsc["Paid"], bsc["Partial"], bsc["Overdue"],
+                    f'Pending: {bsc["Pending"]}  •  Voided: {bsc["Voided"]}'),
     ]
 
-    tbl = Table(
-        [row1],
-        colWidths=[1.9 * inch] * 4,
-    )
+    tbl = Table([row1, row2], colWidths=[PAGE_W / 4] * 4)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (-1, -1), colors.white),
         ("BOX",           (0, 0), (-1, -1), 1, CARD_BORDER),
@@ -313,200 +424,374 @@ def _build_summary_cards(summary: dict, styles: dict) -> Table:
     return tbl
 
 
-def _build_doc_table(rows: list[dict], doc_label: str, styles: dict) -> list:
-    """Returns a list of flowables for one document section (Invoice or Bill)."""
-    if not rows:
-        return [
-            Paragraph(f"{doc_label} ({len(rows)})", styles["SectionTitle"]),
-            Paragraph(f"No {doc_label.lower()} match the selected filters.", styles["Muted"]),
-            Spacer(1, 6),
-        ]
+# ---------------------------------------------------------------------------
+# Monthly breakdown
+# ---------------------------------------------------------------------------
 
-    total_amount  = sum(r["total_amount"]  for r in rows)
-    total_balance = sum(r["balance_amount"] for r in rows)
-    total_paid    = total_amount - total_balance
+def _build_monthly_section(monthly: list[dict], styles: dict) -> list:
+    if not monthly:
+        return [Paragraph("Monthly Breakdown", styles["SectionTitle"]),
+                Paragraph("No monthly data available.", styles["Muted"])]
 
-    header_row = ["Job ID", "Ref / Vendor", "Due Date", "Total", "Balance", "% Paid", "Pmts"]
-    data = [header_row]
-    for r in rows:
+    S = styles
+    hdr = [Paragraph(h, S["CellHdr"]) for h in
+           ["Month", "Invoiced", "Collected", "Inv Bal", "Billed", "Paid", "Bill Bal", "Net Flow"]]
+    data = [hdr]
+
+    for r in monthly:
+        net_c = EMERALD.hexval() if r["net_flow"] >= 0 else RED_ACC.hexval()
         data.append([
-            r["job_id"] or "—",
-            r["job_ref_qbo"] or r["vendor_customer"] or "—",
-            r["due_date"] or "—",
-            _fmt_money(r["total_amount"]),
-            _fmt_money(r["balance_amount"]),
-            _fmt_pct(r["pct_paid"]),
-            str(r["payment_count"]),
+            Paragraph(r["month_name"],                    S["Cell"]),
+            Paragraph(_fmt_money(r["invoices_total"]),    S["CellR"]),
+            Paragraph(_fmt_money(r["invoices_collected"]), S["CellR"]),
+            Paragraph(_fmt_money(r["invoices_balance"]),  S["CellR"]),
+            Paragraph(_fmt_money(r["bills_total"]),       S["CellR"]),
+            Paragraph(_fmt_money(r["bills_paid"]),        S["CellR"]),
+            Paragraph(_fmt_money(r["bills_balance"]),     S["CellR"]),
+            Paragraph(
+                f'<font color="{net_c}">{_fmt_money(r["net_flow"])}</font>', S["CellR"]),
         ])
-    # Totals footer
+
+    total_net = sum(r["net_flow"] for r in monthly)
+    net_c = EMERALD.hexval() if total_net >= 0 else RED_ACC.hexval()
     data.append([
-        "TOTAL", "", "",
-        _fmt_money(total_amount),
-        _fmt_money(total_balance),
-        _fmt_pct((total_paid / total_amount * 100) if total_amount else 0),
-        "",
+        Paragraph("TOTAL",
+                  S["CellB"]),
+        Paragraph(_fmt_money(sum(r["invoices_total"]
+                  for r in monthly)), S["CellRB"]),
+        Paragraph(_fmt_money(sum(r["invoices_collected"]
+                  for r in monthly)), S["CellRB"]),
+        Paragraph(_fmt_money(sum(r["invoices_balance"]
+                  for r in monthly)), S["CellRB"]),
+        Paragraph(_fmt_money(sum(r["bills_total"]
+                  for r in monthly)), S["CellRB"]),
+        Paragraph(_fmt_money(sum(r["bills_paid"]
+                  for r in monthly)), S["CellRB"]),
+        Paragraph(_fmt_money(sum(r["bills_balance"]
+                  for r in monthly)), S["CellRB"]),
+        Paragraph(
+            f'<font color="{net_c}">{_fmt_money(total_net)}</font>',   S["CellRB"]),
     ])
 
-    col_w = [0.85*inch, 1.8*inch, 0.75*inch, 0.85*inch, 0.85*inch, 0.6*inch, 0.4*inch]
+    # 8 columns summing to PAGE_W
+    col_w = [0.85*inch, 0.95*inch, 0.95*inch, 0.90*inch,
+             0.85*inch, 0.85*inch, 0.90*inch, 0.95*inch]
     tbl = Table(data, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle(_base_table_style()))
 
-    style = TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, 0),  TABLE_HEADER),
-        ("TEXTCOLOR",    (0, 0), (-1, 0),  GQM_GREEN),
-        ("FONTNAME",     (0, 0), (-1, 0),  "Helvetica-Bold"),
-        ("GRID",         (0, 0), (-1, -2), 0.4, TABLE_GRID),  # skip footer line
-        ("ALIGN",        (3, 0), (-1, -1), "RIGHT"),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-        ("ROWBACKGROUNDS",(0, 1),(-2, -1), [colors.white, LIGHT_BG]),
-        ("FONTSIZE",     (0, 0), (-1, -1), 7.5),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
-        ("TOPPADDING",   (0, 0), (-1, -1), 5),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        # Footer row styling
-        ("BACKGROUND",   (0, -1), (-1, -1), GQM_GREEN_2 if False else TABLE_HEADER),
-        ("FONTNAME",     (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("LINEABOVE",    (0, -1), (-1, -1), 1, GQM_GREEN),
+    chart_png = _make_bar_chart_png(monthly)
+    chart_img = Image(io.BytesIO(chart_png), width=PAGE_W, height=3.4*inch)
+
+    return [
+        Paragraph("Monthly Breakdown", styles["SectionTitle"]),
+        Paragraph(
+            "All amounts from document balances (Total − Balance). "
+            "Net Flow = Collected − Paid (expenses).", styles["Muted"]),
+        tbl,
+        Spacer(1, 18),   # espacio entre tabla y gráfico
+        chart_img,
+        Spacer(1, 14),   # espacio después del gráfico
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Aging report
+# ---------------------------------------------------------------------------
+
+AGING_ROW_BG = {
+    "Current":     LIGHT_BG,
+    "1–30 days":   AMBER_LIGHT,
+    "31–60 days":  AMBER_LIGHT,
+    "61–90 days":  RED_LIGHT,
+    "+90 days":    RED_LIGHT,
+    "No Due Date": GRAY_LIGHT,
+}
+
+
+def _build_aging_section(aging: dict, styles: dict) -> list:
+    rows = aging.get("rows", [])
+    if not rows:
+        return [Paragraph("Aging Report", styles["SectionTitle"]),
+                Paragraph(
+                    "No outstanding balances for the selected filters.", styles["Muted"]),
+                Spacer(1, 6)]
+
+    S = styles
+    hdr = [Paragraph(h, S["CellHdr"]) for h in
+           ["Bucket", "Inv Count", "Inv Balance", "Bill Count", "Bill Balance", "Total Outstanding"]]
+    data = [hdr]
+    row_bg = []
+
+    for i, r in enumerate(rows, start=1):
+        bg = AGING_ROW_BG.get(r["bucket"], colors.white)
+        row_bg.append(("BACKGROUND", (0, i), (-1, i), bg))
+        data.append([
+            Paragraph(r["bucket"],                   S["Cell"]),
+            Paragraph(str(r["inv_count"]),           S["CellC"]),
+            Paragraph(_fmt_money(r["inv_balance"]),  S["CellR"]),
+            Paragraph(str(r["bill_count"]),          S["CellC"]),
+            Paragraph(_fmt_money(r["bill_balance"]), S["CellR"]),
+            Paragraph(_fmt_money(r["total"]),        S["CellR"]),
+        ])
+
+    data.append([
+        Paragraph("TOTAL OVERDUE",                        S["CellB"]),
+        Paragraph("",                                     S["Cell"]),
+        Paragraph(_fmt_money(aging["total_inv_overdue"]), S["CellRB"]),
+        Paragraph("",                                     S["Cell"]),
+        Paragraph(_fmt_money(aging["total_bill_overdue"]), S["CellRB"]),
+        Paragraph(_fmt_money(aging["total_overdue"]),     S["CellRB"]),
     ])
-    tbl.setStyle(style)
 
-    color = EMERALD if "Invoice" in doc_label else ORANGE_ACC
+    col_w = [1.3*inch, 0.8*inch, 1.3*inch, 0.8*inch, 1.3*inch, 1.6*inch]
+    tbl = Table(data, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle(_base_table_style() + row_bg))
+
+    chart_png = _make_aging_chart_png(aging)
+    chart_img = Image(io.BytesIO(chart_png), width=5.8*inch, height=2.6*inch)
 
     return [
         KeepTogether([
+            Paragraph("Aging Report", styles["SectionTitle"]),
             Paragraph(
-                f'<font color="{color.hexval()}">{doc_label}</font>'
-                f' <font size="9" color="{TEXT_MUTED.hexval()}">({len(rows)} records  •  '
-                f'Total: {_fmt_money(total_amount)}  •  Collected: {_fmt_money(total_paid)})</font>',
-                styles["SectionTitle"],
-            ),
+                f'Outstanding balances grouped by days overdue. '
+                f'Total overdue: {_fmt_money(aging["total_overdue"])}',
+                styles["Muted"]),
+            tbl,
+            Spacer(1, 8),
+            chart_img,
+        ]),
+        Spacer(1, 10),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Job breakdown
+# ---------------------------------------------------------------------------
+
+def _build_job_breakdown_section(job_breakdown: list[dict], styles: dict) -> list:
+    if not job_breakdown:
+        return [Paragraph("Job Breakdown", styles["SectionTitle"]),
+                Paragraph("No job data available.", styles["Muted"]),
+                Spacer(1, 6)]
+
+    S = styles
+    hdr = [Paragraph(h, S["CellHdr"]) for h in [
+        "Job ID", "Type",
+        "Invoiced", "Collected", "Inv Bal",
+        "Billed",   "Paid",      "Bill Bal",
+        "Gross Profit", "Status",
+    ]]
+    data = [hdr]
+    row_cmds = []
+
+    for i, j in enumerate(job_breakdown, start=1):
+        status = j["status"]
+        sc = JOB_STATUS_COLORS.get(status, TEXT_MUTED)
+        net_c = EMERALD if j["net_margin"] >= 0 else RED_ACC
+
+        if status == "Overdue":
+            row_cmds.append(("BACKGROUND", (0, i), (-1, i), RED_LIGHT))
+
+        data.append([
+            Paragraph(j["job_id"],                   S["Cell"]),
+            Paragraph(j["job_type"] or "—",          S["CellC"]),
+            Paragraph(_fmt_money(j["inv_total"]),     S["CellR"]),
+            Paragraph(_fmt_money(j["inv_collected"]), S["CellR"]),
+            Paragraph(_fmt_money(j["inv_balance"]),   S["CellR"]),
+            Paragraph(_fmt_money(j["bill_total"]),    S["CellR"]),
+            Paragraph(_fmt_money(j["bill_paid"]),     S["CellR"]),
+            Paragraph(_fmt_money(j["bill_balance"]),  S["CellR"]),
+            Paragraph(
+                f'<font color="{net_c.hexval()}">{_fmt_money(j["net_margin"])}</font>',
+                S["CellR"]),
+            Paragraph(
+                f'<font color="{sc.hexval()}"><b>{status}</b></font>',
+                S["CellC"]),
+        ])
+
+    total_inv = sum(j["inv_total"] for j in job_breakdown)
+    total_coll = sum(j["inv_collected"] for j in job_breakdown)
+    total_ibal = sum(j["inv_balance"] for j in job_breakdown)
+    total_bill = sum(j["bill_total"] for j in job_breakdown)
+    total_paid = sum(j["bill_paid"] for j in job_breakdown)
+    total_bbal = sum(j["bill_balance"] for j in job_breakdown)
+    total_net = round(total_coll - total_paid, 2)
+    net_c = EMERALD if total_net >= 0 else RED_ACC
+
+    data.append([
+        Paragraph("TOTAL",                      S["CellB"]),
+        Paragraph("",                           S["Cell"]),
+        Paragraph(_fmt_money(total_inv),        S["CellRB"]),
+        Paragraph(_fmt_money(total_coll),       S["CellRB"]),
+        Paragraph(_fmt_money(total_ibal),       S["CellRB"]),
+        Paragraph(_fmt_money(total_bill),       S["CellRB"]),
+        Paragraph(_fmt_money(total_paid),       S["CellRB"]),
+        Paragraph(_fmt_money(total_bbal),       S["CellRB"]),
+        Paragraph(
+            f'<font color="{net_c.hexval()}">{_fmt_money(total_net)}</font>',
+            S["CellRB"]),
+        Paragraph("", S["Cell"]),
+    ])
+
+    # 10 columns — fits PAGE_W = 7.4in
+    col_w = [0.80*inch, 0.42*inch,
+             0.78*inch, 0.78*inch, 0.72*inch,
+             0.78*inch, 0.72*inch, 0.72*inch,
+             0.80*inch, 0.68*inch]
+
+    tbl = Table(data, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle(_base_table_style() + row_cmds))
+
+    overdue = sum(1 for j in job_breakdown if j["status"] == "Overdue")
+    settled = sum(1 for j in job_breakdown if j["status"] == "Settled")
+    partial = sum(1 for j in job_breakdown if j["status"] == "Partial")
+
+    return [
+        KeepTogether([
+            Paragraph("Job Breakdown", styles["SectionTitle"]),
+            Paragraph(
+                f'{len(job_breakdown)} jobs  •  Settled: {settled}  •  '
+                f'Partial: {partial}  •  Overdue: {overdue}  •  '
+                f'Net Margin: {_fmt_money(total_net)}',
+                styles["Muted"]),
             tbl,
         ]),
         Spacer(1, 10),
     ]
 
 
-def _build_payments_table(rows: list[dict], label: str, styles: dict) -> list:
-    """Returns flowables for a payments section (Invoice Payments or Bill Payments)."""
+# ---------------------------------------------------------------------------
+# Document table (Invoices / Bills)
+# ---------------------------------------------------------------------------
+
+def _build_doc_table(rows: list[dict], doc_label: str, styles: dict) -> list:
     if not rows:
-        return [
-            Paragraph(f"{label} ({len(rows)})", styles["SectionTitle"]),
-            Paragraph(f"No {label.lower()} match the selected filters.", styles["Muted"]),
-            Spacer(1, 6),
-        ]
+        return [Paragraph(f"{doc_label} (0)", styles["SectionTitle"]),
+                Paragraph(
+                    f"No {doc_label.lower()} match the selected filters.", styles["Muted"]),
+                Spacer(1, 6)]
+
+    active = [r for r in rows if not r["is_voided"]]
+    tot_amt = sum(r["total_amount"] for r in active)
+    tot_coll = sum(r["collected_amount"] for r in active)
+    tot_bal = sum(r["balance_amount"] for r in active)
+
+    S = styles
+    hdr = [Paragraph(h, S["CellHdr"]) for h in
+           ["Job ID", "Ref / Vendor", "Due Date", "Total", "Collected", "Balance", "% Paid", "Status"]]
+    data = [hdr]
+    row_cmds = []
+
+    for i, r in enumerate(rows, start=1):
+        status = r["status"]
+        sc = STATUS_COLORS.get(status, TEXT_MUTED)
+        bg = STATUS_BG_COLORS.get(status, colors.white)
+        row_cmds.append(("BACKGROUND", (-1, i), (-1, i), bg))
+
+        data.append([
+            Paragraph(r["job_id"] or "—",
+                      S["Cell"]),
+            Paragraph(r["job_ref_qbo"] or r["vendor_customer"]
+                      or "—", S["Cell"]),
+            Paragraph(r["due_date"] or "—",
+                      S["CellC"]),
+            Paragraph(_fmt_money(r["total_amount"]),
+                      S["CellR"]),
+            Paragraph(_fmt_money(r["collected_amount"]
+                                 ),                S["CellR"]),
+            Paragraph(_fmt_money(r["balance_amount"]),
+                      S["CellR"]),
+            Paragraph(_fmt_pct(r["pct_paid"]),
+                      S["CellR"]),
+            Paragraph(
+                f'<font color="{sc.hexval()}"><b>{status}</b></font>',
+                S["CellC"]),
+        ])
+
+    data.append([
+        Paragraph("TOTAL",             S["CellB"]),
+        Paragraph("",                  S["Cell"]),
+        Paragraph("",                  S["Cell"]),
+        Paragraph(_fmt_money(tot_amt), S["CellRB"]),
+        Paragraph(_fmt_money(tot_coll), S["CellRB"]),
+        Paragraph(_fmt_money(tot_bal), S["CellRB"]),
+        Paragraph(_fmt_pct((tot_coll / tot_amt * 100)
+                  if tot_amt else 0), S["CellRB"]),
+        Paragraph("",                  S["Cell"]),
+    ])
+
+    col_w = [0.80*inch, 1.80*inch, 0.78*inch,
+             0.88*inch, 0.88*inch, 0.88*inch,
+             0.58*inch, 0.74*inch]
+    tbl = Table(data, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle(_base_table_style() + row_cmds))
+
+    color = TEAL_ACC if "Invoice" in doc_label else CORAL_ACC
+    return [
+        KeepTogether([
+            Paragraph(
+                f'<font color="{color.hexval()}">{doc_label}</font>'
+                f' <font size="9" color="{TEXT_MUTED.hexval()}">({len(rows)} records  •  '
+                f'Total: {_fmt_money(tot_amt)}  •  Collected: {_fmt_money(tot_coll)}  •  '
+                f'Balance: {_fmt_money(tot_bal)})</font>',
+                styles["SectionTitle"]),
+            tbl,
+        ]),
+        Spacer(1, 10),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Payments table
+# ---------------------------------------------------------------------------
+
+def _build_payments_table(rows: list[dict], label: str, styles: dict) -> list:
+    if not rows:
+        return [Paragraph(f"{label} (0)", styles["SectionTitle"]),
+                Paragraph(
+                    f"No {label.lower()} match the selected filters.", styles["Muted"]),
+                Spacer(1, 6)]
 
     total = sum(r["total_amount"] for r in rows)
+    S = styles
+    hdr = [Paragraph(h, S["CellHdr"]) for h in
+           ["Reference #", "Payment Date", "Type", "Bank Account", "Amount"]]
+    data = [hdr]
 
-    header_row = ["Reference #", "Payment Date", "Type", "Bank Account", "Amount"]
-    data = [header_row]
     for r in rows:
         data.append([
-            r["reference_number"] or "—",
-            r["date_of_payment"] or "—",
-            r["type_of_payment"] or "—",
-            r["bank_account_ref"] or "—",
-            _fmt_money(r["total_amount"]),
+            Paragraph(r["reference_number"] or "—", S["Cell"]),
+            Paragraph(r["date_of_payment"] or "—", S["CellC"]),
+            Paragraph(r["type_of_payment"] or "—", S["CellC"]),
+            Paragraph(r["bank_account_ref"] or "—", S["Cell"]),
+            Paragraph(_fmt_money(r["total_amount"]), S["CellR"]),
         ])
-    data.append(["TOTAL", "", "", "", _fmt_money(total)])
 
-    col_w = [1.4*inch, 1.0*inch, 1.1*inch, 2.0*inch, 0.9*inch]
+    data.append([
+        Paragraph("TOTAL", S["CellB"]),
+        Paragraph("",      S["Cell"]),
+        Paragraph("",      S["Cell"]),
+        Paragraph("",      S["Cell"]),
+        Paragraph(_fmt_money(total), S["CellRB"]),
+    ])
+
+    col_w = [1.5*inch, 1.0*inch, 1.1*inch, 2.9*inch, 0.9*inch]
     tbl = Table(data, colWidths=col_w, repeatRows=1)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0),  TABLE_HEADER),
-        ("TEXTCOLOR",     (0, 0), (-1, 0),  GQM_GREEN),
-        ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
-        ("GRID",          (0, 0), (-1, -2), 0.4, TABLE_GRID),
-        ("ALIGN",         (4, 0), (4, -1),  "RIGHT"),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("ROWBACKGROUNDS",(0, 1), (-2, -1), [colors.white, LIGHT_BG]),
-        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING",    (0, 0), (-1, -1), 5),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
-        ("FONTNAME",      (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("LINEABOVE",     (0, -1), (-1, -1), 1, GQM_GREEN),
-        ("BACKGROUND",    (0, -1), (-1, -1), TABLE_HEADER),
-    ]))
+    tbl.setStyle(TableStyle(_base_table_style()))
 
-    color = BLUE_ACC if "Invoice" in label else PURPLE_ACC
-
+    color = BLUE_ACC if "Invoice" in label else CORAL_ACC
     return [
         KeepTogether([
             Paragraph(
                 f'<font color="{color.hexval()}">{label}</font>'
                 f' <font size="9" color="{TEXT_MUTED.hexval()}">({len(rows)} records  •  '
                 f'Total: {_fmt_money(total)})</font>',
-                styles["SectionTitle"],
-            ),
+                styles["SectionTitle"]),
+            Paragraph(
+                "⚠ Amounts shown for reference only — a single payment may cover multiple jobs.",
+                styles["Muted"]),
             tbl,
-        ]),
-        Spacer(1, 10),
-    ]
-
-
-def _build_monthly_section(monthly: list[dict], styles: dict) -> list:
-    """Monthly breakdown table + bar chart."""
-    if not monthly:
-        return [
-            Paragraph("Monthly Breakdown", styles["SectionTitle"]),
-            Paragraph("No monthly data available for the selected filters.", styles["Muted"]),
-        ]
-
-    # Table
-    header = ["Month", "Invoiced", "Billed", "Inv Payments", "Bill Payments", "Net Collected"]
-    data = [header]
-    for r in monthly:
-        net = r["invoice_payments"] + r["bill_payments"]
-        data.append([
-            r["month_name"],
-            _fmt_money(r["invoices_due"]),
-            _fmt_money(r["bills_due"]),
-            _fmt_money(r["invoice_payments"]),
-            _fmt_money(r["bill_payments"]),
-            _fmt_money(net),
-        ])
-    # Totals
-    data.append([
-        "TOTAL",
-        _fmt_money(sum(r["invoices_due"]     for r in monthly)),
-        _fmt_money(sum(r["bills_due"]        for r in monthly)),
-        _fmt_money(sum(r["invoice_payments"] for r in monthly)),
-        _fmt_money(sum(r["bill_payments"]    for r in monthly)),
-        _fmt_money(sum(r["invoice_payments"] + r["bill_payments"] for r in monthly)),
-    ])
-
-    col_w = [1.0*inch, 1.1*inch, 1.1*inch, 1.1*inch, 1.1*inch, 1.1*inch]
-    tbl = Table(data, colWidths=col_w, repeatRows=1)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0),  TABLE_HEADER),
-        ("TEXTCOLOR",     (0, 0), (-1, 0),  GQM_GREEN),
-        ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
-        ("GRID",          (0, 0), (-1, -2), 0.4, TABLE_GRID),
-        ("ALIGN",         (1, 0), (-1, -1), "RIGHT"),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("ROWBACKGROUNDS",(0, 1), (-2, -1), [colors.white, LIGHT_BG]),
-        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING",    (0, 0), (-1, -1), 5),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
-        ("FONTNAME",      (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("LINEABOVE",     (0, -1), (-1, -1), 1, GQM_GREEN),
-        ("BACKGROUND",    (0, -1), (-1, -1), TABLE_HEADER),
-    ]))
-
-    # Chart
-    chart_png = _make_bar_chart_png(monthly)
-    chart_img = Image(io.BytesIO(chart_png), width=7.2 * inch, height=3.4 * inch)
-
-    return [
-        KeepTogether([
-            Paragraph("Monthly Breakdown", styles["SectionTitle"]),
-            Paragraph("Grouped by document Due Date (invoices/bills) and Payment Date (payments).", styles["Muted"]),
-            tbl,
-            Spacer(1, 10),
-            chart_img,
         ]),
         Spacer(1, 10),
     ]
@@ -522,47 +807,46 @@ def build_financial_report_pdf_bytes(
     company_name: str = "Company",
     logo_path: str | None = None,
 ) -> bytes:
-    """
-    Accepts output of get_financial_metrics_data() and returns PDF bytes.
-    """
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf,
-        pagesize=LETTER,
-        leftMargin=0.65 * inch,
-        rightMargin=0.65 * inch,
-        topMargin=0.45 * inch,
-        bottomMargin=0.55 * inch,
+        buf, pagesize=LETTER,
+        leftMargin=0.55*inch, rightMargin=0.55*inch,
+        topMargin=0.45*inch,  bottomMargin=0.55*inch,
         title="Financial Documents Report",
         author=company_name,
     )
 
-    styles  = _make_styles()
+    styles = _make_styles()
     filters = data.get("filters", {})
     summary = data.get("summary", {})
-    story   = []
+    story = []
 
-    # 1. Header band
+    # 1. Header
     story.append(_build_header(logo_path, filters, styles))
-
-    # Accent line
-    accent = Table([[""]], colWidths=[7.9 * inch], rowHeights=[0.07 * inch])
+    accent = Table([[""]], colWidths=[PAGE_W + 0.1*inch],
+                   rowHeights=[0.07*inch])
     accent.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), GQM_ORANGE)]))
     story.append(accent)
     story.append(Spacer(1, 10))
 
-    # 2. Summary KPI cards
+    # 2. Summary cards
     story.append(Paragraph("Summary", styles["SectionTitle"]))
     story.append(_build_summary_cards(summary, styles))
     story.append(Spacer(1, 12))
 
-    # 3. Monthly breakdown (always shown)
-    story.extend(_build_monthly_section(data.get("monthly_breakdown", []), styles))
+    # 3. Monthly breakdown
+    story.extend(_build_monthly_section(
+        data.get("monthly_breakdown", []), styles))
 
-    # 4. Donut: Invoice vs Bill split
-    donut_png = _make_donut_png(summary.get("total_invoiced", 0), summary.get("total_billed", 0))
-    donut_img = Image(io.BytesIO(donut_png), width=4.8 * inch, height=3.0 * inch)
+    # 4. Aging report
+    story.extend(_build_aging_section(data.get("aging_report", {}), styles))
 
+    # 5. Donut chart
+    donut_png = _make_donut_png(
+        summary.get("total_invoiced", 0),
+        summary.get("total_billed",   0),
+    )
+    donut_img = Image(io.BytesIO(donut_png), width=4.5*inch, height=2.8*inch)
     story.append(KeepTogether([
         Paragraph("Invoice vs Bill Distribution", styles["SectionTitle"]),
         Paragraph("Total amounts by document type.", styles["Muted"]),
@@ -570,27 +854,35 @@ def build_financial_report_pdf_bytes(
     ]))
     story.append(Spacer(1, 10))
 
-    # 5. Detail sections (respect doc_type filter)
+    # 6. Job breakdown
+    story.extend(_build_job_breakdown_section(
+        data.get("job_breakdown", []), styles))
+
+    # 7. Detail sections
     doc_type = filters.get("doc_type", "all")
 
     if doc_type in ("all", "invoices"):
-        story.extend(_build_doc_table(data.get("invoices", []), "Invoices", styles))
+        story.extend(_build_doc_table(
+            data.get("invoices", []), "Invoices", styles))
 
     if doc_type in ("all", "bills"):
         story.extend(_build_doc_table(data.get("bills", []), "Bills", styles))
 
     if doc_type in ("all", "invoice_payments"):
-        story.extend(_build_payments_table(data.get("inv_payments", []), "Invoice Payments", styles))
+        story.extend(_build_payments_table(
+            data.get("inv_payments", []), "Invoice Payments", styles))
 
     if doc_type in ("all", "bill_payments"):
-        story.extend(_build_payments_table(data.get("bill_payments", []), "Bill Payments", styles))
+        story.extend(_build_payments_table(
+            data.get("bill_payments", []), "Bill Payments", styles))
 
-    # Page number footer
+    # Page numbers
     def _on_page(canvas, doc_):
         canvas.saveState()
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(TEXT_MUTED)
-        canvas.drawRightString(7.9 * inch, 0.35 * inch, f"Page {doc_.page}")
+        canvas.drawRightString(PAGE_W + 0.55*inch, 0.35 *
+                               inch, f"Page {doc_.page}")
         canvas.restoreState()
 
     doc.build(story, onFirstPage=_on_page, onLaterPages=_on_page)

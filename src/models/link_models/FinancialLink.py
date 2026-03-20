@@ -1,4 +1,6 @@
 from sqlmodel import SQLModel, Field
+from typing import Optional
+from datetime import date
 
 
 class FinancialLink(SQLModel, table=True):
@@ -13,3 +15,5 @@ class FinancialLink(SQLModel, table=True):
         foreign_key="financial_transaction.ID_FTransaction",
         primary_key=True
     )
+    amount_applied: Optional[float] = Field(default=None)
+    date_applied: Optional[date] = Field(default=None)
