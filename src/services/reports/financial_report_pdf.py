@@ -34,7 +34,9 @@ TABLE_HEADER = colors.HexColor("#EDF3F0")
 TABLE_GRID = colors.HexColor("#DCE6E1")
 TEXT_MUTED = colors.HexColor("#5B6B63")
 EMERALD = colors.HexColor("#059669")
-ORANGE_ACC = colors.HexColor("#EA580C")
+ORANGE_ACC = colors.HexColor("#EA580C")   # kept for internal use
+TEAL_ACC = colors.HexColor("#0D7377")   # Invoices
+CORAL_ACC = colors.HexColor("#C2410C")   # Bills
 BLUE_ACC = colors.HexColor("#2563EB")
 PURPLE_ACC = colors.HexColor("#7C3AED")
 RED_ACC = colors.HexColor("#DC2626")
@@ -194,13 +196,13 @@ def _make_bar_chart_png(monthly: list[dict]) -> bytes:
 
     fig, ax = plt.subplots(figsize=(7.2, 3.6), dpi=160)
     ax.bar([i - 1.5*w for i in x], inv_total, w,
-           label="Invoiced",  color="#059669", alpha=0.85)
+           label="Invoiced",  color="#0D7377", alpha=0.90)
     ax.bar([i - 0.5*w for i in x], inv_coll,  w,
-           label="Collected", color="#10B981", alpha=0.85)
+           label="Collected", color="#0D7377", alpha=0.55)
     ax.bar([i + 0.5*w for i in x], bill_tot,  w,
-           label="Billed",    color="#EA580C", alpha=0.85)
+           label="Billed",    color="#C2410C", alpha=0.90)
     ax.bar([i + 1.5*w for i in x], bill_paid, w,
-           label="Paid",      color="#F97316", alpha=0.85)
+           label="Paid",      color="#C2410C", alpha=0.55)
     ax.plot(list(x), net_flow, color="#2563EB", linewidth=1.8,
             marker="o", markersize=4, label="Net Flow", zorder=5)
 
@@ -236,7 +238,7 @@ def _make_donut_png(inv_total: float, bill_total: float) -> bytes:
     wedges, _ = ax.pie(
         [inv_total, bill_total], startangle=90,
         wedgeprops={"width": 0.42, "edgecolor": "white", "linewidth": 1},
-        colors=["#059669", "#EA580C"],
+        colors=["#0D7377", "#C2410C"],
     )
     ax.axis("equal")
     ax.legend(wedges,
@@ -272,9 +274,9 @@ def _make_aging_chart_png(aging: dict) -> bytes:
     fig, ax = plt.subplots(
         figsize=(6.0, max(2.0, len(buckets) * 0.6 + 0.8)), dpi=160)
     ax.barh([i + h/2 for i in y], inv_vals,  h,
-            label="Invoices", color="#059669", alpha=0.85)
+            label="Invoices", color="#0D7377", alpha=0.90)
     ax.barh([i - h/2 for i in y], bill_vals, h,
-            label="Bills",    color="#EA580C", alpha=0.85)
+            label="Bills",    color="#C2410C", alpha=0.90)
     ax.set_yticks(list(y))
     ax.set_yticklabels(buckets, fontsize=8)
     ax.xaxis.set_major_formatter(
@@ -344,9 +346,36 @@ def _build_summary_cards(summary: dict, styles: dict) -> Table:
     def card(label, value, sub="", accent=GQM_GREEN):
         return [
             Paragraph(label, styles["CardLabel"]),
-            Spacer(1, 2),
+            Spacer(1, 4),
             Paragraph(
                 f'<font color="{accent.hexval()}">{value}</font>', styles["CardValue"]),
+            Spacer(1, 5),
+            Paragraph(sub, styles["CardSub"]),
+        ]
+
+    def card_status(label, paid, partial, overdue, sub=""):
+        """Card variant for status counts — styled to match other cards visually."""
+        base = getSampleStyleSheet()["Normal"]
+        row_style = ParagraphStyle("FCardStatusRow", parent=base,
+                                   fontName="Helvetica-Bold", fontSize=9, leading=13, textColor=colors.black)
+        num_style = ParagraphStyle("FCardStatusNum", parent=base,
+                                   fontName="Helvetica-Bold", fontSize=13, leading=15, textColor=colors.black)
+        return [
+            Paragraph(label, styles["CardLabel"]),
+            Spacer(1, 4),
+            Paragraph(
+                f'<font color="{EMERALD.hexval()}">Paid</font>'
+                f'<font color="{TEXT_MUTED.hexval()}">  {paid}</font>',
+                row_style),
+            Paragraph(
+                f'<font color="{AMBER_ACC.hexval()}">Partial</font>'
+                f'<font color="{TEXT_MUTED.hexval()}">  {partial}</font>',
+                row_style),
+            Paragraph(
+                f'<font color="{RED_ACC.hexval()}">Overdue</font>'
+                f'<font color="{TEXT_MUTED.hexval()}">  {overdue}</font>',
+                row_style),
+            Spacer(1, 5),
             Paragraph(sub, styles["CardSub"]),
         ]
 
@@ -359,13 +388,13 @@ def _build_summary_cards(summary: dict, styles: dict) -> Table:
 
     row1 = [
         card("Total Invoiced",     _fmt_money(summary["total_invoiced"]),
-             f'{summary["invoice_count"]} invoices  •  avg {inv_pct} paid', EMERALD),
+             f'{summary["invoice_count"]} invoices  •  avg {inv_pct} paid', TEAL_ACC),
         card("Total Collected",    _fmt_money(summary["inv_collected"]),
-             f'Balance: {_fmt_money(summary["inv_balance"])}', EMERALD),
+             f'Balance: {_fmt_money(summary["inv_balance"])}', TEAL_ACC),
         card("Total Billed",       _fmt_money(summary["total_billed"]),
-             f'{summary["bill_count"]} bills  •  avg {bill_pct} paid', ORANGE_ACC),
+             f'{summary["bill_count"]} bills  •  avg {bill_pct} paid', CORAL_ACC),
         card("Total Paid (Bills)", _fmt_money(summary["bill_paid"]),
-             f'Balance: {_fmt_money(summary["bill_balance"])}', ORANGE_ACC),
+             f'Balance: {_fmt_money(summary["bill_balance"])}', CORAL_ACC),
     ]
     row2 = [
         card("Net Cash Flow",     _fmt_money(net),
@@ -373,12 +402,12 @@ def _build_summary_cards(summary: dict, styles: dict) -> Table:
         card("Total Outstanding", _fmt_money(summary["total_outstanding"]),
              f'Inv: {_fmt_money(summary["inv_balance"])}  •  Bills: {_fmt_money(summary["bill_balance"])}',
              PURPLE_ACC),
-        card("Invoice Status",
-             f'{isc["Paid"]}P / {isc["Partial"]}Par / {isc["Overdue"]}Ov',
-             f'Pending: {isc["Pending"]}  •  Voided: {isc["Voided"]}', BLUE_ACC),
-        card("Bill Status",
-             f'{bsc["Paid"]}P / {bsc["Partial"]}Par / {bsc["Overdue"]}Ov',
-             f'Pending: {bsc["Pending"]}  •  Voided: {bsc["Voided"]}', AMBER_ACC),
+        card_status("Invoice Status",
+                    isc["Paid"], isc["Partial"], isc["Overdue"],
+                    f'Pending: {isc["Pending"]}  •  Voided: {isc["Voided"]}'),
+        card_status("Bill Status",
+                    bsc["Paid"], bsc["Partial"], bsc["Overdue"],
+                    f'Pending: {bsc["Pending"]}  •  Voided: {bsc["Voided"]}'),
     ]
 
     tbl = Table([row1, row2], colWidths=[PAGE_W / 4] * 4)
@@ -551,7 +580,7 @@ def _build_job_breakdown_section(job_breakdown: list[dict], styles: dict) -> lis
         "Job ID", "Type",
         "Invoiced", "Collected", "Inv Bal",
         "Billed",   "Paid",      "Bill Bal",
-        "Net Margin", "Status",
+        "Gross Profit", "Status",
     ]]
     data = [hdr]
     row_cmds = []
@@ -698,7 +727,7 @@ def _build_doc_table(rows: list[dict], doc_label: str, styles: dict) -> list:
     tbl = Table(data, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_table_style() + row_cmds))
 
-    color = EMERALD if "Invoice" in doc_label else ORANGE_ACC
+    color = TEAL_ACC if "Invoice" in doc_label else CORAL_ACC
     return [
         KeepTogether([
             Paragraph(
@@ -751,7 +780,7 @@ def _build_payments_table(rows: list[dict], label: str, styles: dict) -> list:
     tbl = Table(data, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_table_style()))
 
-    color = BLUE_ACC if "Invoice" in label else PURPLE_ACC
+    color = BLUE_ACC if "Invoice" in label else CORAL_ACC
     return [
         KeepTogether([
             Paragraph(
