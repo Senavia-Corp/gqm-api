@@ -23,7 +23,7 @@ def map_job_to_podio_qid(job_obj, session=None):
                 if converted is not None:
                     payload[ext_id] = converted
                 else:
-                    payload[ext_id] = None
+                    payload[ext_id] = []
 
         # 🔹 NORMAL FIELD
         else:

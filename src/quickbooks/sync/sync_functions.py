@@ -1,4 +1,5 @@
 from sqlmodel import select
+from datetime import date
 from src.utils.id_generator import generate_custom_id
 from src.models.FinancialDocModel import FinancialDocument
 from src.models.FinancialDocItemModel import FinancialDoc_Item
@@ -178,11 +179,20 @@ def upsert_financial_transaction(session, data, trans_type, dry_run=False):
 
 
 # -------------------------- SINCRONIZAR FINANCIAL LINK -------------------------- #
-def upsert_financial_link(session, doc_id, trans_id, dry_run=False):
+def upsert_financial_link(
+    session,
+    doc_id: str,
+    trans_id: str,
+    amount_applied: float | None = None,
+    date_applied: date | None = None,
+    dry_run: bool = False,
+):
 
     print("\n🔗 [LINK] Intentando vincular:")
     print(f"   Documento ID: {doc_id}")
     print(f"   Transaction ID: {trans_id}")
+    print(f"   Amount Applied:  {amount_applied}")
+    print(f"   Date Applied:    {date_applied}")
 
     existing = session.exec(
         select(FinancialLink).where(
@@ -192,14 +202,36 @@ def upsert_financial_link(session, doc_id, trans_id, dry_run=False):
     ).first()
 
     if existing:
-        print(" ℹ️   LINK ya existe. No se crea nuevo.")
-        return existing, False  # ya existía
+        # Actualizar amount_applied y date_applied si cambiaron
+        changed = False
+
+        if amount_applied is not None and existing.amount_applied != amount_applied:
+            print(
+                f"   ✏️ Actualizando amount_applied: {existing.amount_applied} → {amount_applied}")
+            existing.amount_applied = amount_applied
+            changed = True
+
+        if date_applied is not None and existing.date_applied != date_applied:
+            print(
+                f"   ✏️ Actualizando date_applied: {existing.date_applied} → {date_applied}")
+            existing.date_applied = date_applied
+            changed = True
+
+        if changed and not dry_run:
+            session.add(existing)
+            print("   ✅ Link actualizado.")
+        else:
+            print("   ℹ️ Link ya existe y no hay cambios.")
+
+        return existing, False
 
     print(" ➕  LINK no existe. Creando...")
 
     new_link = FinancialLink(
         fdocument_id=doc_id,
-        ftransaction_id=trans_id
+        ftransaction_id=trans_id,
+        amount_applied=amount_applied,
+        date_applied=date_applied,
     )
 
     if not dry_run:
