@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from sqlmodel import select
-from sqlalchemy import extract
+from sqlalchemy import extract, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 
@@ -71,15 +71,14 @@ def _norm_doc_type(value: str | None) -> str:
 
 def _classify_doc_status(total: float, balance: float, due_date: str | None, is_voided: bool) -> str:
     """
-    Classifies a document into one of five statuses.
-    Uses Total_Amount and Balance_Amount from the document (source of truth from QBO).
+    Status is based on current Balance_Amount from QBO — reflects real-time
+    state of the document regardless of period filters.
     """
     if is_voided:
         return "Voided"
     if balance <= 0:
         return "Paid"
     if balance >= total:
-        # Check if overdue
         if due_date:
             try:
                 d = date.fromisoformat(due_date)
@@ -88,7 +87,6 @@ def _classify_doc_status(total: float, balance: float, due_date: str | None, is_
             except ValueError:
                 pass
         return "Pending"
-    # Partial payment
     if due_date:
         try:
             d = date.fromisoformat(due_date)
@@ -104,10 +102,6 @@ def _classify_doc_status(total: float, balance: float, due_date: str | None, is_
 # ---------------------------------------------------------------------------
 
 def _aging_bucket(due_date: str | None, balance: float) -> str | None:
-    """
-    Returns the aging bucket for a document with outstanding balance.
-    Returns None if not applicable (paid, voided, or no due date).
-    """
     if balance <= 0:
         return None
     if not due_date:
@@ -146,7 +140,6 @@ def _apply_job_type_filter(stmt, job_type: str):
 
 
 def _apply_doc_date_filters(stmt, year: int | None, month: int | None):
-    """Filter FinancialDocument by Due_Date."""
     if year is not None:
         stmt = stmt.where(
             FinancialDocument.Due_Date.is_not(None),
@@ -160,19 +153,34 @@ def _apply_doc_date_filters(stmt, year: int | None, month: int | None):
     return stmt
 
 
-def _apply_trans_date_filters(stmt, year: int | None, month: int | None):
-    """Filter FinancialTransaction by Date_of_payment."""
+# ---------------------------------------------------------------------------
+# amount_applied subquery filtered by payment period
+# ---------------------------------------------------------------------------
+
+def _build_amount_applied_subquery(year: int | None, month: int | None):
+
+    # Subquery that sums amount_applied per document filtered by date_applied.
+    sq = (
+        select(
+            FinancialLink.fdocument_id,
+            func.coalesce(func.sum(FinancialLink.amount_applied),
+                          0).label("period_collected"),
+        )
+        .group_by(FinancialLink.fdocument_id)
+    )
+
     if year is not None:
-        stmt = stmt.where(
-            FinancialTransaction.Date_of_payment.is_not(None),
-            extract("year", FinancialTransaction.Date_of_payment) == year,
+        sq = sq.where(
+            (FinancialLink.date_applied.is_(None)) |
+            (extract("year", FinancialLink.date_applied) == year)
         )
     if month is not None:
-        stmt = stmt.where(
-            FinancialTransaction.Date_of_payment.is_not(None),
-            extract("month", FinancialTransaction.Date_of_payment) == month,
+        sq = sq.where(
+            (FinancialLink.date_applied.is_(None)) |
+            (extract("month", FinancialLink.date_applied) == month)
         )
-    return stmt
+
+    return sq.subquery()
 
 
 # ---------------------------------------------------------------------------
@@ -186,13 +194,18 @@ def _fetch_documents(
     year: int | None,
     month: int | None,
 ) -> list[dict]:
+
+    # Fetches documents with period_collected from FinancialLink.amount_applied.
+    amount_sq = _build_amount_applied_subquery(year, month)
+
     stmt = (
-        select(FinancialDocument)
+        select(FinancialDocument, amount_sq.c.period_collected)
         .options(
             joinedload(FinancialDocument.job),
             joinedload(FinancialDocument.financial_transactions),
         )
         .join(Job, Job.ID_Jobs == FinancialDocument.ID_Jobs, isouter=False)
+        .outerjoin(amount_sq, amount_sq.c.fdocument_id == FinancialDocument.ID_FinancialDoc)
         .where(FinancialDocument.Type_of_document == doc_type)
     )
     stmt = _apply_job_type_filter(stmt, job_type)
@@ -202,14 +215,22 @@ def _fetch_documents(
     results = session.exec(stmt).unique().all()
 
     rows = []
-    for doc in results:
+    for row in results:
+        if isinstance(row, tuple):
+            doc, period_collected = row
+        else:
+            doc = row
+            period_collected = None
+
         job = doc.job
         total = float(doc.Total_Amount or 0)
         balance = float(doc.Balance_Amount or 0)
 
-        # Amount collected is derived from the document itself (source of truth).
-        # This avoids double-counting when a single payment covers multiple Jobs.
-        collected = round(total - balance, 2)
+        # Use amount_applied sum for the period; fall back to Total - Balance
+        # for documents whose links predate the migration (no amount_applied)
+        collected_in_period = float(period_collected or 0)
+        if collected_in_period == 0 and balance < total:
+            collected_in_period = round(total - balance, 2)
 
         due_date_str = str(doc.Due_Date) if doc.Due_Date else None
         is_voided = doc.is_voided or False
@@ -226,7 +247,7 @@ def _fetch_documents(
             "due_date":         due_date_str,
             "total_amount":     total,
             "balance_amount":   balance,
-            "collected_amount": collected,       # ← derived, not from transactions
+            "collected_amount": round(collected_in_period, 2),
             "pct_paid":         float(doc.Percentage_Paid or 0),
             "is_voided":        is_voided,
             "status":           status,
@@ -244,60 +265,61 @@ def _fetch_transactions(
     year: int | None,
     month: int | None,
 ) -> list[dict]:
-    """
-    Fetches payment transactions for reference/display purposes only.
-    NOTE: Do NOT use transaction Total_Amount for financial totals —
-    a single transaction can cover multiple Jobs and will inflate sums.
-    Use collected_amount from _fetch_documents instead.
-    """
+
+    # Fetches payment transactions for display only.
+    # Filtered by date_applied on the link (actual payment period).
     stmt = (
         select(FinancialTransaction)
-        .join(
-            FinancialLink,
-            FinancialLink.ftransaction_id == FinancialTransaction.ID_FTransaction,
-        )
-        .join(
-            FinancialDocument,
-            FinancialDocument.ID_FinancialDoc == FinancialLink.fdocument_id,
-        )
+        .join(FinancialLink, FinancialLink.ftransaction_id == FinancialTransaction.ID_FTransaction)
+        .join(FinancialDocument, FinancialDocument.ID_FinancialDoc == FinancialLink.fdocument_id)
         .join(Job, Job.ID_Jobs == FinancialDocument.ID_Jobs, isouter=False)
         .where(FinancialTransaction.Type_of_transaction == trans_type)
-        .where(FinancialTransaction.is_voided.is_(False) | FinancialTransaction.is_voided.is_(None))
+        .where(
+            FinancialTransaction.is_voided.is_(False) |
+            FinancialTransaction.is_voided.is_(None)
+        )
     )
     stmt = _apply_job_type_filter(stmt, job_type)
-    stmt = _apply_trans_date_filters(stmt, year, month)
+
+    if year is not None:
+        stmt = stmt.where(
+            (FinancialLink.date_applied.is_(None)) |
+            (extract("year", FinancialLink.date_applied) == year)
+        )
+    if month is not None:
+        stmt = stmt.where(
+            (FinancialLink.date_applied.is_(None)) |
+            (extract("month", FinancialLink.date_applied) == month)
+        )
+
     stmt = stmt.distinct()
     stmt = stmt.order_by(
         FinancialTransaction.Date_of_payment.asc().nullslast())
 
     results = session.exec(stmt).unique().all()
 
-    rows = []
-    for tx in results:
-        rows.append({
-            "id":                tx.ID_FTransaction,
-            "reference_number":  tx.Reference_number,
-            "date_of_payment":   str(tx.Date_of_payment) if tx.Date_of_payment else None,
-            "total_amount":      float(tx.Total_Amount or 0),
-            "type_of_payment":   tx.Type_of_payment,
-            "bank_account_ref":  tx.Bank_Account_Ref,
-            "is_voided":         tx.is_voided or False,
-        })
-    return rows
+    return [
+        {
+            "id":               tx.ID_FTransaction,
+            "reference_number": tx.Reference_number,
+            "date_of_payment":  str(tx.Date_of_payment) if tx.Date_of_payment else None,
+            "total_amount":     float(tx.Total_Amount or 0),
+            "type_of_payment":  tx.Type_of_payment,
+            "bank_account_ref": tx.Bank_Account_Ref,
+            "is_voided":        tx.is_voided or False,
+        }
+        for tx in results
+    ]
 
 
 # ---------------------------------------------------------------------------
-# Monthly breakdown — uses Due_Date from documents (no transaction dates)
+# Monthly breakdown
 # ---------------------------------------------------------------------------
 
-def _build_monthly_breakdown(
-    invoices: list[dict],
-    bills: list[dict],
-) -> list[dict]:
+def _build_monthly_breakdown(invoices: list[dict], bills: list[dict]) -> list[dict]:
     """
-    Groups documents by month using Due_Date.
-    Uses collected_amount (Total - Balance) instead of transaction amounts
-    to avoid multi-Job payment inflation.
+    Groups by month using Due_Date of the document for totals/balances,
+    and collected_amount (from amount_applied) for the collected/paid figures.
     """
     months: dict[int, dict] = {}
 
@@ -312,42 +334,39 @@ def _build_monthly_breakdown(
                 "bills_total":        0.0,
                 "bills_paid":         0.0,
                 "bills_balance":      0.0,
-                "net_flow":           0.0,  # collected - paid
+                "net_flow":           0.0,
             }
 
     for doc in invoices:
-        if doc["due_date"] and not doc["is_voided"]:
-            try:
-                m = int(doc["due_date"][5:7])
-                _ensure(m)
-                months[m]["invoices_total"] += doc["total_amount"]
-                months[m]["invoices_collected"] += doc["collected_amount"]
-                months[m]["invoices_balance"] += doc["balance_amount"]
-            except Exception:
-                pass
+        if doc["is_voided"] or not doc["due_date"]:
+            continue
+        try:
+            m = int(doc["due_date"][5:7])
+            _ensure(m)
+            months[m]["invoices_total"] += doc["total_amount"]
+            months[m]["invoices_collected"] += doc["collected_amount"]
+            months[m]["invoices_balance"] += doc["balance_amount"]
+        except Exception:
+            pass
 
     for doc in bills:
-        if doc["due_date"] and not doc["is_voided"]:
-            try:
-                m = int(doc["due_date"][5:7])
-                _ensure(m)
-                months[m]["bills_total"] += doc["total_amount"]
-                months[m]["bills_paid"] += doc["collected_amount"]
-                months[m]["bills_balance"] += doc["balance_amount"]
-            except Exception:
-                pass
+        if doc["is_voided"] or not doc["due_date"]:
+            continue
+        try:
+            m = int(doc["due_date"][5:7])
+            _ensure(m)
+            months[m]["bills_total"] += doc["total_amount"]
+            months[m]["bills_paid"] += doc["collected_amount"]
+            months[m]["bills_balance"] += doc["balance_amount"]
+        except Exception:
+            pass
 
-    # Calculate net flow per month
     for m_data in months.values():
+        for key in ["invoices_total", "invoices_collected", "invoices_balance",
+                    "bills_total", "bills_paid", "bills_balance"]:
+            m_data[key] = round(m_data[key], 2)
         m_data["net_flow"] = round(
-            m_data["invoices_collected"] - m_data["bills_paid"], 2
-        )
-        m_data["invoices_total"] = round(m_data["invoices_total"], 2)
-        m_data["invoices_collected"] = round(m_data["invoices_collected"], 2)
-        m_data["invoices_balance"] = round(m_data["invoices_balance"], 2)
-        m_data["bills_total"] = round(m_data["bills_total"], 2)
-        m_data["bills_paid"] = round(m_data["bills_paid"], 2)
-        m_data["bills_balance"] = round(m_data["bills_balance"], 2)
+            m_data["invoices_collected"] - m_data["bills_paid"], 2)
 
     return sorted(months.values(), key=lambda x: x["month"])
 
@@ -361,12 +380,8 @@ AGING_BUCKETS_ORDER = ["Current", "1–30 days",
 
 
 def _build_aging_report(invoices: list[dict], bills: list[dict]) -> dict:
-    """
-    Builds an aging report grouping outstanding balances by overdue bucket.
-    Only includes documents with balance > 0 and not voided.
-    """
-    inv_aging:  dict[str, float] = {b: 0.0 for b in AGING_BUCKETS_ORDER}
-    bill_aging: dict[str, float] = {b: 0.0 for b in AGING_BUCKETS_ORDER}
+    inv_aging:   dict[str, float] = {b: 0.0 for b in AGING_BUCKETS_ORDER}
+    bill_aging:  dict[str, float] = {b: 0.0 for b in AGING_BUCKETS_ORDER}
     inv_counts:  dict[str, int] = {b: 0 for b in AGING_BUCKETS_ORDER}
     bill_counts: dict[str, int] = {b: 0 for b in AGING_BUCKETS_ORDER}
 
@@ -382,25 +397,24 @@ def _build_aging_report(invoices: list[dict], bills: list[dict]) -> dict:
             bill_aging[bucket] += doc["balance_amount"]
             bill_counts[bucket] += 1
 
-    rows = []
-    for bucket in AGING_BUCKETS_ORDER:
-        inv_bal = round(inv_aging[bucket],  2)
-        bill_bal = round(bill_aging[bucket], 2)
-        if inv_bal > 0 or bill_bal > 0:
-            rows.append({
-                "bucket":       bucket,
-                "inv_balance":  inv_bal,
-                "inv_count":    inv_counts[bucket],
-                "bill_balance": bill_bal,
-                "bill_count":   bill_counts[bucket],
-                "total":        round(inv_bal + bill_bal, 2),
-            })
+    rows = [
+        {
+            "bucket":       bucket,
+            "inv_balance":  round(inv_aging[bucket],  2),
+            "inv_count":    inv_counts[bucket],
+            "bill_balance": round(bill_aging[bucket], 2),
+            "bill_count":   bill_counts[bucket],
+            "total":        round(inv_aging[bucket] + bill_aging[bucket], 2),
+        }
+        for bucket in AGING_BUCKETS_ORDER
+        if inv_aging[bucket] > 0 or bill_aging[bucket] > 0
+    ]
 
     return {
-        "rows":              rows,
-        "total_inv_overdue": round(sum(inv_aging[b] for b in AGING_BUCKETS_ORDER if b != "Current"), 2),
+        "rows":               rows,
+        "total_inv_overdue":  round(sum(inv_aging[b] for b in AGING_BUCKETS_ORDER if b != "Current"), 2),
         "total_bill_overdue": round(sum(bill_aging[b] for b in AGING_BUCKETS_ORDER if b != "Current"), 2),
-        "total_overdue":     round(sum(
+        "total_overdue":      round(sum(
             inv_aging[b] + bill_aging[b] for b in AGING_BUCKETS_ORDER if b != "Current"
         ), 2),
     }
@@ -411,27 +425,23 @@ def _build_aging_report(invoices: list[dict], bills: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _build_job_breakdown(invoices: list[dict], bills: list[dict]) -> list[dict]:
-    """
-    Groups documents by Job ID to show financial position per job.
-    Excludes voided documents from totals.
-    """
     jobs: dict[str, dict] = {}
 
     def _ensure_job(job_id: str, job_type: str | None):
         if job_id not in jobs:
             jobs[job_id] = {
-                "job_id":          job_id,
-                "job_type":        job_type,
-                "inv_total":       0.0,
-                "inv_collected":   0.0,
-                "inv_balance":     0.0,
-                "inv_count":       0,
-                "bill_total":      0.0,
-                "bill_paid":       0.0,
-                "bill_balance":    0.0,
-                "bill_count":      0,
-                "net_margin":      0.0,
-                "status":          "OK",
+                "job_id":        job_id,
+                "job_type":      job_type,
+                "inv_total":     0.0,
+                "inv_collected": 0.0,
+                "inv_balance":   0.0,
+                "inv_count":     0,
+                "bill_total":    0.0,
+                "bill_paid":     0.0,
+                "bill_balance":  0.0,
+                "bill_count":    0,
+                "gross_profit":  0.0,
+                "status":        "OK",
             }
 
     for doc in invoices:
@@ -456,15 +466,11 @@ def _build_job_breakdown(invoices: list[dict], bills: list[dict]) -> list[dict]:
 
     result = []
     for j in jobs.values():
-        j["inv_total"] = round(j["inv_total"],     2)
-        j["inv_collected"] = round(j["inv_collected"], 2)
-        j["inv_balance"] = round(j["inv_balance"],   2)
-        j["bill_total"] = round(j["bill_total"],    2)
-        j["bill_paid"] = round(j["bill_paid"],     2)
-        j["bill_balance"] = round(j["bill_balance"],  2)
-        j["net_margin"] = round(j["inv_collected"] - j["bill_paid"], 2)
+        for key in ["inv_total", "inv_collected", "inv_balance",
+                    "bill_total", "bill_paid", "bill_balance"]:
+            j[key] = round(j[key], 2)
+        j["gross_profit"] = round(j["inv_collected"] - j["bill_paid"], 2)
 
-        # Job-level status
         has_overdue_inv = any(
             d["aging_bucket"] not in (
                 None, "Current") and d["job_id"] == j["job_id"]
@@ -498,7 +504,13 @@ def get_financial_metrics_data(
     month_raw: str | None,
     doc_type_raw: str | None,
 ) -> tuple[dict | None, tuple | None]:
+    """
+    Returns (data_dict, error_tuple).
 
+    collected_amount uses sum(FinancialLink.amount_applied) filtered by date_applied,
+    preventing inflation from payments made in other periods.
+    Falls back to Total - Balance for legacy links without amount_applied.
+    """
     job_type = _norm_job_type(job_type_raw)
     if job_type is None:
         return None, ({"detail": "Invalid type. Use QID, PTL, PAR or ALL."}, 400)
@@ -524,13 +536,9 @@ def get_financial_metrics_data(
             bill_payments = _fetch_transactions(
                 session, TransactionType.Bill_payments,    job_type, year, month)
 
-        # --- Filter out voided documents for financial calculations ---
         active_invoices = [d for d in invoices if not d["is_voided"]]
         active_bills = [d for d in bills if not d["is_voided"]]
 
-        # --- Summary KPIs ---
-        # Amounts collected/paid are derived from document balances (Total - Balance).
-        # This is the only reliable per-Job figure when payments can span multiple Jobs.
         total_invoiced = sum(d["total_amount"] for d in active_invoices)
         total_billed = sum(d["total_amount"] for d in active_bills)
         inv_collected = sum(d["collected_amount"] for d in active_invoices)
@@ -540,52 +548,41 @@ def get_financial_metrics_data(
         net_flow = round(inv_collected - bill_paid, 2)
         total_outstanding = round(inv_balance + bill_balance, 2)
 
-        # Status counts (invoices)
         inv_status_counts = {"Paid": 0, "Partial": 0,
                              "Pending": 0, "Overdue": 0, "Voided": 0}
-        for d in invoices:
-            s = d["status"]
-            if s in inv_status_counts:
-                inv_status_counts[s] += 1
-
-        # Status counts (bills)
         bill_status_counts = {"Paid": 0, "Partial": 0,
                               "Pending": 0, "Overdue": 0, "Voided": 0}
-        for d in bills:
-            s = d["status"]
-            if s in bill_status_counts:
-                bill_status_counts[s] += 1
 
-        avg_inv_pct = (
-            sum(d["pct_paid"] for d in active_invoices) / len(active_invoices)
-            if active_invoices else 0.0
-        )
-        avg_bill_pct = (
-            sum(d["pct_paid"] for d in active_bills) / len(active_bills)
-            if active_bills else 0.0
-        )
+        for d in invoices:
+            if d["status"] in inv_status_counts:
+                inv_status_counts[d["status"]] += 1
+
+        for d in bills:
+            if d["status"] in bill_status_counts:
+                bill_status_counts[d["status"]] += 1
+
+        avg_inv_pct = (sum(d["pct_paid"] for d in active_invoices) / len(active_invoices)
+                       if active_invoices else 0.0)
+        avg_bill_pct = (sum(d["pct_paid"] for d in active_bills) / len(active_bills)
+                        if active_bills else 0.0)
 
         summary = {
-            # Revenue side
-            "total_invoiced":        round(total_invoiced, 2),
-            "inv_collected":         round(inv_collected,  2),
-            "inv_balance":           round(inv_balance,    2),
-            "avg_invoice_pct_paid":  round(avg_inv_pct,    2),
-            "invoice_count":         len(active_invoices),
-            "inv_status_counts":     inv_status_counts,
-            # Expense side
-            "total_billed":          round(total_billed,  2),
-            "bill_paid":             round(bill_paid,     2),
-            "bill_balance":          round(bill_balance,  2),
-            "avg_bill_pct_paid":     round(avg_bill_pct,  2),
-            "bill_count":            len(active_bills),
-            "bill_status_counts":    bill_status_counts,
-            # Net
-            "net_flow":              net_flow,
-            "total_outstanding":     total_outstanding,
-            # Transaction counts (display only)
-            "inv_payment_count":     len(inv_payments),
-            "bill_payment_count":    len(bill_payments),
+            "total_invoiced":       round(total_invoiced, 2),
+            "inv_collected":        round(inv_collected,  2),
+            "inv_balance":          round(inv_balance,    2),
+            "avg_invoice_pct_paid": round(avg_inv_pct,    2),
+            "invoice_count":        len(active_invoices),
+            "inv_status_counts":    inv_status_counts,
+            "total_billed":         round(total_billed,  2),
+            "bill_paid":            round(bill_paid,     2),
+            "bill_balance":         round(bill_balance,  2),
+            "avg_bill_pct_paid":    round(avg_bill_pct,  2),
+            "bill_count":           len(active_bills),
+            "bill_status_counts":   bill_status_counts,
+            "net_flow":             net_flow,
+            "total_outstanding":    total_outstanding,
+            "inv_payment_count":    len(inv_payments),
+            "bill_payment_count":   len(bill_payments),
         }
 
         monthly = _build_monthly_breakdown(invoices, bills)
@@ -599,7 +596,7 @@ def get_financial_metrics_data(
                 "month":    month,
                 "doc_type": doc_type,
             },
-            "summary":          summary,
+            "summary":           summary,
             "monthly_breakdown": monthly,
             "aging_report":      aging,
             "job_breakdown":     job_breakdown,
