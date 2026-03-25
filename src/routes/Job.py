@@ -122,7 +122,8 @@ def list_jobs_table():
                     load_only(
                         Job.ID_Jobs, Job.Job_type, Job.Project_name,
                         Job.Project_location, Job.Job_status, Job.Date_assigned,
-                        Job.Gqm_formula_pricing, Job.ID_Client, Job.Estimated_start_date
+                        Job.Gqm_formula_pricing, Job.ID_Client, Job.Estimated_start_date, Job.Gqm_target_sold_pricing,
+                        Job.Gqm_target_return
                     ),
                     selectinload(Job.client).load_only(
                         Client.ID_Client, Client.Client_Community),
@@ -218,6 +219,8 @@ def list_jobs_table():
                     "Job_status": j.Job_status, "Date_assigned": j.Date_assigned,
                     "Estimated_start_date": j.Estimated_start_date,
                     "Gqm_formula_pricing": j.Gqm_formula_pricing,
+                    "Gqm_target_return": j.Gqm_target_return,
+                    "Gqm_target_sold_pricing": j.Gqm_target_sold_pricing,
                     "client": None, "members": [],
                 }
                 if j.client:
