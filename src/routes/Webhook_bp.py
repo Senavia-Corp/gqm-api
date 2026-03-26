@@ -198,6 +198,11 @@ def podio_jobs_webhook(app_type, year):
                 item = data.get("item") or get_podio_item(
                     item_id, app_type, year=year)
 
+                # Extraer quien hizo el cambio para timeline
+                current_revision = item.get("current_revision", {})
+                changed_by = current_revision.get(
+                    "created_by", {}).get("name", "Unknown")
+
                 # Snapshot del Job ANTES de procesar (para detectar status change)
                 existing_job = session.exec(
                     select(Job).where(Job.podio_item_id == str(item_id))
@@ -217,16 +222,15 @@ def podio_jobs_webhook(app_type, year):
                 ).first()
 
                 if updated_job:
-                    # ── Recálculo automático de campos derivados ──────────
-                    # Se ejecuta ANTES del commit final para que todo quede
-                    # consistente en una sola transacción
                     recalculate_and_apply(updated_job.ID_Jobs, session)
-                    # ─────────────────────────────────────────────────────
 
                     is_create = event_type == "item.create"
                     action = "Job created from Podio" if is_create else "Job updated from Podio"
 
-                    desc_parts = [f"Podio item_id: {item_id}"]
+                    desc_parts = [
+                        f"Podio item_id: {item_id}",
+                        f"Changed by: {changed_by}"
+                    ]
                     if not is_create and old_status != updated_job.Job_status:
                         desc_parts.append(
                             f"Status: {old_status} → {updated_job.Job_status}"
@@ -272,7 +276,7 @@ def podio_jobs_webhook(app_type, year):
                     action="Job deleted from Podio",
                     job_id=job_id_for_log,
                     member_id=None,
-                    description=f"Podio item_id: {item_id}",
+                    description=f"Podio item_id: {item_id} | Changed by: Unknown",
                     source="podio",
                 )
 
@@ -286,6 +290,13 @@ def podio_jobs_webhook(app_type, year):
                     print(
                         f"⚠️ Job con podio_item_id={item_id} no existe en DB.")
                 else:
+                    # Extraer quien hizo el cambio en file.change
+                    item = data.get("item") or get_podio_item(
+                        item_id, app_type, year=year)
+                    current_revision = item.get("current_revision", {})
+                    changed_by = current_revision.get(
+                        "created_by", {}).get("name", "Unknown")
+
                     action_type = data.get("action_type")
                     file_ids = data.get("file_ids", "")
 
@@ -309,7 +320,7 @@ def podio_jobs_webhook(app_type, year):
                             action_type, "File change from Podio"),
                         job_id=updated_job.ID_Jobs,
                         member_id=None,
-                        description=f"Podio item_id: {item_id} | file_ids: {file_ids}",
+                        description=f"Podio item_id: {item_id} | file_ids: {file_ids} | Changed by: {changed_by}",
                         source="podio",
                     )
 
