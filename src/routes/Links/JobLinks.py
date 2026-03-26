@@ -133,7 +133,7 @@ job_multiplier_bp = Blueprint(
 @job_multiplier_bp.post("/jobs/<job_id>/multipliers/<multiplier_id>")
 def assign_multiplier_to_job(job_id, multiplier_id):
     with get_session() as session:
-        job        = session.get(Job,         job_id)
+        job = session.get(Job, job_id)
         multiplier = session.get(MultiplierR, multiplier_id)
         if not job or not multiplier:
             return jsonify({"error": "Job or MultiplierRange not found"}), 404
@@ -145,21 +145,28 @@ def assign_multiplier_to_job(job_id, multiplier_id):
         link = JobMultiplierRLink(job_id=job_id, multiplier_id=multiplier_id)
         session.add(link)
         session.flush()
+
+        # LOG 1: valor ANTES del recálculo
+        print(f"[DEBUG] ANTES recalc → Gqm_adj_formula_pricing = {job.Gqm_adj_formula_pricing}")
+
         recalculate_and_apply(job_id, session)
+
+        # LOG 2: valor en el objeto retornado por recalculate_and_apply
+        job_after = session.get(Job, job_id)
+        print(f"[DEBUG] DESPUÉS recalc (antes commit) → Gqm_adj_formula_pricing = {job_after.Gqm_adj_formula_pricing}")
+
         session.commit()
 
-        # ← NUEVO: refrescar para leer valores recalculados desde la DB
-        job = session.exec(select(Job).where(Job.ID_Jobs == job_id)).first()
+        # LOG 3: valor después del commit, re-query limpio
+        session.expire_all()
+        job_committed = session.exec(select(Job).where(Job.ID_Jobs == job_id)).first()
+        print(f"[DEBUG] DESPUÉS commit → Gqm_adj_formula_pricing = {job_committed.Gqm_adj_formula_pricing}")
 
         return jsonify({
             "status": "Linked 🔗",
             "job_id": job_id,
             "multiplier_id": multiplier_id,
-            "Gqm_formula_pricing":     job.Gqm_formula_pricing,
-            "Gqm_adj_formula_pricing": job.Gqm_adj_formula_pricing,
-            "Gqm_target_return":       job.Gqm_target_return,
-            "Gqm_premium_in_money":    job.Gqm_premium_in_money,
-            "Gqm_final_sold_pricing":  job.Gqm_final_sold_pricing,
+            "Gqm_adj_formula_pricing": job_committed.Gqm_adj_formula_pricing,
         }), 201
 
 
