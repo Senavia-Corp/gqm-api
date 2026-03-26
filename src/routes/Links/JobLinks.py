@@ -35,7 +35,7 @@ def assign_member_to_job(job_id, member_id):
         return jsonify({"error": "'rol' is required in the request body"}), 400
 
     with get_session() as session:
-        job    = session.get(Job,    job_id)
+        job = session.get(Job,    job_id)
         member = session.get(Member, member_id)
 
         if not job or not member:
@@ -43,9 +43,9 @@ def assign_member_to_job(job_id, member_id):
 
         existing_link = session.exec(
             select(JobMemberLink).where(
-                JobMemberLink.job_id    == job_id,
+                JobMemberLink.job_id == job_id,
                 JobMemberLink.member_id == member_id,
-                JobMemberLink.rol       == rol,
+                JobMemberLink.rol == rol,
             )
         ).first()
 
@@ -64,7 +64,8 @@ def assign_member_to_job(job_id, member_id):
                 if value_to_send:
                     podio_service.update_item(
                         int(job.podio_item_id),
-                        {cfg["external_id"]: convert_value_for_podio(value_to_send, cfg["type"])}
+                        {cfg["external_id"]: convert_value_for_podio(
+                            value_to_send, cfg["type"])}
                     )
                     register_event(job.podio_item_id)
 
@@ -89,7 +90,7 @@ def remove_member_from_job(job_id, member_id):
     with get_session() as session:
         link = session.exec(
             select(JobMemberLink).where(
-                JobMemberLink.job_id    == job_id,
+                JobMemberLink.job_id == job_id,
                 JobMemberLink.member_id == member_id,
             )
         ).first()
@@ -97,7 +98,7 @@ def remove_member_from_job(job_id, member_id):
         if not link:
             return jsonify({"error": "Relationship does not exist"}), 404
 
-        job           = session.get(Job, job_id)
+        job = session.get(Job, job_id)
         rol_to_update = link.rol
 
         if sync_podio:
@@ -106,9 +107,11 @@ def remove_member_from_job(job_id, member_id):
             if job and job.podio_item_id and rol_to_update:
                 podio_service = podio_jobs_router.get_service(
                     job_type=job.Job_type, year=year)
-                cfg = JOB_MEMBER_PODIO_MAP.get(job.Job_type, {}).get(rol_to_update)
+                cfg = JOB_MEMBER_PODIO_MAP.get(
+                    job.Job_type, {}).get(rol_to_update)
                 if cfg and cfg.get("external_id"):
-                    podio_service.update_item(int(job.podio_item_id), {cfg["external_id"]: []})
+                    podio_service.update_item(int(job.podio_item_id), {
+                                              cfg["external_id"]: []})
                     register_event(job.podio_item_id)
 
         session.delete(link)

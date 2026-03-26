@@ -24,7 +24,7 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
-from ..utils.job_calculator import recalculate_and_apply  # ← NEW
+from ..utils.job_calculator import recalculate_and_apply
 
 # Blueprint de Jobs:
 job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
@@ -101,9 +101,9 @@ def list_jobs_table():
         limit = min(limit, 200)
 
         job_type = request.args.get("type")
-        status   = request.args.get("status")
-        year     = request.args.get("year")
-        search   = request.args.get("search", "").strip()
+        status = request.args.get("status")
+        year = request.args.get("year")
+        search = request.args.get("search", "").strip()
 
         if job_type:
             job_type = job_type.upper()
@@ -390,6 +390,40 @@ def get_job_by_memberID(id_member):
             return [], 200
         return [add_relationships(job, ["client", "members", "multipliers",
                 "attachments", "subcontractors.technicians"]) for job in results], 200
+
+
+@job_bp.get("/by-member-role")
+@handle_exceptions()
+def get_jobs_by_member_and_role():
+
+    member_id = request.args.get("member_id")
+    rol = request.args.get("rol")
+
+    if not member_id or not rol:
+        raise AppException(
+            "member_id y rol son requeridos",
+            "missing_params",
+            400)
+
+    with get_session() as session:
+
+        statement = (
+            select(Job)
+            .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
+            .where(
+                JobMemberLink.member_id == member_id,
+                JobMemberLink.rol == rol
+            )
+        )
+
+        results = session.exec(statement).all()
+
+        if not results:
+            return [], 200
+
+        jobs_data = [job.model_dump() for job in results]
+
+        return jobs_data, 200
 
 
 @job_bp.get("/subcontractor/<id_subcontractor>")

@@ -6,7 +6,6 @@ from ..models.TechnicianModel import Technician
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload, load_only
 from sqlalchemy import func, or_
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -75,10 +74,10 @@ def list_subcontractors_table():
         q      (str,  optional) — búsqueda global contra Name, Organization,
                                   Email_Address, Specialty, ID_Subcontractor
     """
-    page   = max(1, int(request.args.get("page",  1)))
-    limit  = min(200, max(1, int(request.args.get("limit", 10))))
+    page = max(1, int(request.args.get("page",  1)))
+    limit = min(200, max(1, int(request.args.get("limit", 10))))
     status = request.args.get("status", "").strip() or None
-    q      = request.args.get("q", "").strip()
+    q = request.args.get("q", "").strip()
 
     with get_session() as session:
 
@@ -121,7 +120,8 @@ def list_subcontractors_table():
 
         # ── Paginación SQL ─────────────────────────────────────────────────
         offset = (page - 1) * limit
-        stmt = stmt.order_by(Subcontractor.ID_Subcontractor.desc()).offset(offset).limit(limit)
+        stmt = stmt.order_by(Subcontractor.ID_Subcontractor.desc()).offset(
+            offset).limit(limit)
         results = session.exec(stmt).all()
 
         # ── Serializar ─────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ def list_subc_by_gqm_compliance(compliance):
         results = session.exec(statement).unique().all()
 
         if not results:
-            return [], 404
+            return [], 200
 
         subcontr_data = [
             add_relationships(
