@@ -40,6 +40,9 @@ from src.routes.Links.PurchaseSupplierLink import purchase_supplier_bp
 from src.routes.StandardPS import standard_ps_bp
 from src.routes.BuildingDepartment import bldg_dept_bp
 from src.routes.ChatMessage import chat_bp
+from src.routes.Commission import commission_bp
+from src.routes.CommissionGroup import commission_group_bp
+from src.routes.CommissionDetail import commission_detail_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion de Podio a Postgre (datos antiguos):
@@ -84,6 +87,9 @@ def create_app():
     app.register_blueprint(client_bp)
     app.register_blueprint(client_manager_bp)
     app.register_blueprint(client_member_bp)
+    app.register_blueprint(commission_bp)
+    app.register_blueprint(commission_group_bp)
+    app.register_blueprint(commission_detail_bp)
     app.register_blueprint(estimate_bp)
     app.register_blueprint(fdoc_item_bp)
     app.register_blueprint(fdocument_bp)
