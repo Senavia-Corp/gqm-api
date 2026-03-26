@@ -184,6 +184,7 @@ def _make_bar_chart_png(monthly: list[dict]) -> bytes:
         plt.close(fig)
         return buf.getvalue()
 
+    n = len(monthly)
     labels = [r["month_name"][:3] for r in monthly]
     inv_total = [r["invoices_total"] for r in monthly]
     inv_coll = [r["invoices_collected"] for r in monthly]
@@ -191,10 +192,13 @@ def _make_bar_chart_png(monthly: list[dict]) -> bytes:
     bill_paid = [r["bills_paid"] for r in monthly]
     net_flow = [r["net_flow"] for r in monthly]
 
-    x = range(len(labels))
-    w = 0.18
+    x = range(n)
+    # Narrow bars when many months to avoid overlap
+    w = max(0.10, min(0.18, 0.9 / (n + 1)))
+    # Wider figure when many months
+    fig_w = max(7.2, min(n * 0.55, 14.0))
 
-    fig, ax = plt.subplots(figsize=(7.2, 3.6), dpi=160)
+    fig, ax = plt.subplots(figsize=(fig_w, 3.8), dpi=160)
     ax.bar([i - 1.5*w for i in x], inv_total, w,
            label="Invoiced",  color="#0D7377", alpha=0.90)
     ax.bar([i - 0.5*w for i in x], inv_coll,  w,
@@ -203,24 +207,41 @@ def _make_bar_chart_png(monthly: list[dict]) -> bytes:
            label="Billed",    color="#C2410C", alpha=0.90)
     ax.bar([i + 1.5*w for i in x], bill_paid, w,
            label="Paid",      color="#C2410C", alpha=0.55)
-    ax.plot(list(x), net_flow, color="#2563EB", linewidth=1.8,
-            marker="o", markersize=4, label="Net Flow", zorder=5)
+    ax.plot(list(x), net_flow, color="#2563EB", linewidth=1.5,
+            marker="o", markersize=3, label="Net Flow", zorder=5)
 
     ax.set_xticks(list(x))
-    ax.set_xticklabels(labels, fontsize=8)
-    ax.yaxis.set_major_formatter(
-        plt.FuncFormatter(lambda v, _: f"${v/1000:.0f}k" if v >= 1000 else f"${v:.0f}"))
+    # Rotate labels when many months to prevent overlap
+    rotation = 45 if n > 6 else 0
+    ax.set_xticklabels(labels, fontsize=7, rotation=rotation,
+                       ha="right" if rotation else "center")
+
+    def _fmt_y(v, _):
+        if abs(v) >= 1_000_000:
+            return f"${v/1_000_000:.1f}M"
+        if abs(v) >= 1000:
+            return f"${v/1000:.0f}k"
+        return f"${v:.0f}"
+
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(_fmt_y))
     ax.tick_params(axis="y", labelsize=7)
     ax.axhline(0, color="#ccc", linewidth=0.5)
-    ax.legend(fontsize=7, frameon=False, ncol=5, loc="upper right")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.set_title("Monthly Financial Overview",
-                 fontsize=10, fontweight="bold", pad=12)
-    # Margen superior para que el título no se solape con las barras más altas
+                 fontsize=10, fontweight="bold", pad=10)
+
     ymax = max(max(inv_total or [0]), max(bill_tot or [0]))
-    ax.set_ylim(top=ymax * 1.22)
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    ymin = min(min(net_flow or [0]), 0)
+    ax.set_ylim(
+        bottom=ymin * 1.25 if ymin < 0 else -ymax * 0.05,
+        top=ymax * 1.25,
+    )
+
+    # Legend below the chart — avoids overlap with title and tallest bars
+    ax.legend(fontsize=7, frameon=False, ncol=5,
+              loc="upper center", bbox_to_anchor=(0.5, -0.20))
+    fig.tight_layout(rect=[0, 0.10, 1, 1])
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
@@ -569,12 +590,11 @@ def _build_aging_section(aging: dict, styles: dict) -> list:
 # Job breakdown
 # ---------------------------------------------------------------------------
 
-def _build_job_breakdown_section(job_breakdown: list[dict], styles: dict) -> list:
-    if not job_breakdown:
-        return [Paragraph("Job Breakdown", styles["SectionTitle"]),
-                Paragraph("No job data available.", styles["Muted"]),
-                Spacer(1, 6)]
+ROWS_PER_CHUNK = 40   # filas por tabla para evitar superposición con 300+ docs
 
+
+def _job_breakdown_table(job_rows: list[dict], styles: dict, show_total: bool = False) -> Table:
+    """Builds a single job breakdown table for a slice of job_rows."""
     S = styles
     hdr = [Paragraph(h, S["CellHdr"]) for h in [
         "Job ID", "Type",
@@ -585,56 +605,56 @@ def _build_job_breakdown_section(job_breakdown: list[dict], styles: dict) -> lis
     data = [hdr]
     row_cmds = []
 
-    for i, j in enumerate(job_breakdown, start=1):
+    for i, j in enumerate(job_rows, start=1):
         status = j["status"]
         sc = JOB_STATUS_COLORS.get(status, TEXT_MUTED)
-        net_c = EMERALD if j["net_margin"] >= 0 else RED_ACC
+        net_c = EMERALD if j["gross_profit"] >= 0 else RED_ACC
 
         if status == "Overdue":
             row_cmds.append(("BACKGROUND", (0, i), (-1, i), RED_LIGHT))
 
         data.append([
-            Paragraph(j["job_id"],                   S["Cell"]),
-            Paragraph(j["job_type"] or "—",          S["CellC"]),
-            Paragraph(_fmt_money(j["inv_total"]),     S["CellR"]),
-            Paragraph(_fmt_money(j["inv_collected"]), S["CellR"]),
-            Paragraph(_fmt_money(j["inv_balance"]),   S["CellR"]),
-            Paragraph(_fmt_money(j["bill_total"]),    S["CellR"]),
-            Paragraph(_fmt_money(j["bill_paid"]),     S["CellR"]),
-            Paragraph(_fmt_money(j["bill_balance"]),  S["CellR"]),
+            Paragraph(j["job_id"],                    S["Cell"]),
+            Paragraph(j["job_type"] or "—",           S["CellC"]),
+            Paragraph(_fmt_money(j["inv_total"]),      S["CellR"]),
+            Paragraph(_fmt_money(j["inv_collected"]),  S["CellR"]),
+            Paragraph(_fmt_money(j["inv_balance"]),    S["CellR"]),
+            Paragraph(_fmt_money(j["bill_total"]),     S["CellR"]),
+            Paragraph(_fmt_money(j["bill_paid"]),      S["CellR"]),
+            Paragraph(_fmt_money(j["bill_balance"]),   S["CellR"]),
             Paragraph(
-                f'<font color="{net_c.hexval()}">{_fmt_money(j["net_margin"])}</font>',
+                f'<font color="{net_c.hexval()}">{_fmt_money(j["gross_profit"])}</font>',
                 S["CellR"]),
             Paragraph(
                 f'<font color="{sc.hexval()}"><b>{status}</b></font>',
                 S["CellC"]),
         ])
 
-    total_inv = sum(j["inv_total"] for j in job_breakdown)
-    total_coll = sum(j["inv_collected"] for j in job_breakdown)
-    total_ibal = sum(j["inv_balance"] for j in job_breakdown)
-    total_bill = sum(j["bill_total"] for j in job_breakdown)
-    total_paid = sum(j["bill_paid"] for j in job_breakdown)
-    total_bbal = sum(j["bill_balance"] for j in job_breakdown)
-    total_net = round(total_coll - total_paid, 2)
-    net_c = EMERALD if total_net >= 0 else RED_ACC
+    if show_total:
+        total_inv = sum(j["inv_total"] for j in job_rows)
+        total_coll = sum(j["inv_collected"] for j in job_rows)
+        total_ibal = sum(j["inv_balance"] for j in job_rows)
+        total_bill = sum(j["bill_total"] for j in job_rows)
+        total_paid = sum(j["bill_paid"] for j in job_rows)
+        total_bbal = sum(j["bill_balance"] for j in job_rows)
+        total_gp = round(total_coll - total_paid, 2)
+        net_c = EMERALD if total_gp >= 0 else RED_ACC
 
-    data.append([
-        Paragraph("TOTAL",                      S["CellB"]),
-        Paragraph("",                           S["Cell"]),
-        Paragraph(_fmt_money(total_inv),        S["CellRB"]),
-        Paragraph(_fmt_money(total_coll),       S["CellRB"]),
-        Paragraph(_fmt_money(total_ibal),       S["CellRB"]),
-        Paragraph(_fmt_money(total_bill),       S["CellRB"]),
-        Paragraph(_fmt_money(total_paid),       S["CellRB"]),
-        Paragraph(_fmt_money(total_bbal),       S["CellRB"]),
-        Paragraph(
-            f'<font color="{net_c.hexval()}">{_fmt_money(total_net)}</font>',
-            S["CellRB"]),
-        Paragraph("", S["Cell"]),
-    ])
+        data.append([
+            Paragraph("TOTAL",                    S["CellB"]),
+            Paragraph("",                         S["Cell"]),
+            Paragraph(_fmt_money(total_inv),      S["CellRB"]),
+            Paragraph(_fmt_money(total_coll),     S["CellRB"]),
+            Paragraph(_fmt_money(total_ibal),     S["CellRB"]),
+            Paragraph(_fmt_money(total_bill),     S["CellRB"]),
+            Paragraph(_fmt_money(total_paid),     S["CellRB"]),
+            Paragraph(_fmt_money(total_bbal),     S["CellRB"]),
+            Paragraph(
+                f'<font color="{net_c.hexval()}">{_fmt_money(total_gp)}</font>',
+                S["CellRB"]),
+            Paragraph("", S["Cell"]),
+        ])
 
-    # 10 columns — fits PAGE_W = 7.4in
     col_w = [0.80*inch, 0.42*inch,
              0.78*inch, 0.78*inch, 0.72*inch,
              0.78*inch, 0.72*inch, 0.72*inch,
@@ -642,48 +662,58 @@ def _build_job_breakdown_section(job_breakdown: list[dict], styles: dict) -> lis
 
     tbl = Table(data, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_table_style() + row_cmds))
+    return tbl
+
+
+def _build_job_breakdown_section(job_breakdown: list[dict], styles: dict) -> list:
+    if not job_breakdown:
+        return [Paragraph("Job Breakdown", styles["SectionTitle"]),
+                Paragraph("No job data available.", styles["Muted"]),
+                Spacer(1, 6)]
 
     overdue = sum(1 for j in job_breakdown if j["status"] == "Overdue")
     settled = sum(1 for j in job_breakdown if j["status"] == "Settled")
     partial = sum(1 for j in job_breakdown if j["status"] == "Partial")
+    total_gp = round(sum(j["gross_profit"] for j in job_breakdown), 2)
+    net_c = EMERALD if total_gp >= 0 else RED_ACC
 
-    return [
-        KeepTogether([
-            Paragraph("Job Breakdown", styles["SectionTitle"]),
-            Paragraph(
-                f'{len(job_breakdown)} jobs  •  Settled: {settled}  •  '
-                f'Partial: {partial}  •  Overdue: {overdue}  •  '
-                f'Net Margin: {_fmt_money(total_net)}',
-                styles["Muted"]),
-            tbl,
-        ]),
-        Spacer(1, 10),
+    story = [
+        Paragraph("Job Breakdown", styles["SectionTitle"]),
+        Paragraph(
+            f'{len(job_breakdown)} jobs  •  Settled: {settled}  •  '
+            f'Partial: {partial}  •  Overdue: {overdue}  •  '
+            f'Gross Profit: {_fmt_money(total_gp)}',
+            styles["Muted"]),
+        Spacer(1, 4),
     ]
+
+    # Split into chunks to avoid oversized tables with 300+ documents
+    chunks = [job_breakdown[i:i + ROWS_PER_CHUNK]
+              for i in range(0, len(job_breakdown), ROWS_PER_CHUNK)]
+
+    for idx, chunk in enumerate(chunks):
+        is_last = idx == len(chunks) - 1
+        story.append(_job_breakdown_table(chunk, styles, show_total=is_last))
+        story.append(Spacer(1, 6))
+
+    return story
 
 
 # ---------------------------------------------------------------------------
 # Document table (Invoices / Bills)
 # ---------------------------------------------------------------------------
 
-def _build_doc_table(rows: list[dict], doc_label: str, styles: dict) -> list:
-    if not rows:
-        return [Paragraph(f"{doc_label} (0)", styles["SectionTitle"]),
-                Paragraph(
-                    f"No {doc_label.lower()} match the selected filters.", styles["Muted"]),
-                Spacer(1, 6)]
-
-    active = [r for r in rows if not r["is_voided"]]
-    tot_amt = sum(r["total_amount"] for r in active)
-    tot_coll = sum(r["collected_amount"] for r in active)
-    tot_bal = sum(r["balance_amount"] for r in active)
-
+def _doc_table_chunk(chunk: list[dict], styles: dict,
+                     show_total: bool = False,
+                     tot_amt: float = 0, tot_coll: float = 0, tot_bal: float = 0) -> Table:
+    """Builds a single document table for a slice of rows."""
     S = styles
     hdr = [Paragraph(h, S["CellHdr"]) for h in
            ["Job ID", "Ref / Vendor", "Due Date", "Total", "Collected", "Balance", "% Paid", "Status"]]
     data = [hdr]
     row_cmds = []
 
-    for i, r in enumerate(rows, start=1):
+    for i, r in enumerate(chunk, start=1):
         status = r["status"]
         sc = STATUS_COLORS.get(status, TEXT_MUTED)
         bg = STATUS_BG_COLORS.get(status, colors.white)
@@ -709,37 +739,62 @@ def _build_doc_table(rows: list[dict], doc_label: str, styles: dict) -> list:
                 S["CellC"]),
         ])
 
-    data.append([
-        Paragraph("TOTAL",             S["CellB"]),
-        Paragraph("",                  S["Cell"]),
-        Paragraph("",                  S["Cell"]),
-        Paragraph(_fmt_money(tot_amt), S["CellRB"]),
-        Paragraph(_fmt_money(tot_coll), S["CellRB"]),
-        Paragraph(_fmt_money(tot_bal), S["CellRB"]),
-        Paragraph(_fmt_pct((tot_coll / tot_amt * 100)
-                  if tot_amt else 0), S["CellRB"]),
-        Paragraph("",                  S["Cell"]),
-    ])
+    if show_total:
+        data.append([
+            Paragraph("TOTAL",              S["CellB"]),
+            Paragraph("",                   S["Cell"]),
+            Paragraph("",                   S["Cell"]),
+            Paragraph(_fmt_money(tot_amt),  S["CellRB"]),
+            Paragraph(_fmt_money(tot_coll), S["CellRB"]),
+            Paragraph(_fmt_money(tot_bal),  S["CellRB"]),
+            Paragraph(_fmt_pct((tot_coll / tot_amt * 100)
+                      if tot_amt else 0), S["CellRB"]),
+            Paragraph("",                   S["Cell"]),
+        ])
 
     col_w = [0.80*inch, 1.80*inch, 0.78*inch,
              0.88*inch, 0.88*inch, 0.88*inch,
              0.58*inch, 0.74*inch]
     tbl = Table(data, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_table_style() + row_cmds))
+    return tbl
+
+
+def _build_doc_table(rows: list[dict], doc_label: str, styles: dict) -> list:
+    if not rows:
+        return [Paragraph(f"{doc_label} (0)", styles["SectionTitle"]),
+                Paragraph(
+                    f"No {doc_label.lower()} match the selected filters.", styles["Muted"]),
+                Spacer(1, 6)]
+
+    active = [r for r in rows if not r["is_voided"]]
+    tot_amt = sum(r["total_amount"] for r in active)
+    tot_coll = sum(r["collected_amount"] for r in active)
+    tot_bal = sum(r["balance_amount"] for r in active)
 
     color = TEAL_ACC if "Invoice" in doc_label else CORAL_ACC
-    return [
-        KeepTogether([
-            Paragraph(
-                f'<font color="{color.hexval()}">{doc_label}</font>'
-                f' <font size="9" color="{TEXT_MUTED.hexval()}">({len(rows)} records  •  '
-                f'Total: {_fmt_money(tot_amt)}  •  Collected: {_fmt_money(tot_coll)}  •  '
-                f'Balance: {_fmt_money(tot_bal)})</font>',
-                styles["SectionTitle"]),
-            tbl,
-        ]),
-        Spacer(1, 10),
+    story = [
+        Paragraph(
+            f'<font color="{color.hexval()}">{doc_label}</font>'
+            f' <font size="9" color="{TEXT_MUTED.hexval()}">({len(rows)} records  •  '
+            f'Total: {_fmt_money(tot_amt)}  •  Collected: {_fmt_money(tot_coll)}  •  '
+            f'Balance: {_fmt_money(tot_bal)})</font>',
+            styles["SectionTitle"]),
+        Spacer(1, 4),
     ]
+
+    chunks = [rows[i:i + ROWS_PER_CHUNK]
+              for i in range(0, len(rows), ROWS_PER_CHUNK)]
+    for idx, chunk in enumerate(chunks):
+        is_last = idx == len(chunks) - 1
+        story.append(_doc_table_chunk(
+            chunk, styles,
+            show_total=is_last,
+            tot_amt=tot_amt, tot_coll=tot_coll, tot_bal=tot_bal,
+        ))
+        story.append(Spacer(1, 6))
+
+    return story
 
 
 # ---------------------------------------------------------------------------
