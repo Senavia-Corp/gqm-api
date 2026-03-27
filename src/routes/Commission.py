@@ -4,6 +4,7 @@ from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.CommissionModel import Commission, CommissionCreate, CommissionUpdate
 from ..models.ComGroupModel import CommissionGroup
+from ..models.ComDetailModel import CommissionDetail
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload, load_only
 from sqlalchemy import func, or_
@@ -125,7 +126,7 @@ def get_commission(id_commission):
             .options(
                 joinedload(Commission.member),
                 joinedload(Commission.comgroups)
-                .joinedload(CommissionGroup.comdetails)
+                .joinedload(CommissionGroup.comdetails).joinedload(CommissionDetail.job)
             )
             .where(Commission.ID_Commission == id_commission)
         )
@@ -137,7 +138,7 @@ def get_commission(id_commission):
                                "commission_not_found", 404)
 
         commission_data = add_relationships(
-            obj, ["member", "comgroups.comdetails"])
+            obj, ["member", "comgroups.comdetails", "comgroups.comdetails.job"])
 
         return commission_data, 200
 

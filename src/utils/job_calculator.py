@@ -25,8 +25,6 @@ DEFAULT_MULTIPLIER_FALLBACK = 1.018
 
 
 def _resolve_multiplier(formula_value: float, job: Job, session: Session) -> float:
-    if job.Job_type and job.Job_type.upper() == "PTL":
-        return DEFAULT_MULTIPLIER_FALLBACK
 
     multipliers: list[MultiplierR] = list(
         session.exec(
@@ -36,12 +34,14 @@ def _resolve_multiplier(formula_value: float, job: Job, session: Session) -> flo
         ).all()
     )
 
+    # Si hay un multiplicador vinculado que cubre el rango → úsalo
     for m in multipliers:
         start = float(m.Start_value) if m.Start_value is not None else 0.0
         end   = float(m.End_value)   if m.End_value   is not None else float("inf")
         if start <= formula_value <= end:
             return float(m.Multiplier) if m.Multiplier is not None else DEFAULT_MULTIPLIER_FALLBACK
 
+    # Si no hay ninguno vinculado → rangos default (incluye el 1.018 como fallback final)
     for start, end, factor in DEFAULT_MULTIPLIER_RANGES:
         if start <= formula_value <= end:
             return factor
