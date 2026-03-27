@@ -28,6 +28,9 @@ class Commission(CommissionBase, table=True):
     comgroups: List["CommissionGroup"] = Relationship(  # type: ignore
         back_populates="commission",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+    reimbursements: List["Reimbursement"] = Relationship(  # type: ignore
+        back_populates="commission",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
 
 class CommissionCreate(CommissionBase):
