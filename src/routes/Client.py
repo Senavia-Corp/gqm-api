@@ -6,6 +6,7 @@ from ..models.ClientModel import Client, ClientCreate, ClientUpdate
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import load_only as _load_only
+from sqlalchemy import func, or_
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -15,7 +16,7 @@ from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.client_mapper import map_client_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
-from sqlalchemy import func, or_
+from ..utils.audit import audit
 
 # Blueprint de Client:
 client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")

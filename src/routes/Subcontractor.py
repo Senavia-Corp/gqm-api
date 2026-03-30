@@ -15,6 +15,7 @@ from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.subcontractor_mapper import map_subc_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from ..utils.audit import audit
 
 
 # Blueprint de Subcontractor

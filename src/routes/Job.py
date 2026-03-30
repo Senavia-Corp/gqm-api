@@ -488,9 +488,8 @@ def list_jobs_by_date(date):
                 "attachments", "subcontractors.technicians"]) for job in results], 200
 
 
-# ---------------------------------------------------------------------------
-# WRITE ROUTES
-# ---------------------------------------------------------------------------
+# --------------- RUTAS POST, PATCH AND DELETE----------#
+
 
 @job_bp.post("/")
 @handle_exceptions()

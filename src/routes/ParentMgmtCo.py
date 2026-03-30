@@ -14,6 +14,7 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from ..utils.audit import audit
 
 
 # Blueprint de Parent Mgmt Co:
