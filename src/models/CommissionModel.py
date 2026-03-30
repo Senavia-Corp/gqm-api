@@ -11,7 +11,9 @@ class CommissionBase(SQLModel):
     Year: Optional[int] = Field(default=None)
     Total_commission: Optional[float] = Field(default=None)
     Total_margin: Optional[float] = Field(default=None)
-    Total_reimbursment: Optional[float] = Field(default=None)
+    Total_reimbursement: Optional[float] = Field(default=None)
+    Status: Optional[str] = Field(default=None)
+    Applicable: Optional[bool] = Field(default=None)
 
 
 class Commission(CommissionBase, table=True):
@@ -37,5 +39,5 @@ class CommissionCreate(CommissionBase):
     ID_Member: Optional[str] = None
 
 
-class CommissionUpdate(CommissionBase):
-    ID_Member: Optional[str] = None
+class CommissionUpdate(SQLModel):
+    Status: Optional[str] = None

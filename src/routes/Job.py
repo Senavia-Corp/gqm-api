@@ -25,6 +25,7 @@ from ..utils.middleware.exceptions_handler import handle_exceptions, AppExceptio
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
 from ..utils.job_calculator import recalculate_and_apply
+from src.services.commission_service import process_job_to_commissions
 
 # Blueprint de Jobs:
 job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
@@ -266,7 +267,11 @@ def get_job_by_id(id_job):
         roles_statement = select(JobMemberLink).where(
             JobMemberLink.job_id == obj.ID_Jobs)
         roles = session.exec(roles_statement).all()
-        roles_map = {link.member_id: link.rol for link in roles}
+        roles_map = {}
+        for link in roles:
+            if link.member_id not in roles_map:
+                roles_map[link.member_id] = []
+            roles_map[link.member_id].append(link.rol)
 
         job_data = add_relationships(
             obj, ["client", "members", "multipliers", "building_dept", "change_orders",
@@ -275,7 +280,7 @@ def get_job_by_id(id_job):
                   "financial_docs.financial_doc_items", "financial_docs.financial_transactions"])
 
         for member in job_data.get("members", []):
-            member["rol"] = roles_map.get(member["ID_Member"])
+            member["rol"] = roles_map.get(member["ID_Member"], [])
 
         job_data.pop("ID_Client", None)
         return job_data, 200
@@ -570,6 +575,9 @@ def update_job(id_job):
         if not obj:
             raise AppException("Job no encontrado.", "job_not_found", 404)
 
+        # Guardar el estado anterior para saber si REALMENTE cambió a PAID ahora
+        previous_status = obj.Job_status
+
         update_data = JobUpdate.model_validate(
             data).model_dump(exclude_unset=True)
 
@@ -580,10 +588,20 @@ def update_job(id_job):
             save_with_retry(session, obj)
             logger.info("🔄 Job actualizado | job_id=%s", id_job)
 
+            # --- 🎯 TRIGGER DE COMISIONES (LOCAL) ---
+            # Normalizamos ambos para la comparación (Case-Insensitive)
+            current_status_upper = (obj.Job_status or "").upper()
+            previous_status_upper = (previous_status or "").upper()
+
+            if current_status_upper == "PAID" and previous_status_upper != "PAID":
+                logger.info(
+                    "💰 Detectado cambio a PAID. Procesando comisiones locales...")
+                process_job_to_commissions(obj, session)
+            # ---------------------------------------------------------------------------------
+
         # ── Recálculo automático de campos derivados ──────────────────────
         recalculate_and_apply(id_job, session)
         session.commit()
-        # Refrescar obj para que model_dump() devuelva los valores recalculados
         session.refresh(obj)
         # ─────────────────────────────────────────────────────────────────
 

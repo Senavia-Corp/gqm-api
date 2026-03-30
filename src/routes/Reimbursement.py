@@ -12,6 +12,7 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from ..utils.commission_calculator import update_commission_reimbursement_total
 
 # Blueprint de Reimbursement:
 reimbursement_bp = Blueprint("reimbursement_blueprint", __name__,
@@ -94,11 +95,13 @@ def create_reimbursement():
         # ----------- 💾 GUARDAR EN DB
         save_with_retry(session, obj)
 
-        logger.info(
-            "✅ Reimbursement creado | reimbursement_id=%s",
-            obj.ID_Reimbursement
-        )
+        # 🎯 TRIGGER: Actualizar el total en la comisión padre
+        update_commission_reimbursement_total(obj.ID_Commission, session)
+        session.commit()
 
+        logger.info(
+            "✅ Reimbursement creado y Comisión actualizada | id=%s",
+            obj.ID_Reimbursement)
         return jsonify(obj.model_dump()), 201
 
 
@@ -126,11 +129,13 @@ def update_reimbursement(id_reimbursement):
         # ----------- 💾 GUARDAR EN DB
         save_with_retry(session, obj)
 
-        logger.info(
-            "🔄 Reimbursement actualizado | reimbursement_id=%s",
-            obj.ID_Reimbursement
-        )
+        # 🎯 TRIGGER: Recalcular (por si cambió el Value o incluso la ID_Commission)
+        update_commission_reimbursement_total(obj.ID_Commission, session)
+        session.commit()
 
+        logger.info(
+            "🔄 Reimbursement y Comisión actualizados | id=%s",
+            obj.ID_Reimbursement)
         return jsonify(obj.model_dump()), 200
 
 
@@ -145,14 +150,17 @@ def delete_reimbursement(id_reimbursement):
             raise AppException("Reimbursement not found.",
                                "reimbursement_not_found", 404)
 
+        # Guardamos la ID de la comisión antes de borrar el registro
+        comm_id = obj.ID_Commission
+
         # ----------- 🔴 BORRAR EN DB
         delete_with_retry(session, obj)
 
-        logger.info(
-            "🗑️ Reimbursement eliminado | reimbursement_id=%s",
-            id_reimbursement
-        )
+        # 🎯 TRIGGER: Restar el valor del total de la comisión
+        update_commission_reimbursement_total(comm_id, session)
+        session.commit()
 
-        return jsonify({
-            "message": f"Reimbursement {id_reimbursement} eliminado correctamente"
-        }), 200
+        logger.info(
+            "🗑️ Reimbursement eliminado y Comisión actualizada | id=%s",
+            id_reimbursement)
+        return jsonify({"message": f"Reimbursement {id_reimbursement} eliminado"}), 200
