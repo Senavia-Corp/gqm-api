@@ -15,6 +15,7 @@ from src.utils.mappers.mapper_aux_functions import register_event
 from src.utils.mappers.to_podio.job_relationships import JOB_MEMBER_PODIO_MAP, get_technician_fields
 from src.utils.middleware.logs.logs import logger
 from src.utils.audit import log_activity
+from src.utils.job_calculator import recalculate_and_apply
 from sqlmodel import select
 
 
@@ -30,7 +31,6 @@ def assign_member_to_job(job_id, member_id):
     year = request.args.get("year", type=int)
     member_id_header = request.headers.get("X-User-Id") or None
 
-    # Validar rol antes de tocar la DB — es parte de la PK, no puede ser nulo
     if not rol:
         return jsonify({"error": "'rol' is required in the request body"}), 400
 
@@ -88,7 +88,6 @@ def remove_member_from_job(job_id, member_id):
     member_id_header = request.headers.get("X-User-Id") or None
 
     with get_session() as session:
-
         link = session.exec(
             select(JobMemberLink).where(
                 JobMemberLink.job_id == job_id,
@@ -133,24 +132,45 @@ def remove_member_from_job(job_id, member_id):
 job_multiplier_bp = Blueprint(
     "job_multiplier", __name__, url_prefix="/job_multiplier")
 
-# (no audit requested for multipliers — unchanged)
-
 
 @job_multiplier_bp.post("/jobs/<job_id>/multipliers/<multiplier_id>")
 def assign_multiplier_to_job(job_id, multiplier_id):
     with get_session() as session:
-        job = session.get(Job,        job_id)
+        job = session.get(Job, job_id)
         multiplier = session.get(MultiplierR, multiplier_id)
         if not job or not multiplier:
             return jsonify({"error": "Job or MultiplierRange not found"}), 404
-        existing_link = session.get(
-            JobMultiplierRLink, (job_id, multiplier_id))
+
+        existing_link = session.get(JobMultiplierRLink, (job_id, multiplier_id))
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
+
         link = JobMultiplierRLink(job_id=job_id, multiplier_id=multiplier_id)
         session.add(link)
+        session.flush()
+
+        # LOG 1: valor ANTES del recálculo
+        print(f"[DEBUG] ANTES recalc → Gqm_adj_formula_pricing = {job.Gqm_adj_formula_pricing}")
+
+        recalculate_and_apply(job_id, session)
+
+        # LOG 2: valor en el objeto retornado por recalculate_and_apply
+        job_after = session.get(Job, job_id)
+        print(f"[DEBUG] DESPUÉS recalc (antes commit) → Gqm_adj_formula_pricing = {job_after.Gqm_adj_formula_pricing}")
+
         session.commit()
-        return jsonify({"status": "Linked 🔗", "job_id": job_id, "multiplier_id": multiplier_id}), 201
+
+        # LOG 3: valor después del commit, re-query limpio
+        session.expire_all()
+        job_committed = session.exec(select(Job).where(Job.ID_Jobs == job_id)).first()
+        print(f"[DEBUG] DESPUÉS commit → Gqm_adj_formula_pricing = {job_committed.Gqm_adj_formula_pricing}")
+
+        return jsonify({
+            "status": "Linked 🔗",
+            "job_id": job_id,
+            "multiplier_id": multiplier_id,
+            "Gqm_adj_formula_pricing": job_committed.Gqm_adj_formula_pricing,
+        }), 201
 
 
 @job_multiplier_bp.delete("/jobs/<job_id>/multipliers/<multiplier_id>")
@@ -159,9 +179,21 @@ def remove_multiplier_from_job(job_id, multiplier_id):
         link = session.get(JobMultiplierRLink, (job_id, multiplier_id))
         if not link:
             return jsonify({"error": "Relationship does not exist"}), 404
+
         session.delete(link)
+        session.flush()
+        recalculate_and_apply(job_id, session)
         session.commit()
-        return jsonify({"status": "Unlinked ✖️", "job_id": job_id, "multiplier_id": multiplier_id}), 200
+
+        # ← NUEVO: refrescar para leer valores recalculados desde la DB
+        job = session.exec(select(Job).where(Job.ID_Jobs == job_id)).first()
+
+        return jsonify({
+            "status": "Unlinked ✖️",
+            "job_id": job_id,
+            "multiplier_id": multiplier_id,
+            "Gqm_adj_formula_pricing": job.Gqm_adj_formula_pricing if job else None,
+        }), 200
 
 
 # ─────────────────────────── Job ↔ Subcontractor ────────────────────────────
@@ -182,8 +214,7 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
         if not job or not subcontractor:
             return jsonify({"error": "Job or Subcontractor not found"}), 404
 
-        existing_link = session.get(
-            JobSubcontractorLink, (job_id, subcontr_id))
+        existing_link = session.get(JobSubcontractorLink, (job_id, subcontr_id))
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
 
@@ -210,7 +241,6 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
             )
             register_event(job.podio_item_id)
 
-        # ── audit ──────────────────────────────────────────────────────────
         log_activity(
             session,
             action="Subcontractor linked to Job",
@@ -218,10 +248,8 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
             member_id=member_id_header,
             description=f"Subcontractor: {subcontr_id}",
         )
-        # ───────────────────────────────────────────────────────────────────
 
         session.commit()
-
         return jsonify({"status": "Linked 🔗", "job_id": job_id, "subcontr_id": subcontr_id}), 201
 
 
@@ -252,8 +280,7 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
                 "values") for f in item.get("fields", [])}
             technician_fields = get_technician_fields(job.Job_type)
 
-            logger.info("🔍 Technician fields para %s: %s",
-                        job.Job_type, technician_fields)
+            logger.info("🔍 Technician fields para %s: %s", job.Job_type, technician_fields)
             logger.info("🔍 Current values de Podio: %s", current_values)
 
             field_to_clear = None
@@ -262,8 +289,6 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
                 logger.info("🔍 Campo: %s | Values: %s", field, values)
                 if not values:
                     continue
-
-                # Buscar si el subcontractor está en ese campo
                 for v in values:
                     item_id = v.get("value", {}).get("item_id")
                     logger.info("🔍 item_id en Podio: %s | buscando: %s",
@@ -273,20 +298,18 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
                         break
                 if field_to_clear:
                     break
+
             if field_to_clear:
                 podio_service.update_item(
                     int(job.podio_item_id), {field_to_clear: []})
                 register_event(job.podio_item_id)
-
             else:
                 return jsonify({
                     "error": "Subcontractor not found in Podio for this Job. Possible inconsistency between DB and Podio."
                 }), 404
 
-        # ----------- 🔴 BORRAR EN DB
         session.delete(link)
 
-        # ── audit ──────────────────────────────────────────────────────────
         log_activity(
             session,
             action="Subcontractor unlinked from Job",
@@ -294,18 +317,14 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
             member_id=member_id_header,
             description=f"Subcontractor: {subcontr_id}",
         )
-        # ───────────────────────────────────────────────────────────────────
 
         session.commit()
-
         return jsonify({"status": "Unlinked ✖️", "job_id": job_id, "subcontr_id": subcontr_id}), 200
 
 
 # ─────────────────────────── Job ↔ Payment Unit ─────────────────────────────
 job_payment_unit_bp = Blueprint(
     "job_payment_unit", __name__, url_prefix="/job_payment_unit")
-
-# (no audit requested for payment units — unchanged)
 
 
 @job_payment_unit_bp.post("/jobs/<job_id>/payment_units/<payment_unit_id>")
