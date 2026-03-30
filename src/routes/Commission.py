@@ -5,8 +5,9 @@ from ..database.db_sqlmodel import get_session
 from ..models.CommissionModel import Commission, CommissionCreate, CommissionUpdate
 from ..models.ComGroupModel import CommissionGroup
 from ..models.ComDetailModel import CommissionDetail
+from ..models.MemberModel import Member
 from ..utils.id_generator import generate_custom_id
-from sqlalchemy.orm import joinedload, load_only
+from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy import func, or_
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
@@ -62,7 +63,6 @@ def list_commission_table():
 
     with get_session() as session:
 
-        # ── Base statement ─────────────────────────────────────────────────
         stmt = (
             select(Commission)
             .options(
@@ -70,7 +70,12 @@ def list_commission_table():
                     Commission.ID_Commission,
                     Commission.Month,
                     Commission.Year,
-                    Commission.Total_commission
+                    Commission.Total_commission,
+                    Commission.ID_Member,          # ← necesario para el join
+                ),
+                selectinload(Commission.member).load_only(
+                    Member.ID_Member,
+                    Member.Member_Name,
                 )
             )
         )
@@ -83,26 +88,28 @@ def list_commission_table():
                     Commission.Month.ilike(pattern),
                     Commission.Year.ilike(pattern),
                     Commission.Total_commission.ilike(pattern),
+                    Member.Member_Name.ilike(pattern),   # ← búsqueda por nombre
                 )
             )
+            stmt = stmt.join(Commission.member, isouter=True)
 
-        # ── Total ──────────────────────────────────────────────────────────
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = session.exec(count_stmt).one()
 
-        # ── Paginación SQL ─────────────────────────────────────────────────
         offset = (page - 1) * limit
-        stmt = stmt.order_by(Commission.ID_Commission.desc()).offset(
-            offset).limit(limit)
+        stmt = stmt.order_by(Commission.ID_Commission.desc()).offset(offset).limit(limit)
         results = session.exec(stmt).all()
 
-        # ── Serializar ─────────────────────────────────────────────────────
         rows = [
             {
-                "ID_Commission": s.ID_Commission,
-                "Month": s.Month,
-                "Year": s.Year,
+                "ID_Commission":    s.ID_Commission,
+                "Month":            s.Month,
+                "Year":             s.Year,
                 "Total_commission": s.Total_commission,
+                "member": {
+                    "ID_Member":   s.member.ID_Member,
+                    "Member_Name": s.member.Member_Name,
+                } if s.member else None,
             }
             for s in results
         ]
