@@ -3,17 +3,15 @@
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from ..models.ComDetailModel import CommissionDetail, CommissionDeCreate, CommissionDeUpdate
+from ..models.ComDetailModel import CommissionDetail, CommissionDeUpdate
 from ..models.JobModel import Job
-from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
-from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
-from ..utils.commission_calculator import calculate_sell_mgmt, recalculate_all
+from ..utils.commission_calculator import recalculate_all
 
 # Blueprint de CommissionDetail:
 commission_detail_bp = Blueprint(
@@ -35,8 +33,9 @@ def list_comdetail():
         job_load = joinedload(CommissionDetail.job).load_only(
             Job.ID_Jobs,
             Job.Job_type,
-            Job.Gqm_premium_in_money,
+            Job.Gqm_final_prem_in_money,
             Job.Gqm_target_return,
+            Job.Gqm_final_percentage,
             Job.ID_Client,
         )
 
@@ -57,8 +56,9 @@ def list_comdetail():
                 data["job"] = {
                     "ID_Jobs": job.get("ID_Jobs"),
                     "Job_type": job.get("Job_type"),
-                    "Gqm_premium_in_money": job.get("Gqm_premium_in_money"),
+                    "Gqm_final_prem_in_money": job.get("Gqm_final_prem_in_money"),
                     "Gqm_target_return": job.get("Gqm_target_return"),
+                    "Gqm_final_percentage": job.get("Gqm_final_percentage"),
                     "ID_Client": job.get("ID_Client"),
                 }
 
@@ -77,8 +77,9 @@ def get_comdetail_by_id(id_comdetail):
         job_load = joinedload(CommissionDetail.job).load_only(
             Job.ID_Jobs,
             Job.Job_type,
-            Job.Gqm_premium_in_money,
+            Job.Gqm_final_prem_in_money,
             Job.Gqm_target_return,
+            Job.Gqm_final_percentage,
             Job.ID_Client,
         )
 
@@ -104,153 +105,67 @@ def get_comdetail_by_id(id_comdetail):
             comdetail_data["job"] = {
                 "ID_Jobs": job.get("ID_Jobs"),
                 "Job_type": job.get("Job_type"),
-                "Gqm_premium_in_money": job.get("Gqm_premium_in_money"),
+                "Gqm_final_prem_in_money": job.get("Gqm_final_prem_in_money"),
                 "Gqm_target_return": job.get("Gqm_target_return"),
+                "Gqm_final_percentage": job.get("Gqm_final_percentage"),
                 "ID_Client": job.get("ID_Client"),
             }
 
         return jsonify(comdetail_data), 200
 
 
-# --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear un commission detail
-@commission_detail_bp.post("/")
-@handle_exceptions()
-def create_comdetail():
-
-    data = request.get_json()
-    create_obj = CommissionDeCreate.model_validate(data)
-    obj = CommissionDetail.model_validate(create_obj)
-
-    with get_session() as session:
-
-        # ----------- 🔍 OBTENER JOB PARA EL CÁLCULO
-        job = session.get(Job, obj.ID_Jobs)
-        if not job:
-            raise AppException("Job no encontrado.", "job_not_found", 404)
-
-        # ----------- 🧮 CALCULAR SELL_MGMT
-        obj.Sell_Mgmt = calculate_sell_mgmt(
-            obj.Factor or 0,
-            job.Gqm_premium_in_money or 0)
-
-        # ----------- 🔵 CREAR EN DB
-        new_id = generate_custom_id(
-            session, CommissionDetail, "ID_ComDetail", "CDT"
-        )
-        obj.ID_ComDetail = new_id
-
-        # ----------- 💾 GUARDAR EN DB
-        save_with_retry(session, obj)
-
-        # ----------- 🔄 REFRESH para rehidratar atributos post-commit
-        session.refresh(obj)
-        print("ID_ComGroup después de refresh:", obj.ID_ComGroup)
-
-        # ----------- 🔁 RECALCULAR CADENA HACIA ARRIBA
-        recalculate_all(obj, session)
-
-        # ----------- 💾 COMMIT FINAL para guardar totales
-        session.commit()
-
-        logger.info(
-            "✅ CommissionDetail creado | commission_detail_id=%s",
-            obj.ID_ComDetail
-        )
-
-        return obj.model_dump(), 201
-
+# --------------- RUTA PATCH--------------- #
 
 # Ruta para actualizar un commission detail
 @commission_detail_bp.patch("/<id_comdetail>")
 @handle_exceptions()
 def update_comdetail(id_comdetail):
-
     data = request.get_json()
 
     with get_session() as session:
-        obj = session.get(CommissionDetail, id_comdetail)
+        # 1. Trae el detalle con su Grupo y Job cargados para tener los datos de cálculo
+        statement = select(CommissionDetail).where(
+            CommissionDetail.ID_ComDetail == id_comdetail
+        ).options(
+            joinedload(CommissionDetail.comgroup),
+            joinedload(CommissionDetail.job)
+        )
+        obj = session.exec(statement).unique().first()
 
         if not obj:
             raise AppException(
-                "CommissionDetail no encontrado.",
-                "comdetail_not_found",
-                404
-            )
+                "CommissionDetail no encontrado.", "comdetail_not_found", 404)
 
+        # 2. Validar el nuevo Type (Standard / Premium)
         update_obj = CommissionDeUpdate.model_validate(data)
-        update_data_dict = update_obj.model_dump(exclude_unset=True)
+        new_type = update_obj.Type
 
-        # ----------- 🔄 ACTUALIZAR EN DB
-        for key, value in update_data_dict.items():
-            setattr(obj, key, value)
+        if new_type:
+            obj.Type = new_type
 
-        # ----------- 🧮 RECALCULAR SELL_MGMT si cambió Factor o ID_Jobs
-        if "Factor" in update_data_dict or "ID_Jobs" in update_data_dict:
-            job = session.get(Job, obj.ID_Jobs)
-            if not job:
-                raise AppException("Job no encontrado.", "job_not_found", 404)
-            obj.Sell_Mgmt = calculate_sell_mgmt(
-                obj.Factor or 0,
-                job.Gqm_premium_in_money or 0
-            )
+            # --- 🤖 AUTOMATIZACIÓN DEL FACTOR ---
+            # Sacar el Rol del grupo y el dinero del Job
+            rol = obj.comgroup.Rol
+            # Usando el campo final que definimos
+            money_base = obj.job.Gqm_final_prem_in_money or 0
 
-        # ----------- 💾 GUARDAR EN DB
+            # Matriz de la foto:
+            if new_type == "Standard":
+                obj.Factor = 0.036 if rol == "Acc Rep Selling" else 0.018
+            elif new_type == "Premium":
+                obj.Factor = 0.054 if rol == "Acc Rep Selling" else 0.036
+
+            # --- 🧮 CÁLCULO FINAL ---
+            obj.Sell_Mgmt = money_base * obj.Factor
+
+        # 3. Guardar cambios del detalle
         save_with_retry(session, obj)
+        session.flush()  # Asegura que los cambios lleguen a la DB antes de recalcular totales
 
-        # ----------- 🔄 REFRESH para rehidratar atributos post-commit
-        session.refresh(obj)
-        print("ID_ComGroup después de refresh:", obj.ID_ComGroup)
-
-        # ----------- 🔁 RECALCULAR CADENA HACIA ARRIBA
+        # 4. Recalcular totales hacia arriba (Group -> Commission)
         recalculate_all(obj, session)
 
-        # ----------- 💾 COMMIT FINAL para guardar totales
         session.commit()
 
-        logger.info(
-            "🔄 CommissionDetail actualizado | commission_detail_id=%s",
-            obj.ID_ComDetail
-        )
-
+        logger.info(f"✅ Detail actualizado a {new_type} | ID: {id_comdetail}")
         return obj.model_dump(), 200
-
-
-# Ruta para eliminar un commission detail
-@commission_detail_bp.delete("/<id_comdetail>")
-@handle_exceptions()
-def delete_comdetail(id_comdetail):
-
-    with get_session() as session:
-        obj = session.get(CommissionDetail, id_comdetail)
-
-        if not obj:
-            raise AppException(
-                "CommissionDetail no encontrado.",
-                "comdetail_not_found",
-                404
-            )
-
-        # ----------- 💾 GUARDAR REFERENCIAS ANTES DE BORRAR
-        id_comgroup = obj.ID_ComGroup
-
-        # ----------- 🔴 BORRAR EN DB
-        delete_with_retry(session, obj)
-
-        # ----------- 🔁 Restaurar referencia por si delete_with_retry la limpió
-        obj.ID_ComGroup = id_comgroup
-
-        # ----------- 🔁 RECALCULAR CADENA HACIA ARRIBA
-        recalculate_all(obj, session)
-
-        # ----------- 💾 COMMIT FINAL para guardar totales
-        session.commit()
-
-        logger.info(
-            "🗑️ CommissionDetail eliminado | commission_detail_id=%s",
-            id_comdetail
-        )
-
-        return jsonify({
-            "message": f"CommissionDetail {id_comdetail} eliminado correctamente"
-        }), 200

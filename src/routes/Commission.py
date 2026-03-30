@@ -1,8 +1,8 @@
 # ============ Lógica de rutas =================
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
-from ..models.CommissionModel import Commission, CommissionCreate, CommissionUpdate
+from ..models.CommissionModel import Commission, CommissionUpdate
 from ..models.ComGroupModel import CommissionGroup
 from ..models.ComDetailModel import CommissionDetail
 from ..models.MemberModel import Member
@@ -12,7 +12,6 @@ from sqlalchemy import func, or_
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
-from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 
@@ -180,35 +179,7 @@ def get_commissions_by_member(id_member):
         return commission_data, 200
 
 
-# --------------- RUTAS POST, PATCH AND DELETE----------#
-# Ruta para crear una commission
-@commission_bp.post("/")
-@handle_exceptions()
-def create_commission():
-
-    data = request.get_json()
-    create_commission = CommissionCreate.model_validate(data)
-    obj = Commission(
-        **create_commission.model_dump(exclude_unset=False, exclude_none=False))
-
-    with get_session() as session:
-
-        # ----------- 🔵 CREAR EN DB
-        new_id = generate_custom_id(
-            session, Commission, "ID_Commission", "COM")
-        obj.ID_Commission = new_id
-
-        # ----------- 💾 GUARDAR EN DB
-        save_with_retry(session, obj)
-
-        logger.info(
-            "✅ Commission creado | commission_id=%s",
-            obj.ID_Commission
-        )
-
-        return obj.model_dump(), 201
-
-
+# --------------- RUTA PATCH --------------- #
 # Ruta para actualizar una commission
 @commission_bp.patch("/<commission_id>")
 @handle_exceptions()
@@ -239,28 +210,3 @@ def update_commission(commission_id):
                     commission_id)
 
         return obj.model_dump(), 200
-
-
-# Ruta para eliminar una commission
-@commission_bp.delete("/<commission_id>")
-@handle_exceptions()
-def delete_commission(commission_id):
-
-    with get_session() as session:
-        obj = session.exec(select(Commission).where(
-            Commission.ID_Commission == commission_id)).first()
-        if not obj:
-            raise AppException("Commission no encontrado.",
-                               "commission_not_found", 404)
-
-        # ----------- 🔴 BORRAR EN DB
-        delete_with_retry(session, obj)
-
-        logger.info(
-            "🗑️ Commission eliminado | commission_id=%s",
-            commission_id
-        )
-
-        return jsonify({
-            "message": f"Commission {commission_id} eliminado correctamente"
-        }), 200

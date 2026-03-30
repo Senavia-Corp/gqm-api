@@ -2,13 +2,21 @@
 
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional
+from enum import Enum
 from .ComGroupModel import CommissionGroup
 from .JobModel import Job
+
+
+class TypeOptions(str, Enum):
+    Non_Comp = "Non-Comp"
+    Standard = "Standard"
+    Premium = "Premium"
 
 
 class CommissionDeBase(SQLModel):
     Factor: Optional[float] = Field(default=None)
     Sell_Mgmt: Optional[float] = Field(default=None)
+    Type: TypeOptions
 
 
 class CommissionDetail(CommissionDeBase, table=True):
@@ -32,6 +40,5 @@ class CommissionDeCreate(CommissionDeBase):
     ID_Jobs: Optional[str] = None
 
 
-class CommissionDeUpdate(CommissionDeBase):
-    ID_ComGroup: Optional[str] = None
-    ID_Jobs: Optional[str] = None
+class CommissionDeUpdate(SQLModel):
+    Type: Optional[TypeOptions] = None

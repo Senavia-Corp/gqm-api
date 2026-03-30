@@ -28,6 +28,7 @@ from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event
 from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
 from src.utils.audit import log_activity
 from src.utils.job_calculator import recalculate_and_apply
+from src.services.commission_service import process_job_to_commissions
 
 
 webhook_bp = Blueprint("webhook", __name__)
@@ -223,6 +224,17 @@ def podio_jobs_webhook(app_type, year):
 
                 if updated_job:
                     recalculate_and_apply(updated_job.ID_Jobs, session)
+
+                    # --- 💰 TRIGGER DE COMISIONES (LOCAL) ---
+                    # Normalizar ambos estados a mayúsculas para la comparación
+                    new_status_norm = (updated_job.Job_status or "").upper()
+                    old_status_norm = (old_status or "").upper()
+
+                    # Comparación contra "PAID" una sola vez
+                    if new_status_norm == "PAID" and old_status_norm != "PAID":
+                        print(
+                            f"💰 [Podio Sync] Detectado cambio a PAID para Job {updated_job.ID_Jobs}. Procesando comisiones...")
+                        process_job_to_commissions(updated_job, session)
 
                     is_create = event_type == "item.create"
                     action = "Job created from Podio" if is_create else "Job updated from Podio"
