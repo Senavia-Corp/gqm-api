@@ -7,6 +7,7 @@ from ...models.link_models.ClientLinks import ClientMemberLink, ClientManagerLin
 from ...podio.services.client_services import podio_clients_router
 from src.utils.mappers.convert_value_podio import convert_value_for_podio
 from src.utils.mappers.mapper_aux_functions import register_event
+from src.utils.audit import log_activity, SOURCE_APP
 
 
 # ------------------- Link entre Client y Manager -------------------
@@ -20,6 +21,7 @@ def assign_client_to_manager(clients_id, manager_id):
     data = request.get_json(silent=True) or {}
     rol = data.get("rol")
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    member_id_header = request.headers.get("X-User-Id") or None
 
     with get_session() as session:
 
@@ -43,7 +45,6 @@ def assign_client_to_manager(clients_id, manager_id):
         )
 
         session.add(link)
-        session.commit()
 
         # ----------- 🟢 CREAR EN PODIO (🔄 Enviar PATCH)
         if sync_podio:
@@ -69,6 +70,17 @@ def assign_client_to_manager(clients_id, manager_id):
                 # Anti-loop: registrar evento
                 register_event(client.podio_item_id)
 
+        log_activity(
+            session,
+            action="Manager linked to Client",
+            entity_id=clients_id,
+            entity_type="Client",
+            member_id=member_id_header,
+            description=f"Client: {clients_id} | Manager: {manager_id} | Role: {rol}",
+            source=SOURCE_APP
+        )
+
+        session.commit()
         return jsonify({
             "status": "Linked 🔗",
             "clients_id": clients_id,
@@ -82,6 +94,7 @@ def assign_client_to_manager(clients_id, manager_id):
 def update_role(clients_id, manager_id):
     data = request.get_json(silent=True) or {}
     rol = data.get("rol")  # puede ser None
+    member_id_header = request.headers.get("X-User-Id") or None
 
     with get_session() as session:
         link = session.get(
@@ -92,6 +105,17 @@ def update_role(clients_id, manager_id):
             return jsonify({"error": "Relationship not found"}), 404
 
         link.rol = rol
+
+        log_activity(
+            session,
+            action="Rol of manager updated",
+            entity_id=clients_id,
+            entity_type="Client",
+            member_id=member_id_header,
+            description=f"Manager: {manager_id} | Role: {rol}",
+            source=SOURCE_APP
+        )
+
         session.commit()
 
         return jsonify({
@@ -104,6 +128,8 @@ def update_role(clients_id, manager_id):
 @client_manager_bp.delete("/client/<clients_id>/manager/<manager_id>")
 def remove_client_from_manager(clients_id, manager_id):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    member_id_header = request.headers.get("X-User-Id") or None
+
     with get_session() as session:
 
         # Buscar si existe el link
@@ -143,6 +169,17 @@ def remove_client_from_manager(clients_id, manager_id):
 
         # ----------- 🔴 BORRAR EN DB
         session.delete(link)
+
+        log_activity(
+            session,
+            action="Manager unlinked from Client",
+            entity_id=clients_id,
+            entity_type="Client",
+            member_id=member_id_header,
+            description=f"Client: {clients_id} | Manager: {manager_id}",
+            source=SOURCE_APP
+        )
+
         session.commit()
 
         return jsonify({
@@ -163,6 +200,7 @@ def assign_client_to_member(clients_id, members_id):
     data = request.get_json(silent=True) or {}
     rol = data.get("rol")
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    member_id_header = request.headers.get("X-User-Id") or None
 
     with get_session() as session:
         client = session.get(Client, clients_id)
@@ -184,7 +222,6 @@ def assign_client_to_member(clients_id, members_id):
         )
 
         session.add(link)
-        session.commit()
 
         # ----------- 🟢 CREAR EN PODIO (🔄 Enviar PATCH)
         if sync_podio:
@@ -210,6 +247,17 @@ def assign_client_to_member(clients_id, members_id):
                 # Anti-loop: registrar evento
                 register_event(client.podio_item_id)
 
+        log_activity(
+            session,
+            action="Member linked to Client",
+            entity_id=clients_id,
+            entity_type="Client",
+            member_id=member_id_header,
+            description=f"Client: {clients_id} | Member: {members_id} | Role: {rol}",
+            source=SOURCE_APP
+        )
+
+        session.commit()
         return jsonify({
             "status": "Linked 🔗",
             "clients_id": clients_id,
@@ -223,6 +271,7 @@ def assign_client_to_member(clients_id, members_id):
 def update_role(clients_id, members_id):
     data = request.get_json(silent=True) or {}
     rol = data.get("rol")  # puede ser None
+    member_id_header = request.headers.get("X-User-Id") or None
 
     with get_session() as session:
         link = session.get(
@@ -233,6 +282,17 @@ def update_role(clients_id, members_id):
             return jsonify({"error": "Relationship not found"}), 404
 
         link.rol = rol
+
+        log_activity(
+            session,
+            action="Rol of member updated",
+            entity_id=clients_id,
+            entity_type="Client",
+            member_id=member_id_header,
+            description=f"Member: {members_id} | Role: {rol}",
+            source=SOURCE_APP
+        )
+
         session.commit()
 
         return jsonify({
@@ -245,6 +305,8 @@ def update_role(clients_id, members_id):
 @client_member_bp.delete("/client/<clients_id>/member/<members_id>")
 def remove_client_from_member(clients_id, members_id):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
+    member_id_header = request.headers.get("X-User-Id") or None
+
     with get_session() as session:
 
         # Buscar si existe el link
@@ -284,6 +346,17 @@ def remove_client_from_member(clients_id, members_id):
 
         # ----------- 🔴 BORRAR EN DB
         session.delete(link)
+
+        log_activity(
+            session,
+            action="Member unlinked from Client",
+            entity_id=clients_id,
+            entity_type="Client",
+            member_id=member_id_header,
+            description=f"Client: {clients_id} | Member: {members_id}",
+            source=SOURCE_APP
+        )
+
         session.commit()
 
         return jsonify({

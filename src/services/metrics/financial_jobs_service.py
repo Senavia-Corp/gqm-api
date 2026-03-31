@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from sqlmodel import Session, select
-from sqlalchemy import func, extract, cast, Integer
-from typing import Optional
+from sqlalchemy import func, extract, cast, Integer, Date
+from datetime import datetime
 
 from src.models.JobModel import Job
 from src.models.link_models.JobMember import JobMemberLink
@@ -15,10 +15,24 @@ from src.models.ClientModel import Client
 # Status ordering and pipeline logic
 # ---------------------------------------------------------------------------
 
-STATUS_ORDER = ["PAID", "PARTIAL", "PENDING",
-                "IN PROGRESS", "OVERDUE", "CANCELLED"]
-ACTIVE_STATUSES = {"PENDING", "PARTIAL",
-                   "IN PROGRESS", "OVERDUE"}   # dinero potencial
+# Orden lógico para la visualización en el reporte (de inicial a final)
+STATUS_ORDER = [
+    "RECEIVED-STAND BY", "STAND BY", "ENTERED", "HOLD",
+    "ASSIGNED/P. QUOTE", "ASSIGNED/SCHEDULED", "WAITING FOR APPROVAL",
+    "SCHEDULED / WORK IN PROGRESS", "IN PROGRESS",
+    "COMPLETED P. INV / POs", "COMPLETED PVI / POs", "COMPLETED",
+    "INVOICED", "PAID", "WARRANTY", "CANCELLED"
+]
+ACTIVE_STATUSES = {
+    "ASSIGNED/P. QUOTE",
+    "ASSIGNED/SCHEDULED",
+    "WAITING FOR APPROVAL",
+    "SCHEDULED / WORK IN PROGRESS",
+    "IN PROGRESS",
+    "INVOICED",
+    "HOLD",
+    "RECEIVED-STAND BY"
+}
 
 
 # ---------------------------------------------------------------------------
@@ -26,16 +40,28 @@ ACTIVE_STATUSES = {"PENDING", "PARTIAL",
 # ---------------------------------------------------------------------------
 
 def _apply_filters(stmt, year: int | None, month: int | None,
-                   job_type: str | None, client_id: str | None):
+                   job_type: str | None, client_id: str | None,
+                   rep_filter: str | None = None):
     """Applies common filters to any Job-based statement."""
+    effective_date = func.coalesce(
+        Job.Date_assigned,
+        Job.Estimated_start_date)
+
     if year is not None:
-        stmt = stmt.where(extract("year", Job.Date_assigned) == year)
+        stmt = stmt.where(extract("year", cast(effective_date, Date)) == year)
     if month is not None:
-        stmt = stmt.where(extract("month", Job.Date_assigned) == month)
+        stmt = stmt.where(
+            extract("month", cast(effective_date, Date)) == month)
     if job_type:
         stmt = stmt.where(Job.Job_type == job_type)
     if client_id:
         stmt = stmt.where(Job.ID_Client == client_id)
+    if rep_filter:
+        # Si filtramos por Rep, necesitamos hacer el join con Members
+        stmt = stmt.join(JobMemberLink, JobMemberLink.job_id == Job.ID_Jobs) \
+                   .join(Member, Member.ID_Member == JobMemberLink.member_id) \
+                   .where(JobMemberLink.rol == "Acc Rep Selling") \
+                   .where(Member.Member_Name == rep_filter)
     return stmt
 
 
@@ -84,7 +110,7 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     # 1. SUMMARY KPIs
     # ------------------------------------------------------------------
-    paid_flag = cast(Job.Job_status == "PAID", Integer)
+    paid_flag = cast(func.upper(Job.Job_status) == "PAID", Integer)
 
     stmt_sum = select(
         func.count(Job.ID_Jobs).label("job_count"),
@@ -121,8 +147,9 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     # 2. MONTHLY BREAKDOWN
     # ------------------------------------------------------------------
-    month_key = func.to_char(Job.Date_assigned, "YYYY-MM")
-    month_name = func.to_char(Job.Date_assigned, "Month")
+    effective_date = func.coalesce(Job.Date_assigned, Job.Estimated_start_date)
+    month_key = func.to_char(effective_date, "YYYY-MM")
+    month_name = func.to_char(effective_date, "Month")
 
     stmt_mon = select(
         month_key.label("month"),
@@ -232,12 +259,12 @@ def get_jobs_report_data(
     # 5. STATUS DISTRIBUTION & PIPELINE
     # ------------------------------------------------------------------
     stmt_status = select(
-        Job.Job_status.label("status"),
+        func.upper(func.trim(Job.Job_status)).label("status"),
         func.count(Job.ID_Jobs).label("count"),
         func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
         func.sum(Job.Gqm_final_sold_pricing).label("final"),
         func.sum(Job.Gqm_premium_in_money).label("premium"),
-    ).group_by(Job.Job_status)
+    ).group_by(func.upper(func.trim(Job.Job_status)))
 
     stmt_status = _apply_filters(stmt_status, year, month, job_type, client_id)
 
@@ -245,7 +272,7 @@ def get_jobs_report_data(
     pipeline = 0.0
 
     for row in session.exec(stmt_status).all():
-        status_name = (row.status or "UNKNOWN").upper()
+        status_name = (row.status or "UNKNOWN").strip().upper()
         quoted = _safe_float(row.quoted)
         final = _safe_float(row.final)
         count = int(row.count or 0)
@@ -322,13 +349,14 @@ def get_jobs_report_data(
     for row in raw_jobs:
         job = row.Job
         client = row.Client
+        display_date = job.Date_assigned or job.Estimated_start_date or "—"
         job_table.append({
             "job_id":      job.ID_Jobs,
             "client":      client.Client_Community if client else "—",
             "rep":         ", ".join(rep_map.get(job.ID_Jobs, ["—"])),
             "status":      job.Job_status or "—",
             "service":     job.Service_type or "—",
-            "date":        job.Date_assigned.strftime("%Y-%m-%d") if job.Date_assigned else "—",
+            "date": display_date.strftime("%Y-%m-%d") if hasattr(display_date, "strftime") else "—",
             "formula":     _safe_float(job.Gqm_formula_pricing),
             "adj_formula": _safe_float(job.Gqm_adj_formula_pricing),
             "target":      _safe_float(job.Gqm_target_sold_pricing),

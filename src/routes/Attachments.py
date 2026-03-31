@@ -5,7 +5,7 @@ from sqlmodel import select
 from sqlalchemy.orm import joinedload
 
 from ..database.db_sqlmodel import get_session
-from ..models.AttachmentsModel import Attachments, AttachmentsCreate, AttachmentsUpdate
+from ..models.AttachmentsModel import Attachments, AttachmentsUpdate
 from ..utils.id_generator import generate_custom_id
 from ..utils.relationships import add_relationships
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry

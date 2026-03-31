@@ -1,5 +1,5 @@
 # test_jobs_report.py
-# Corre desde la raíz: python -m src.tests.test_jobs_report
+# Corre desde la raíz: python -m src.tests.test_financial_jobs_report
 # o ajusta el import según tu estructura
 
 from src.services.reports.financial_jobs_pdf import build_job_financial_report

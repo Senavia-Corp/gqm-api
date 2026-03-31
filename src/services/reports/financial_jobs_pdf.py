@@ -24,11 +24,11 @@ matplotlib.use("Agg")
 # ---------------------------------------------------------------------------
 # Brand palette
 # ---------------------------------------------------------------------------
-GQM_GREEN = colors.HexColor("#0B2E1E")
-GQM_GREEN_2 = colors.HexColor("#0F3A27")
+GQM_GREEN = colors.HexColor("#145F3D")
+GQM_GREEN_2 = colors.HexColor("#1E6445")
 GQM_ORANGE = colors.HexColor("#F28C00")
 LIGHT_BG = colors.HexColor("#F6F7F8")
-LIGHT_GREEN = colors.HexColor("#EDF3F0")
+LIGHT_GREEN = colors.HexColor("#DFF1E8")
 CARD_BG = colors.HexColor("#F8FAF9")
 CARD_BORDER = colors.HexColor("#D9E1DD")
 TABLE_GRID = colors.HexColor("#DCE6E1")
@@ -40,30 +40,31 @@ AMBER_ACC = colors.HexColor("#D97706")
 BLUE_ACC = colors.HexColor("#2563EB")
 PURPLE_ACC = colors.HexColor("#7C3AED")
 
-STATUS_ROW_BG = {
-    "PAID":        colors.HexColor("#D1FAE5"),
-    "PARTIAL":     colors.HexColor("#FEF3C7"),
-    "PENDING":     colors.HexColor("#DBEAFE"),
-    "IN PROGRESS": colors.HexColor("#EDE9FE"),
-    "OVERDUE":     colors.HexColor("#FEE2E2"),
-    "CANCELLED":   colors.HexColor("#F3F4F6"),
-}
 STATUS_TEXT_COLORS = {
-    "PAID":        EMERALD,
-    "PARTIAL":     AMBER_ACC,
-    "PENDING":     BLUE_ACC,
-    "IN PROGRESS": PURPLE_ACC,
-    "OVERDUE":     RED_ACC,
-    "CANCELLED":   TEXT_MUTED,
+    # Texto Blanco para fondos oscuros o intensos
+    "WAITING FOR APPROVAL":         colors.HexColor("#2564EB"),
+    "COMPLETED P. INV / POs":       colors.HexColor("#7C3AED"),
+    "COMPLETED PVI / POs":          colors.HexColor("#7C3AED"),
+    "INVOICED":                     colors.HexColor("#FF8B38"),
+
+    # Texto Oscuro para fondos claros/pastel
+    "ASSIGNED/P. QUOTE":            colors.HexColor("#6DB4A5"),
+    "SCHEDULED / WORK IN PROGRESS": colors.HexColor("#EFEF94"),
+    "CANCELLED":                    colors.HexColor("#942626"),
+    "HOLD":                         AMBER_ACC,
+    "PAID":                         EMERALD,
+    "WARRANTY":                     BLUE_ACC,
+    "RECEIVED-STAND BY":            colors.HexColor("#FFCD82"),
+    "IN PROGRESS":                  colors.HexColor("#DCDC63"),
 }
 
-MPL_GREEN = "#0B2E1E"
+MPL_GREEN = "#126942"
 MPL_ORANGE = "#F28C00"
 MPL_BORDER = "#DCE6E1"
 MPL_MUTED = "#5B6B63"
 
 PAGE_W = 7.7 * inch
-ROWS_PER_CHUNK = 40
+ROWS_PER_CHUNK = 100
 
 # High DPI for crisp rendering at any zoom level
 CHART_DPI = 220
@@ -203,11 +204,9 @@ def _chart_monthly(monthly: list[dict]) -> bytes | None:
     margins = [m["avg_final_pct"] for m in monthly]
 
     n = len(months)
-    fig_w = max(7.4, min(n * 0.65, 14.0))
-    w = max(0.15, min(0.35, 0.6 / max(n, 1)))
-
-    fig, ax1 = plt.subplots(figsize=(fig_w, 3.4))
+    fig, ax1 = plt.subplots(figsize=(7.4, 3.4))
     x = range(n)
+    w = 0.35
 
     b1 = ax1.bar([i - w/2 for i in x], quoted, w, label="Total Quoted",
                  color=MPL_BORDER, edgecolor="#B0BEB8", alpha=0.85)
@@ -238,9 +237,8 @@ def _chart_monthly(monthly: list[dict]) -> bytes | None:
     # Legend inside top area — no wasted whitespace below
     handles = [b1, b2, l1]
     labels = ["Total Quoted", "Final Sold", "Avg Final %"]
-    ax1.legend(handles, labels, loc="upper left", fontsize=7,
-               frameon=True, framealpha=0.85, edgecolor="#ddd",
-               bbox_to_anchor=(0.01, 0.99), borderaxespad=0)
+    ax1.legend(handles, labels, loc='upper center', fontsize=7,
+               frameon=False, ncol=3, bbox_to_anchor=(0.5, 1.15))
 
     fig.tight_layout(pad=0.5)
     return _save_chart(fig)
@@ -257,20 +255,26 @@ def _chart_quarterly(quarterly: list[dict]) -> bytes | None:
 
     fig, ax1 = plt.subplots(figsize=(5.5, 3.0))
     x = range(len(qtrs))
-    w = 0.32
+    w = 0.32 if len(x) > 1 else 0.15
 
     b1 = ax1.bar([i - w/2 for i in x], quoted, w, label="Quoted",
                  color=MPL_BORDER, edgecolor="#B0BEB8", alpha=0.85)
     b2 = ax1.bar([i + w/2 for i in x], sold,   w, label="Final Sold",
                  color=MPL_GREEN, alpha=0.9)
 
+    if len(x) == 1:
+        ax1.set_xlim(-1, 1)
+
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(_y_fmt))
     ax1.tick_params(axis="y", labelsize=7, labelcolor=MPL_GREEN)
     ax1.set_ylabel("Amount ($)", fontsize=8,
                    color=MPL_GREEN, fontweight="bold")
     ax1.spines["top"].set_visible(False)
+
+    rotation = 45 if len(x) > 6 else 0
     ax1.set_xticks(list(x))
-    ax1.set_xticklabels(qtrs, fontsize=8)
+    ax1.set_xticklabels(qtrs, fontsize=6.5,
+                        rotation=rotation, ha="right" if rotation else "center")
 
     ax2 = ax1.twinx()
     l1, = ax2.plot(list(x), pcts, color=MPL_ORANGE, marker="o",
@@ -283,9 +287,8 @@ def _chart_quarterly(quarterly: list[dict]) -> bytes | None:
 
     handles = [b1, b2, l1]
     labels = ["Quoted", "Final Sold", "Final %"]
-    ax1.legend(handles, labels, loc="upper left", fontsize=7,
-               frameon=True, framealpha=0.85, edgecolor="#ddd",
-               bbox_to_anchor=(0.01, 0.99), borderaxespad=0)
+    ax1.legend(handles, labels, loc='upper center', fontsize=7,
+               frameon=False, ncol=3, bbox_to_anchor=(0.5, 1.15))
 
     fig.tight_layout(pad=0.5)
     return _save_chart(fig)
@@ -342,24 +345,36 @@ def _chart_status(status_list: list[dict]) -> bytes | None:
     labels = [s["status"] for s in status_list]
     counts = [s["count"] for s in status_list]
     bg_map = {
-        "PAID":        "#059669",
-        "PARTIAL":     "#D97706",
-        "PENDING":     "#2563EB",
-        "IN PROGRESS": "#7C3AED",
-        "OVERDUE":     "#DC2626",
-        "CANCELLED":   "#9CA3AF",
+        # --- COMUNES / QID ---
+        "Assigned/P. Quote":            "#D1F3EC",
+        "Waiting for Approval":         "#2564EBB1",
+        "Scheduled / Work in Progress": "#EFEF94",
+        "Cancelled":                    "#F68F8F",
+        "Completed P. INV / POs":       "#7C3AED",
+        "Invoiced":                     "#FF8B38",
+        "HOLD":                         "#F7F0C5",
+        "PAID":                         "#7BEB7C",
+        "Warranty":                     "#B5E3FF",
+
+        # --- ESPECÍFICOS PTL ---
+        "Received-Stand By":            "#FFCD82",
+        "Paid":                         "#7BEB7DC7",
+
+        # --- ESPECÍFICOS PAR ---
+        "In Progress":                  "#F7F784",
+        "Completed PVI / POs":          "#7C3AEDCA",
     }
     bar_colors = [bg_map.get(l, "#6B7280") for l in labels]
 
-    fig, ax = plt.subplots(figsize=(5.5, 2.8))
+    fig, ax = plt.subplots(figsize=(8.5, 3.5))
     bars = ax.bar(range(len(labels)), counts, color=bar_colors,
-                  edgecolor="white", linewidth=0.8, width=0.55)
+                  edgecolor="#D8D8D8", linewidth=0.6, width=0.55)
 
     top = max(counts) if counts else 1
     for bar, cnt in zip(bars, counts):
         ax.text(bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + top * 0.02,
-                str(cnt), ha="center", va="bottom", fontsize=8,
+                str(cnt), ha="center", va="bottom", fontsize=6,
                 fontweight="bold", color=MPL_GREEN)
 
     ax.set_xticks(range(len(labels)))
@@ -383,10 +398,10 @@ def _chart_service(service_list: list[dict]) -> bytes | None:
     finals = [s["final"] for s in items]
     premiums = [s["premium"] for s in items]
 
-    fig_h = max(2.5, len(services) * 0.42)
+    fig_h = max(2.8, len(services) * 0.4)
     fig, ax = plt.subplots(figsize=(6.5, fig_h))
     y = range(len(services))
-    h = 0.32
+    h = 0.35
 
     ax.barh([i + h/2 for i in y], finals,   h,
             label="Final Sold", color=MPL_GREEN,  alpha=0.88)
@@ -405,8 +420,7 @@ def _chart_service(service_list: list[dict]) -> bytes | None:
     ax.spines["right"].set_visible(False)
 
     # Legend inside lower-right where bars are shortest
-    ax.legend(fontsize=7, frameon=True, framealpha=0.85,
-              edgecolor="#ddd", loc="lower right")
+    ax.legend(loc="lower right", fontsize=7, framealpha=0.8)
 
     fig.tight_layout(pad=0.5)
     return _save_chart(fig)
@@ -431,7 +445,8 @@ def _build_header(logo_path: str | None, filters: dict, styles: dict) -> list:
     if logo_path:
         p = Path(logo_path)
         if p.exists():
-            logo_cell = _fit_logo(str(p), max_w=1.3*inch, max_h=0.55*inch)
+            logo_cell = _fit_logo(
+                str(p.absolute()), max_w=0.8*inch, max_h=0.4*inch)
 
     title_cell = [
         Paragraph("Jobs Financial Performance Report", styles["MainTitle"]),
@@ -440,7 +455,10 @@ def _build_header(logo_path: str | None, filters: dict, styles: dict) -> list:
 
     tbl = Table([[logo_cell, title_cell]],
                 colWidths=[1.5*inch, PAGE_W - 1.5*inch])
-    tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+    ]))
 
     return [
         tbl,
@@ -694,7 +712,7 @@ def _build_status_section(status_list: list[dict], pipeline: float, styles: dict
     row_cmds = []
     for i, s in enumerate(status_list, start=1):
         sn = s["status"]
-        bg = STATUS_ROW_BG.get(sn, colors.white)
+        bg = colors.white
         tc = STATUS_TEXT_COLORS.get(sn, TEXT_DARK)
         row_cmds.append(("BACKGROUND", (0, i), (0, i), bg))
         rows.append([
@@ -723,8 +741,10 @@ def _build_service_section(service_list: list[dict], styles: dict) -> list:
     if not service_list:
         return []
 
-    story = [Paragraph("Profitability by Service Type",
-                       styles["SectionHeader"])]
+    story = []
+
+    story.append(Paragraph("Profitability by Service Type",
+                 styles["SectionHeader"]))
 
     chart_png = _chart_service(service_list)
     if chart_png:
@@ -750,8 +770,10 @@ def _build_service_section(service_list: list[dict], styles: dict) -> list:
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style()))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 15)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -767,9 +789,10 @@ def _job_detail_chunk(chunk: list[dict], styles: dict) -> Table:
 
     for i, j in enumerate(chunk, start=1):
         status = (j["status"] or "").upper()
-        bg = STATUS_ROW_BG.get(status, colors.white)
+        bg = colors.white
         tc = STATUS_TEXT_COLORS.get(status, TEXT_DARK)
         row_cmds.append(("BACKGROUND", (3, i), (3, i), bg))
+        row_cmds.append(("TEXTCOLOR", (3, i), (3, i), tc))
 
         client = j["client"]
         if len(client) > 22:

@@ -52,6 +52,8 @@ class TLActivityCreate(TLActivityBase):
     ID_Member: Optional[str] = None
     ID_Technician: Optional[str] = None
     ID_Subcontractor: Optional[str] = None
+    ID_Client: Optional[str] = None
+    ID_Community_Tracking: Optional[str] = None
 
 
 class TLActivityUpdate(TLActivityBase):
@@ -59,3 +61,5 @@ class TLActivityUpdate(TLActivityBase):
     ID_Member: Optional[str] = None
     ID_Technician: Optional[str] = None
     ID_Subcontractor: Optional[str] = None
+    ID_Client: Optional[str] = None
+    ID_Community_Tracking: Optional[str] = None

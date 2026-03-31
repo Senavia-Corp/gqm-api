@@ -165,6 +165,7 @@ def list_members_table():
 # Ruta para crear un miembro GQM
 @member_bp.post("/")
 @handle_exceptions()
+@audit("Member created", entity_type="Member", id_from="response")
 def create_member():
 
     data = request.get_json()
@@ -191,12 +192,13 @@ def create_member():
         response = obj.model_dump()
         response.pop("Password", None)
 
-        return response.model_dump(), 201
+        return response, 201
 
 
 # Ruta para actualizar un miembro GQM
 @member_bp.patch("/<id_member>")
 @handle_exceptions()
+@audit("Member updated", entity_type="Member", id_param="id_member")
 def update_member(id_member):
 
     data = request.get_json()
@@ -231,12 +233,13 @@ def update_member(id_member):
         response = obj.model_dump()
         response.pop("Password", None)
 
-        return response.model_dump(), 200
+        return response, 200
 
 
 # Ruta para eliminar un miembro GQM
 @member_bp.delete("/<id_member>")
 @handle_exceptions()
+@audit("Member deleted", entity_type="Member", id_param="id_member")
 def delete_member(id_member):
 
     with get_session() as session:

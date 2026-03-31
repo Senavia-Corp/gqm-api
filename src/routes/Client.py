@@ -177,6 +177,7 @@ def get_client(id_client):
 # Ruta para crear un cliente
 @client_bp.post("/")
 @handle_exceptions()
+@audit("Client created", entity_type="Client", id_from="response")
 def create_client():
 
     data = request.get_json()
@@ -224,16 +225,17 @@ def create_client():
 
 
 # Ruta para actualizar un cliente
-@client_bp.patch("/<client_id>")
+@client_bp.patch("/<id_client>")
 @handle_exceptions()
-def update_client(client_id):
+@audit("Client updated", entity_type="Client", id_param="id_client")
+def update_client(id_client):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     data = request.get_json()
 
     with get_session() as session:
         obj = session.exec(
-            select(Client).where(Client.ID_Client == client_id)
+            select(Client).where(Client.ID_Client == id_client)
         ).first()
         if not obj:
             raise AppException("Client no encontrado.",
@@ -248,7 +250,7 @@ def update_client(client_id):
 
         save_with_retry(session, obj)
 
-        logger.info("🔄 Client actualizado | client_id=%s", client_id)
+        logger.info("🔄 Client actualizado | client_id=%s", id_client)
 
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio and obj.podio_item_id:
@@ -264,14 +266,14 @@ def update_client(client_id):
 
                 logger.info(
                     "🔄 Client actualizado en Podio | client_id=%s | podio_item_id=%s",
-                    client_id,
+                    id_client,
                     obj.podio_item_id
                 )
 
             except Exception:
                 logger.exception(
                     "❌ Error actualizando Client en Podio | client_id=%s | podio_item_id=%s",
-                    client_id,
+                    id_client,
                     obj.podio_item_id
                 )
                 raise AppException(
@@ -284,15 +286,16 @@ def update_client(client_id):
 
 
 # Ruta para eliminar un cliente
-@client_bp.delete("/<client_id>")
+@client_bp.delete("/<id_client>")
 @handle_exceptions()
-def delete_client(client_id):
+@audit("Client deleted", entity_type="Client", id_param="id_client")
+def delete_client(id_client):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
 
     with get_session() as session:
         obj = session.exec(select(Client).where(
-            Client.ID_Client == client_id)).first()
+            Client.ID_Client == id_client)).first()
         if not obj:
             raise AppException("Client no encontrado.",
                                "client_not_found", 404)
@@ -309,14 +312,14 @@ def delete_client(client_id):
 
                 logger.info(
                     "🗑️ Client eliminado en Podio | client_id=%s | podio_item_id=%s",
-                    client_id,
+                    id_client,
                     obj.podio_item_id
                 )
 
             except Exception:
                 logger.exception(
                     "❌ Error eliminando Client en Podio | client_id=%s | podio_item_id=%s",
-                    client_id,
+                    id_client,
                     obj.podio_item_id
                 )
                 raise AppException(
@@ -330,9 +333,9 @@ def delete_client(client_id):
 
         logger.info(
             "🗑️ Client eliminado | client_id=%s",
-            client_id
+            id_client
         )
 
         return jsonify({
-            "message": f"Client {client_id} eliminado correctamente"
+            "message": f"Client {id_client} eliminado correctamente"
         }), 200

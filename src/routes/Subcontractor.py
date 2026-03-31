@@ -282,6 +282,7 @@ def list_subcontractor_by_gqm_bts(bts):
 # Ruta para crear un subcontratista
 @subcontractor_bp.post("/")
 @handle_exceptions()
+@audit("Subcontractor created", entity_type="Subcontractor", id_from="response")
 def create_subcontractor():
 
     data = request.get_json()
@@ -331,6 +332,7 @@ def create_subcontractor():
 # Ruta para actualizar un subcontratista
 @subcontractor_bp.patch("/<subc_id>")
 @handle_exceptions()
+@audit("Subcontractor updated", entity_type="Subcontractor", id_param="subc_id")
 def update_subcontractor(subc_id):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -392,6 +394,7 @@ def update_subcontractor(subc_id):
 # Ruta para eliminar un subcontratista
 @subcontractor_bp.delete("/<subc_id>")
 @handle_exceptions()
+@audit("Subcontractor deleted", entity_type="Subcontractor", id_param="subc_id")
 def delete_subcontractor(subc_id):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"

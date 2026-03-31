@@ -204,7 +204,7 @@ def get_orders_by_job_id(id_job):
 
 @order_bp.post("/")
 @handle_exceptions()
-@audit("Order created", job_id_from="body")
+@audit("Order created", entity_type="Order", id_from="response", job_id_from="body")
 def create_order():
 
     data = request.get_json()
@@ -309,7 +309,7 @@ def create_order():
 
 @order_bp.patch("/<id_order>")
 @handle_exceptions()
-@audit("Order updated", id_param="id_order", job_id_from="response")
+@audit("Order updated", entity_type="Order", id_param="id_order", job_id_from="response")
 def update_order(id_order):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -399,7 +399,7 @@ def update_order(id_order):
 
 @order_bp.delete("/<id_order>")
 @handle_exceptions()
-@audit("Order deleted", id_param="id_order", job_id_from="response")
+@audit("Order deleted", entity_type="Order", id_param="id_order", job_id_from="body")
 def delete_order(id_order):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"

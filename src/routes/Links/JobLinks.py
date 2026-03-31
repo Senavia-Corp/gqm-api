@@ -14,7 +14,7 @@ from src.utils.mappers.convert_value_podio import convert_value_for_podio
 from src.utils.mappers.mapper_aux_functions import register_event
 from src.utils.mappers.to_podio.job_relationships import JOB_MEMBER_PODIO_MAP, get_technician_fields
 from src.utils.middleware.logs.logs import logger
-from src.utils.audit import log_activity
+from src.utils.audit import log_activity, SOURCE_APP
 from src.utils.job_calculator import recalculate_and_apply
 from sqlmodel import select
 
@@ -72,9 +72,11 @@ def assign_member_to_job(job_id, member_id):
         log_activity(
             session,
             action="Member linked to Job",
-            job_id=job_id,
+            entity_id=job_id,
+            entity_type="Job",
             member_id=member_id_header,
             description=f"Member: {member_id} | Role: {rol}",
+            source=SOURCE_APP
         )
 
         session.commit()
@@ -119,9 +121,11 @@ def remove_member_from_job(job_id, member_id):
         log_activity(
             session,
             action="Member unlinked from Job",
-            job_id=job_id,
+            entity_id=job_id,
+            entity_type="Job",
             member_id=member_id_header,
             description=f"Member: {member_id} | Role: {rol_to_update}",
+            source=SOURCE_APP
         )
 
         session.commit()
@@ -141,7 +145,8 @@ def assign_multiplier_to_job(job_id, multiplier_id):
         if not job or not multiplier:
             return jsonify({"error": "Job or MultiplierRange not found"}), 404
 
-        existing_link = session.get(JobMultiplierRLink, (job_id, multiplier_id))
+        existing_link = session.get(
+            JobMultiplierRLink, (job_id, multiplier_id))
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
 
@@ -150,20 +155,24 @@ def assign_multiplier_to_job(job_id, multiplier_id):
         session.flush()
 
         # LOG 1: valor ANTES del recálculo
-        print(f"[DEBUG] ANTES recalc → Gqm_adj_formula_pricing = {job.Gqm_adj_formula_pricing}")
+        print(
+            f"[DEBUG] ANTES recalc → Gqm_adj_formula_pricing = {job.Gqm_adj_formula_pricing}")
 
         recalculate_and_apply(job_id, session)
 
         # LOG 2: valor en el objeto retornado por recalculate_and_apply
         job_after = session.get(Job, job_id)
-        print(f"[DEBUG] DESPUÉS recalc (antes commit) → Gqm_adj_formula_pricing = {job_after.Gqm_adj_formula_pricing}")
+        print(
+            f"[DEBUG] DESPUÉS recalc (antes commit) → Gqm_adj_formula_pricing = {job_after.Gqm_adj_formula_pricing}")
 
         session.commit()
 
         # LOG 3: valor después del commit, re-query limpio
         session.expire_all()
-        job_committed = session.exec(select(Job).where(Job.ID_Jobs == job_id)).first()
-        print(f"[DEBUG] DESPUÉS commit → Gqm_adj_formula_pricing = {job_committed.Gqm_adj_formula_pricing}")
+        job_committed = session.exec(
+            select(Job).where(Job.ID_Jobs == job_id)).first()
+        print(
+            f"[DEBUG] DESPUÉS commit → Gqm_adj_formula_pricing = {job_committed.Gqm_adj_formula_pricing}")
 
         return jsonify({
             "status": "Linked 🔗",
@@ -214,7 +223,8 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
         if not job or not subcontractor:
             return jsonify({"error": "Job or Subcontractor not found"}), 404
 
-        existing_link = session.get(JobSubcontractorLink, (job_id, subcontr_id))
+        existing_link = session.get(
+            JobSubcontractorLink, (job_id, subcontr_id))
         if existing_link:
             return jsonify({"status": "Already linked ✔️"}), 200
 
@@ -244,9 +254,11 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
         log_activity(
             session,
             action="Subcontractor linked to Job",
-            job_id=job_id,
+            entity_id=job_id,
+            entity_type="Job",
             member_id=member_id_header,
             description=f"Subcontractor: {subcontr_id}",
+            source=SOURCE_APP
         )
 
         session.commit()
@@ -280,7 +292,8 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
                 "values") for f in item.get("fields", [])}
             technician_fields = get_technician_fields(job.Job_type)
 
-            logger.info("🔍 Technician fields para %s: %s", job.Job_type, technician_fields)
+            logger.info("🔍 Technician fields para %s: %s",
+                        job.Job_type, technician_fields)
             logger.info("🔍 Current values de Podio: %s", current_values)
 
             field_to_clear = None
@@ -313,9 +326,11 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
         log_activity(
             session,
             action="Subcontractor unlinked from Job",
-            job_id=job_id,
+            entity_id=job_id,
+            entity_type="Job",
             member_id=member_id_header,
             description=f"Subcontractor: {subcontr_id}",
+            source=SOURCE_APP
         )
 
         session.commit()

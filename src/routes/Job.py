@@ -25,7 +25,6 @@ from ..utils.middleware.exceptions_handler import handle_exceptions, AppExceptio
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
 from ..utils.job_calculator import recalculate_and_apply
-from datetime import date
 from src.services.commission_service import process_job_to_commissions
 
 # Blueprint de Jobs:
@@ -41,7 +40,6 @@ MONTH_NUMBER = {
 
 
 # --------------------RUTAS GET-------------------#
-
 @job_bp.get("/")
 @handle_exceptions()
 @paginate()
@@ -407,29 +405,30 @@ def get_job_by_memberID(id_member):
 @job_bp.get("/by-member-role")
 @handle_exceptions()
 def get_jobs_by_member_and_role():
- 
+
     member_id = request.args.get("member_id")
-    rol       = request.args.get("rol")
- 
+    rol = request.args.get("rol")
+
     if not member_id:
         raise AppException("member_id es requerido", "missing_params", 400)
     if not rol:
         raise AppException("rol es requerido", "missing_params", 400)
- 
+
     job_type = request.args.get("type", "").strip().upper() or None
     year_raw = request.args.get("year", "").strip()
-    month_raw= request.args.get("month", "").strip().upper()
-    page     = max(1, int(request.args.get("page",  1)))
-    limit    = min(200, max(1, int(request.args.get("limit", 50))))
- 
+    month_raw = request.args.get("month", "").strip().upper()
+    page = max(1, int(request.args.get("page",  1)))
+    limit = min(200, max(1, int(request.args.get("limit", 50))))
+
     # Validar y convertir año
-    year_int  = None
+    year_int = None
     if year_raw:
         try:
             year_int = int(year_raw)
         except ValueError:
-            raise AppException("El parámetro 'year' debe ser un número entero.", "invalid_year", 400)
- 
+            raise AppException(
+                "El parámetro 'year' debe ser un número entero.", "invalid_year", 400)
+
     # Validar y convertir mes
     month_int = None
     if month_raw:
@@ -439,55 +438,57 @@ def get_jobs_by_member_and_role():
                 f"Mes inválido: '{month_raw}'. Usa el nombre en inglés (e.g. JANUARY).",
                 "invalid_month", 400
             )
- 
+
     with get_session() as session:
- 
+
         # ── Base: join con la tabla link filtrando por miembro y rol ─────────
         statement = (
             select(Job)
             .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
             .where(
                 JobMemberLink.member_id == member_id,
-                JobMemberLink.rol       == rol,
+                JobMemberLink.rol == rol,
             )
         )
- 
+
         # ── Filtro por tipo de trabajo ────────────────────────────────────────
         if job_type:
             statement = statement.where(Job.Job_type == job_type)
- 
+
         # ── Filtros por año / mes ─────────────────────────────────────────────
         # Para PTL usamos Estimated_start_date; para el resto, Date_assigned.
         # Si no se sabe el tipo, aplicamos la lógica combinada con OR.
- 
+
         def _date_col(jtype):
             """Devuelve la columna de fecha correcta según el tipo."""
             return Job.Estimated_start_date if jtype == "PTL" else Job.Date_assigned
- 
+
         if year_int is not None or month_int is not None:
             if job_type:
                 # Tipo conocido → filtro simple sobre la columna correspondiente
                 date_col = _date_col(job_type)
                 statement = statement.where(date_col.is_not(None))
-                if year_int  is not None:
-                    statement = statement.where(extract("year",  date_col) == year_int)
+                if year_int is not None:
+                    statement = statement.where(
+                        extract("year",  date_col) == year_int)
                 if month_int is not None:
-                    statement = statement.where(extract("month", date_col) == month_int)
+                    statement = statement.where(
+                        extract("month", date_col) == month_int)
             else:
                 # Tipo desconocido → OR entre PTL y no-PTL
                 from sqlalchemy import and_, or_ as sa_or
                 conditions = []
                 for jt, col in [("PTL", Job.Estimated_start_date),
-                                 ("QID", Job.Date_assigned),
-                                 ("PAR", Job.Date_assigned)]:
+                                ("QID", Job.Date_assigned),
+                                ("PAR", Job.Date_assigned)]:
                     cond = [Job.Job_type == jt, col.is_not(None)]
-                    if year_int  is not None:
+                    if year_int is not None:
                         cond.append(extract("year",  col) == year_int)
                     if month_int is not None:
                         cond.append(extract("month", col) == month_int)
                     conditions.append(and_(*cond))
                 statement = statement.where(sa_or(*conditions))
- 
+
         # ── Paginación ────────────────────────────────────────────────────────
         count_stmt = (
             select(func.count())
@@ -496,7 +497,7 @@ def get_jobs_by_member_and_role():
                 .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
                 .where(
                     JobMemberLink.member_id == member_id,
-                    JobMemberLink.rol       == rol,
+                    JobMemberLink.rol == rol,
                 )
                 .subquery()
             )
@@ -504,18 +505,18 @@ def get_jobs_by_member_and_role():
         # (El total sin filtros de fecha/tipo es suficiente para la UI,
         #  pero si quieres el total exacto con todos los filtros, construye
         #  count_stmt con las mismas condiciones que statement arriba.)
- 
+
         offset = (page - 1) * limit
         statement = statement.offset(offset).limit(limit)
- 
+
         results = session.exec(statement).all()
- 
+
         if not results:
             return jsonify({
                 "page": page, "limit": limit,
                 "total": 0,  "results": []
             }), 200
- 
+
         jobs_data = [
             {
                 "ID_Jobs":              j.ID_Jobs,
@@ -523,7 +524,7 @@ def get_jobs_by_member_and_role():
                 "Project_name":         j.Project_name,
                 "Project_location":     j.Project_location,
                 "Job_status":           j.Job_status,
-                "Date_assigned":        j.Date_assigned.isoformat()  if j.Date_assigned        else None,
+                "Date_assigned":        j.Date_assigned.isoformat() if j.Date_assigned else None,
                 "Estimated_start_date": j.Estimated_start_date.isoformat() if j.Estimated_start_date else None,
                 "Gqm_premium_in_money": j.Gqm_premium_in_money,
                 "Gqm_target_return":    j.Gqm_target_return,
@@ -531,11 +532,12 @@ def get_jobs_by_member_and_role():
             }
             for j in results
         ]
- 
+
         return jsonify({
             "page":    page,
             "limit":   limit,
-            "total":   len(jobs_data),   # reemplaza con count real si lo necesitas
+            # reemplaza con count real si lo necesitas
+            "total":   len(jobs_data),
             "results": jobs_data,
         }), 200
 
@@ -601,11 +603,9 @@ def list_jobs_by_date(date):
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
-
-
 @job_bp.post("/")
 @handle_exceptions()
-@audit("Job created", job_id_from="response")
+@audit("Job created", entity_type="Job", id_from="response")
 def create_job():
 
     data = request.get_json()
@@ -674,7 +674,7 @@ def create_job():
 
 @job_bp.patch("/<id_job>")
 @handle_exceptions()
-@audit("Job updated", id_param="id_job")
+@audit("Job updated", entity_type="Job", id_param="id_job")
 def update_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     dry_run = request.args.get("dry_run", "false").lower() == "true"
@@ -748,7 +748,6 @@ def update_job(id_job):
 
 @job_bp.delete("/<id_job>")
 @handle_exceptions()
-@audit("Job deleted", id_param="id_job")
 def delete_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
