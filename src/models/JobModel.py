@@ -157,3 +157,23 @@ class JobUpdate(JobBase):
     ID_Client: Optional[str] = None
     ID_BldgDept: Optional[str] = None
     Job_type: Optional[str] = None
+
+
+from pydantic import BaseModel
+
+class JobReadBasic(BaseModel):
+    ID_Jobs: Optional[str] = None
+    Job_type: Optional[str] = None
+    Project_name: Optional[str] = None
+    Project_location: Optional[str] = None
+    Job_status: Optional[str] = None
+    Po_wtn_wo: Optional[str] = None
+    Service_type: Optional[str] = None
+    Date_assigned: Optional[datetime] = None
+    Date_assigned_end: Optional[datetime] = None
+    Estimated_start_date: Optional[datetime] = None
+    Estimated_start_date_end: Optional[datetime] = None
+    Estimated_project_duration: Optional[str] = None
+    Date_Received: Optional[datetime] = None
+    Estimated_completion_date: Optional[datetime] = None
+    Additional_detail: Optional[str] = None
