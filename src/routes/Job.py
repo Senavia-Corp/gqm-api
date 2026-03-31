@@ -26,6 +26,23 @@ from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
 from ..utils.job_calculator import recalculate_and_apply
 from src.services.commission_service import process_job_to_commissions
+from src.utils.middleware.auth.routes_protection import require_permission
+from src.utils.policy_evaluator import PolicyEvaluator
+from src.models.JobModel import JobReadBasic
+from flask import g
+
+def serialize_job(job_dict, policies):
+    if not isinstance(job_dict, dict):
+        if hasattr(job_dict, "model_dump"):
+            job_dict = job_dict.model_dump()
+        else:
+            return job_dict
+    if PolicyEvaluator.evaluate(policies, "job:read"):
+        return job_dict
+    elif PolicyEvaluator.evaluate(policies, "job:read_basics"):
+        return JobReadBasic.model_validate(job_dict).model_dump(exclude_unset=True)
+    return job_dict
+
 
 # Blueprint de Jobs:
 job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
@@ -41,6 +58,7 @@ MONTH_NUMBER = {
 
 # --------------------RUTAS GET-------------------#
 @job_bp.get("/")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def list_jobs():
@@ -92,10 +110,12 @@ def list_jobs():
                 member["rol"] = roles_map.get(key)
             jobs_data.append(job_dict)
 
-        return jobs_data, 200
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(j, policies) for j in jobs_data], 200
 
 
 @job_bp.get("/jobs_table")
+@require_permission(["job:read", "job:read_basics"])
 def list_jobs_table():
     try:
         page = int(request.args.get("page",  1))
@@ -240,6 +260,8 @@ def list_jobs_table():
                         "rol": roles_map.get((j.ID_Jobs, m.ID_Member))})
                 out.append(j_dict)
 
+            policies = getattr(g, "user_policies", [])
+            out = [serialize_job(j, policies) for j in out]
             return jsonify({"page": page, "limit": limit, "total": total, "results": out}), 200
 
     except Exception as e:
@@ -248,6 +270,7 @@ def list_jobs_table():
 
 
 @job_bp.get("/<id_job>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 def get_job_by_id(id_job):
     with get_session() as session:
@@ -291,10 +314,12 @@ def get_job_by_id(id_job):
             member["rol"] = roles_map.get(member["ID_Member"], [])
 
         job_data.pop("ID_Client", None)
-        return job_data, 200
+        policies = getattr(g, "user_policies", [])
+        return serialize_job(job_data, policies), 200
 
 
 @job_bp.get("/by-type-year")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def get_jobs_by_type_year():
@@ -342,6 +367,7 @@ def get_jobs_by_type_year():
 
 
 @job_bp.get("/status/<status>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def list_jobs_by_status(status):
@@ -363,6 +389,7 @@ def list_jobs_by_status(status):
 
 
 @job_bp.get("/client/<id_client>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def get_job_by_clientID(id_client):
@@ -383,6 +410,7 @@ def get_job_by_clientID(id_client):
 
 
 @job_bp.get("/member/<id_member>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def get_job_by_memberID(id_member):
@@ -403,6 +431,7 @@ def get_job_by_memberID(id_member):
 
 
 @job_bp.get("/by-member-role")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 def get_jobs_by_member_and_role():
 
@@ -543,6 +572,7 @@ def get_jobs_by_member_and_role():
 
 
 @job_bp.get("/subcontractor/<id_subcontractor>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def get_job_by_subcontrID(id_subcontractor):
@@ -563,6 +593,7 @@ def get_job_by_subcontrID(id_subcontractor):
 
 
 @job_bp.get("/type/<type>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def list_jobs_by_type(type):
@@ -583,6 +614,7 @@ def list_jobs_by_type(type):
 
 
 @job_bp.get("/date_assigned/<date>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def list_jobs_by_date(date):
@@ -604,6 +636,7 @@ def list_jobs_by_date(date):
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 @job_bp.post("/")
+@require_permission("job:create")
 @handle_exceptions()
 @audit("Job created", entity_type="Job", id_from="response")
 def create_job():
@@ -673,6 +706,7 @@ def create_job():
 
 
 @job_bp.patch("/<id_job>")
+@require_permission("job:update")
 @handle_exceptions()
 @audit("Job updated", entity_type="Job", id_param="id_job")
 def update_job(id_job):
@@ -747,6 +781,7 @@ def update_job(id_job):
 
 
 @job_bp.delete("/<id_job>")
+@require_permission("job:delete")
 @handle_exceptions()
 def delete_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
