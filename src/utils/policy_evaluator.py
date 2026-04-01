@@ -33,6 +33,9 @@ class PolicyEvaluator:
         allowed = False
         
         for policy in policies:
+            if not policy or not isinstance(policy, dict):
+                continue
+                
             statements = policy.get("Statement", [])
             for statement in statements:
                 effect = statement.get("Effect")
