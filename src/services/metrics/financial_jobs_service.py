@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from sqlmodel import Session, select
-from sqlalchemy import func, extract, cast, Integer
-from typing import Optional
+from sqlalchemy import func, extract, cast, Integer, Date
+from datetime import datetime
 
 from src.models.JobModel import Job
 from src.models.link_models.JobMember import JobMemberLink
@@ -15,10 +15,22 @@ from src.models.ClientModel import Client
 # Status ordering and pipeline logic
 # ---------------------------------------------------------------------------
 
-STATUS_ORDER = ["PAID", "PARTIAL", "PENDING",
-                "IN PROGRESS", "OVERDUE", "CANCELLED"]
-ACTIVE_STATUSES = {"PENDING", "PARTIAL",
-                   "IN PROGRESS", "OVERDUE"}   # dinero potencial
+# Orden lógico para la visualización en el reporte (de inicial a final)
+STATUS_ORDER = [
+    "Received-Stand By", "HOLD", "Assigned/P.quote", "Waiting for approval",
+    "Scheduled/Work in progress", "Assigned-In progress", "In Progress",
+    "Completed P.INV / POs", "Completed PVI", "Invoiced", "PAID", "Paid",
+    "Warranty", "Cancelled"
+]
+ACTIVE_STATUSES = {
+    "Received-Stand By",
+    "HOLD",
+    "Assigned/P.quote",
+    "Waiting for approval",
+    "Scheduled/Work in progress",
+    "Assigned-In progress",
+    "In Progress"
+}
 
 
 # ---------------------------------------------------------------------------
@@ -26,16 +38,28 @@ ACTIVE_STATUSES = {"PENDING", "PARTIAL",
 # ---------------------------------------------------------------------------
 
 def _apply_filters(stmt, year: int | None, month: int | None,
-                   job_type: str | None, client_id: str | None):
+                   job_type: str | None, client_id: str | None,
+                   rep_filter: str | None = None):
     """Applies common filters to any Job-based statement."""
+    effective_date = func.coalesce(
+        Job.Date_assigned,
+        Job.Estimated_start_date)
+
     if year is not None:
-        stmt = stmt.where(extract("year", Job.Date_assigned) == year)
+        stmt = stmt.where(extract("year", cast(effective_date, Date)) == year)
     if month is not None:
-        stmt = stmt.where(extract("month", Job.Date_assigned) == month)
+        stmt = stmt.where(
+            extract("month", cast(effective_date, Date)) == month)
     if job_type:
         stmt = stmt.where(Job.Job_type == job_type)
     if client_id:
         stmt = stmt.where(Job.ID_Client == client_id)
+    if rep_filter:
+        roles_to_use = ["Mgmt Member"] if job_type == "PTL" else (["Acc Rep Selling"] if job_type in ("QID", "PAR") else ["Acc Rep Selling", "Mgmt Member"])
+        stmt = stmt.join(JobMemberLink, JobMemberLink.job_id == Job.ID_Jobs) \
+                   .join(Member, Member.ID_Member == JobMemberLink.member_id) \
+                   .where(JobMemberLink.rol.in_(roles_to_use)) \
+                   .where(Member.Member_Name == rep_filter)
     return stmt
 
 
@@ -51,7 +75,7 @@ def _safe_float(v) -> float:
 
 
 def _pct(num: float, den: float) -> float:
-    return round((num / den) * 100, 2) if den else 0.0
+    return round((num / den), 4) if den else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -84,16 +108,20 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     # 1. SUMMARY KPIs
     # ------------------------------------------------------------------
-    paid_flag = cast(Job.Job_status == "PAID", Integer)
+    paid_flag = cast(func.upper(Job.Job_status) == "PAID", Integer)
+
+    pct_col = Job.Gqm_target_return if job_type in ("PTL", "PAR") else Job.Gqm_final_percentage
+    pct_label = "Target Return %" if job_type in ("PTL", "PAR") else "Avg Final %"
+    final_col = Job.Gqm_formula_pricing if job_type == "PAR" else Job.Gqm_final_sold_pricing
 
     stmt_sum = select(
         func.count(Job.ID_Jobs).label("job_count"),
         func.sum(Job.Gqm_target_sold_pricing).label("total_quoted"),
         func.sum(Job.Gqm_formula_pricing).label("total_formula"),
         func.sum(Job.Gqm_adj_formula_pricing).label("total_adj_formula"),
-        func.sum(Job.Gqm_final_sold_pricing).label("total_final"),
+        func.sum(final_col).label("total_final"),
         func.sum(Job.Gqm_premium_in_money).label("total_premium"),
-        func.avg(Job.Gqm_final_percentage).label("avg_final_pct"),
+        func.avg(pct_col).label("avg_final_pct"),
         func.avg(Job.Gqm_target_return).label("avg_target_ret"),
         func.sum(paid_flag).label("paid_count"),
     )
@@ -121,8 +149,9 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     # 2. MONTHLY BREAKDOWN
     # ------------------------------------------------------------------
-    month_key = func.to_char(Job.Date_assigned, "YYYY-MM")
-    month_name = func.to_char(Job.Date_assigned, "Month")
+    effective_date = func.coalesce(Job.Date_assigned, Job.Estimated_start_date)
+    month_key = func.to_char(effective_date, "YYYY-MM")
+    month_name = func.to_char(effective_date, "Month")
 
     stmt_mon = select(
         month_key.label("month"),
@@ -132,9 +161,9 @@ def get_jobs_report_data(
         func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
         func.sum(Job.Gqm_formula_pricing).label("formula"),
         func.sum(Job.Gqm_adj_formula_pricing).label("adj_formula"),
-        func.sum(Job.Gqm_final_sold_pricing).label("final_sold"),
+        func.sum(final_col).label("final_sold"),
         func.sum(Job.Gqm_premium_in_money).label("premium"),
-        func.avg(Job.Gqm_final_percentage).label("avg_final_pct"),
+        func.avg(pct_col).label("avg_final_pct"),
     ).group_by(month_key).order_by(month_key)
 
     stmt_mon = _apply_filters(stmt_mon, year, month, job_type, client_id)
@@ -167,9 +196,9 @@ def get_jobs_report_data(
         func.sum(paid_flag).label("paid_jobs"),
         func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
         func.sum(Job.Gqm_formula_pricing).label("formula"),
-        func.sum(Job.Gqm_final_sold_pricing).label("final_sold"),
+        func.sum(final_col).label("final_sold"),
         func.sum(Job.Gqm_premium_in_money).label("premium"),
-        func.avg(Job.Gqm_final_percentage).label("avg_final_pct"),
+        func.avg(pct_col).label("avg_final_pct"),
     ).group_by(qtr_key).order_by(qtr_key)
 
     stmt_qtr = _apply_filters(stmt_qtr, year, month, job_type, client_id)
@@ -192,21 +221,24 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     # 4. REP PERFORMANCE
     # ------------------------------------------------------------------
+    roles_to_use = ["Mgmt Member"] if job_type == "PTL" else (["Acc Rep Selling"] if job_type in ("QID", "PAR") else ["Acc Rep Selling", "Mgmt Member"])
+    rep_label = "Mgmt Member" if job_type == "PTL" else "Rep"
+
     stmt_rep = (
         select(
             Member.Member_Name.label("rep"),
             func.count(Job.ID_Jobs).label("jobs"),
             func.sum(paid_flag).label("paid"),
             func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
-            func.sum(Job.Gqm_final_sold_pricing).label("final"),
+            func.sum(final_col).label("final"),
             func.sum(Job.Gqm_premium_in_money).label("premium"),
-            func.avg(Job.Gqm_final_percentage).label("avg_final_pct"),
+            func.avg(pct_col).label("avg_final_pct"),
         )
         .join(JobMemberLink, JobMemberLink.job_id == Job.ID_Jobs)
         .join(Member, Member.ID_Member == JobMemberLink.member_id)
-        .where(JobMemberLink.rol == "Acc Rep Selling")
+        .where(JobMemberLink.rol.in_(roles_to_use))
         .group_by(Member.Member_Name)
-        .order_by(func.sum(Job.Gqm_final_sold_pricing).desc())
+        .order_by(func.sum(final_col).desc())
     )
     stmt_rep = _apply_filters(stmt_rep, year, month, job_type, client_id)
 
@@ -232,12 +264,12 @@ def get_jobs_report_data(
     # 5. STATUS DISTRIBUTION & PIPELINE
     # ------------------------------------------------------------------
     stmt_status = select(
-        Job.Job_status.label("status"),
+        func.trim(Job.Job_status).label("status"),
         func.count(Job.ID_Jobs).label("count"),
         func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
         func.sum(Job.Gqm_final_sold_pricing).label("final"),
         func.sum(Job.Gqm_premium_in_money).label("premium"),
-    ).group_by(Job.Job_status)
+    ).group_by(func.trim(Job.Job_status))
 
     stmt_status = _apply_filters(stmt_status, year, month, job_type, client_id)
 
@@ -245,7 +277,7 @@ def get_jobs_report_data(
     pipeline = 0.0
 
     for row in session.exec(stmt_status).all():
-        status_name = (row.status or "UNKNOWN").upper()
+        status_name = (row.status or "UNKNOWN").strip()
         quoted = _safe_float(row.quoted)
         final = _safe_float(row.final)
         count = int(row.count or 0)
@@ -269,27 +301,28 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     # 6. SERVICE TYPE PROFITABILITY
     # ------------------------------------------------------------------
-    stmt_svc = select(
-        Job.Service_type.label("service"),
-        func.count(Job.ID_Jobs).label("count"),
-        func.sum(Job.Gqm_final_sold_pricing).label("final"),
-        func.sum(Job.Gqm_premium_in_money).label("premium"),
-        func.avg(Job.Gqm_final_percentage).label("avg_final_pct"),
-    ).group_by(Job.Service_type)
-
-    stmt_svc = _apply_filters(stmt_svc, year, month, job_type, client_id)
-
     service_list = []
-    for row in session.exec(stmt_svc).all():
-        service_list.append({
-            "service":       row.service or "Unknown",
-            "count":         int(row.count or 0),
-            "final":         _safe_float(row.final),
-            "premium":       _safe_float(row.premium),
-            "avg_final_pct": _safe_float(row.avg_final_pct),
-        })
+    if job_type not in ("PTL", "PAR"):
+        stmt_svc = select(
+            Job.Service_type.label("service"),
+            func.count(Job.ID_Jobs).label("count"),
+            func.sum(final_col).label("final"),
+            func.sum(Job.Gqm_premium_in_money).label("premium"),
+            func.avg(pct_col).label("avg_final_pct"),
+        ).group_by(Job.Service_type)
 
-    service_list.sort(key=lambda x: x["final"], reverse=True)
+        stmt_svc = _apply_filters(stmt_svc, year, month, job_type, client_id)
+
+        for row in session.exec(stmt_svc).all():
+            service_list.append({
+                "service":       row.service or "Unknown",
+                "count":         int(row.count or 0),
+                "final":         _safe_float(row.final),
+                "premium":       _safe_float(row.premium),
+                "avg_final_pct": _safe_float(row.avg_final_pct),
+            })
+
+        service_list.sort(key=lambda x: x["final"], reverse=True)
 
     # ------------------------------------------------------------------
     # 7. JOB DETAIL TABLE
@@ -307,12 +340,13 @@ def get_jobs_report_data(
     job_ids = [row.Job.ID_Jobs for row in raw_jobs]
     rep_map: dict[str, list[str]] = {}
     if job_ids:
+        roles_to_use = ["Mgmt Member"] if job_type == "PTL" else (["Acc Rep Selling"] if job_type in ("QID", "PAR") else ["Acc Rep Selling", "Mgmt Member"])
         stmt_reps = (
             select(JobMemberLink.job_id, Member.Member_Name)
             .join(Member, Member.ID_Member == JobMemberLink.member_id)
             .where(
                 JobMemberLink.job_id.in_(job_ids),
-                JobMemberLink.rol == "Acc Rep Selling",
+                JobMemberLink.rol.in_(roles_to_use),
             )
         )
         for j_id, m_name in session.exec(stmt_reps).all():
@@ -322,18 +356,19 @@ def get_jobs_report_data(
     for row in raw_jobs:
         job = row.Job
         client = row.Client
+        display_date = job.Date_assigned or job.Estimated_start_date or "—"
         job_table.append({
             "job_id":      job.ID_Jobs,
             "client":      client.Client_Community if client else "—",
             "rep":         ", ".join(rep_map.get(job.ID_Jobs, ["—"])),
-            "status":      job.Job_status or "—",
+            "status":      (job.Job_status or "—").strip(),
             "service":     job.Service_type or "—",
-            "date":        job.Date_assigned.strftime("%Y-%m-%d") if job.Date_assigned else "—",
+            "date": display_date.strftime("%Y-%m-%d") if hasattr(display_date, "strftime") else "—",
             "formula":     _safe_float(job.Gqm_formula_pricing),
             "adj_formula": _safe_float(job.Gqm_adj_formula_pricing),
             "target":      _safe_float(job.Gqm_target_sold_pricing),
-            "final":       _safe_float(job.Gqm_final_sold_pricing),
-            "pct":         _safe_float(job.Gqm_final_percentage),
+            "final":       _safe_float(job.Gqm_formula_pricing) if job_type == "PAR" else _safe_float(job.Gqm_final_sold_pricing),
+            "pct":         _safe_float(job.Gqm_target_return) if job_type in ("PTL", "PAR") else _safe_float(job.Gqm_final_percentage),
             "premium":     _safe_float(job.Gqm_premium_in_money),
         })
 
@@ -354,6 +389,8 @@ def get_jobs_report_data(
         "summary":   summary,
         "monthly":   monthly,
         "quarterly": quarterly,
+        "rep_label": rep_label,
+        "pct_label": pct_label,
         "rep":       rep_list,
         "status":    status_list,
         "pipeline":  round(pipeline, 2),

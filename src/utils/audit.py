@@ -31,38 +31,25 @@ from .id_generator import generate_custom_id
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-SOURCE_APP = "app"
-SOURCE_PODIO = "podio"
-
-STATUS_FIELD = "Job_status"
-
+SOURCE_APP = "App"
+SOURCE_PODIO = "Podio"
 
 # ---------------------------------------------------------------------------
 # Core writer
 # ---------------------------------------------------------------------------
 
+
 def log_activity(
     session,
     *,
     action: str,
+    entity_id: str | None = None,
+    entity_type: str = "Job",  # "Job", "Member", "Subcontractor", "Technician"
     job_id: str | None = None,
-    member_id: str | None = None,
+    member_id: str | None = None,  # Quién ejecuta la acción
     description: str | None = None,
     source: str = SOURCE_APP,
 ) -> None:
-    """
-    Escribe una entrada en tlactivity dentro de la sesión dada.
-    No hace commit — el caller es responsable del commit.
-
-    Args:
-        session:     SQLModel/SQLAlchemy session ya abierta.
-        action:      Texto corto de la acción. Ej: "Job updated".
-        job_id:      ID_Jobs relacionado (puede ser None).
-        member_id:   ID_Member que ejecutó la acción (None = desconocido / Podio).
-        description: Detalle adicional. Ej: "Fields changed: Job_status, Date_assigned".
-        source:      "app" | "podio"
-    """
     # Import aquí para evitar circular imports
     from ..models.TLActivityModel import TLActivity
 
@@ -70,16 +57,42 @@ def log_activity(
         new_id = generate_custom_id(
             session, TLActivity, "ID_TLActivity", "TLA")
 
-        entry = TLActivity(
-            ID_TLActivity=new_id,
-            Action=action,
-            Action_datetime=datetime.now(),
-            Description=_build_description(description, source),
-            ID_Jobs=job_id,
-            ID_Member=member_id,
-        )
+        # Diccionario de mapeo
+        entity_map = {
+            "Job": "ID_Jobs",
+            "Member": "ID_Member",
+            "Subcontractor": "ID_Subcontractor",
+            "Technician": "ID_Technician",
+            "ParentMgmtCo": "ID_Community_Tracking",
+            "Client": "ID_Client",
+            "Tasks": "ID_Tasks",
+            "Order": "ID_Order",
+            "EstimateCost": "ID_EstimateCost",
+            "ChangeOrder": "ID_ChangeOrder"
+        }
+
+        # Preparamos los datos base
+        activity_data = {
+            "ID_TLActivity": new_id,
+            "Action": action,
+            "Action_datetime": datetime.now(),
+            "Description": _build_description(description, source),
+            "ID_Member": member_id,  # El autor (siempre va en ID_Member)
+        }
+
+        # Asignar el ID de la entidad a su columna correspondiente
+        target_field = entity_map.get(entity_type)
+        if target_field and entity_id:
+            activity_data[target_field] = entity_id
+
+        # Si recibimos un job_id y la entidad NO es un Job (para no duplicar),
+        # lo asignamos a la columna ID_Jobs.
+        if job_id and entity_type != "Job":
+            activity_data["ID_Jobs"] = job_id
+
+        entry = TLActivity(**activity_data)
         session.add(entry)
-        # No hacemos commit aquí — el caller lo maneja
+
     except Exception as e:
         # Nunca dejamos que el log rompa la operación principal
         print(f"⚠️  [audit] log_activity failed silently: {e}")
@@ -98,35 +111,19 @@ def _build_description(description: str | None, source: str) -> str | None:
     return "  |  ".join(parts) if parts else None
 
 
-def _changed_fields(before: dict, after: dict) -> list[str]:
-    """Returns list of field names whose value changed."""
-    changed = []
-    for key, new_val in after.items():
-        if key in before and before[key] != new_val:
-            changed.append(key)
-    return changed
-
-
-def _status_changed(before: dict, after: dict) -> tuple[bool, str | None, str | None]:
-    """Returns (changed, old_status, new_status)."""
-    old = before.get(STATUS_FIELD)
-    new = after.get(STATUS_FIELD)
-    if new is not None and old != new:
-        return True, old, new
-    return False, None, None
-
-
 # ---------------------------------------------------------------------------
 # Internal DB write helper
 # ---------------------------------------------------------------------------
 
 def _write_audit(
     action: str,
-    job_id: str | None,
+    entity_id: str | None,
+    entity_type: str,
     member_id: str | None,
     method: str,
     body: dict,
     track_fields: bool,
+    job_id=None
 ) -> None:
     """
     Abre su propia sesión y persiste la entrada de auditoría.
@@ -144,6 +141,8 @@ def _write_audit(
             log_activity(
                 session,
                 action=action,
+                entity_id=entity_id,
+                entity_type=entity_type,
                 job_id=job_id,
                 member_id=member_id,
                 description=description,
@@ -161,40 +160,13 @@ def _write_audit(
 def audit(
     action: str,
     *,
-    id_param: str = "id_job",
-    job_id_from: str = "url",   # "url" | "body" | "response"
+    entity_type: str = "Job",      # "Job", "Client", etc.
+    id_param: str = "id_job",      # El nombre en el URL de Flask
+    id_from: str = "url",          # "url" | "body" | "response"
+    job_id_from: str | None = None,
     track_fields: bool = True,
 ) -> Callable:
-    """
-    Decorador que registra automáticamente una entrada en tlactivity.
 
-    - Para DELETE: registra ANTES de ejecutar la función, mientras el job
-      todavía existe en la BD (evita ForeignKeyViolation).
-    - Para el resto (POST, PATCH, etc.): registra DESPUÉS de ejecutar,
-      solo si la respuesta fue exitosa (2xx).
-
-    Extrae automáticamente:
-      - ID_Jobs del parámetro URL (id_param), del body, o de la respuesta JSON
-      - ID_Member del header X-User-Id (puesto por el frontend)
-      - Campos cambiados (solo en PATCH, si track_fields=True)
-      - Cambio de Job_status como descripción especial
-
-    Usage:
-        @job_bp.post("/")
-        @handle_exceptions()
-        @audit("Job created")
-        def create_job(): ...
-
-        @job_bp.patch("/<id_job>")
-        @handle_exceptions()
-        @audit("Job updated", id_param="id_job")
-        def update_job(id_job): ...
-
-        @job_bp.delete("/<id_job>")
-        @handle_exceptions()
-        @audit("Job deleted", id_param="id_job")
-        def delete_job(id_job): ...
-    """
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -202,18 +174,38 @@ def audit(
             body: dict = flask_request.get_json(silent=True) or {}
             member_id = flask_request.headers.get("X-User-Id") or None
 
+            # Mapeo automático de qué ID buscar en el JSON (ID_Jobs, ID_Client, etc.)
+            if entity_type == "Job":
+                json_field = "ID_Jobs"
+            elif entity_type == "ParentMgmtCo":
+                json_field = "ID_Community_Tracking"
+            else:
+                json_field = f"ID_{entity_type}"
+
+            def get_eid(resp=None):
+                if id_from == "url":
+                    return kwargs.get(id_param)
+                source_data = body if id_from == "body" else (resp or {})
+                return source_data.get(json_field) or source_data.get(json_field.lower())
+
+            # --- 2. Lógica para el ID del Job (Si aplica) ---
+            def get_job_id(resp=None):
+                if not job_id_from:
+                    return None
+                if job_id_from == "url":
+                    # Por defecto busca "id_job" en la URL si vas a un sub-recurso
+                    return kwargs.get("id_job") or kwargs.get(id_param)
+                source = body if job_id_from == "body" else (resp or {})
+                return source.get("ID_Jobs") or source.get("id_jobs")
+
             # ── PRE-LOG: DELETE ──────────────────────────────────────────
             # El job aún existe en la BD → la FK se satisface correctamente.
+            # PRE-LOG: DELETE
             if method == "DELETE":
-                job_id = _extract_job_id(
-                    job_id_from=job_id_from,
-                    id_param=id_param,
-                    kwargs=kwargs,
-                    body=body,
-                    response={},
-                )
-                _write_audit(action, job_id, member_id,
-                             method, body, track_fields)
+                eid = get_eid()
+                jid = get_job_id()
+                _write_audit(action, eid, entity_type, member_id,
+                             method, body, track_fields, job_id=jid)
 
             # ── Ejecutar la función original ─────────────────────────────
             result = fn(*args, **kwargs)
@@ -221,21 +213,13 @@ def audit(
             # ── POST-LOG: todo lo que NO sea DELETE ──────────────────────
             if method != "DELETE":
                 response_obj, status_code = _unpack_result(result)
-
-                # Solo loguear si fue exitoso
-                if _is_success(status_code):
-                    job_id = _extract_job_id(
-                        job_id_from=job_id_from,
-                        id_param=id_param,
-                        kwargs=kwargs,
-                        body=body,
-                        response=response_obj,
-                    )
-                    _write_audit(action, job_id, member_id,
-                                 method, body, track_fields)
+                if 200 <= status_code < 300:
+                    eid = get_eid(response_obj)
+                    jid = get_job_id(response_obj)
+                    _write_audit(action, eid, entity_type, member_id,
+                                 method, body, track_fields, job_id=jid)
 
             return result
-
         return wrapper
     return decorator
 
@@ -246,55 +230,40 @@ def audit(
 
 def _unpack_result(result) -> tuple[dict, int]:
     """
-    Flask routes can return:
-      - (dict, int)
-      - (Response, int)
-      - Response
-    Returns (parsed_dict_or_none, status_code).
+    Desempaqueta respuestas de Flask (tuplas, dicts o Response objetos).
     """
-    if isinstance(result, tuple):
+    # Caso 1: Es una tupla (objeto, status_code) -> return jsonify(), 200
+    if isinstance(result, tuple) and len(result) >= 2:
         body, code = result[0], result[1]
+
+        # Si el cuerpo es un objeto Response (jsonify)
         if hasattr(body, "get_json"):
             try:
-                return body.get_json(force=True) or {}, int(code)
+                data = body.get_json(silent=True) or {}
+                return data, int(code)
             except Exception:
                 return {}, int(code)
+
+        # Si el cuerpo ya es un dict
         if isinstance(body, dict):
             return body, int(code)
+
         return {}, int(code)
 
-    # Single Response object
+    # Caso 2: Es un objeto Response directo -> return jsonify()
     if hasattr(result, "status_code"):
         try:
-            return result.get_json(force=True) or {}, result.status_code
+            # .get_json(silent=True) es más seguro que force=True en algunos contextos
+            data = result.get_json(silent=True) or {}
+            return data, result.status_code
         except Exception:
             return {}, result.status_code
 
+    # Caso 3: Es un dict directo -> return {"msj": "ok"}
+    if isinstance(result, dict):
+        return result, 200
+
     return {}, 200
-
-
-def _is_success(status_code: int) -> bool:
-    return 200 <= status_code < 300
-
-
-def _extract_job_id(
-    *,
-    job_id_from: str,
-    id_param: str,
-    kwargs: dict,
-    body: dict,
-    response: dict,
-) -> str | None:
-    if job_id_from == "url":
-        return kwargs.get(id_param)
-
-    if job_id_from == "body":
-        return body.get("ID_Jobs") or body.get("id_jobs")
-
-    if job_id_from == "response":
-        return response.get("ID_Jobs") or response.get("id_jobs")
-
-    return None
 
 
 def _build_action_description(
@@ -312,7 +281,8 @@ def _build_action_description(
             parts.append(f"Fields: {', '.join(fields)}")
 
         # Detectar cambio de status específicamente
-        if STATUS_FIELD in body:
-            parts.append(f"New status: {body[STATUS_FIELD]}")
+        for key, value in body.items():
+            if "status" in key.lower():
+                parts.append(f"New {key}: {value}")
 
     return "  |  ".join(parts) if parts else None

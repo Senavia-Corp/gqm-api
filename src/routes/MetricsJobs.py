@@ -4,7 +4,7 @@ from sqlalchemy import func, extract, and_, or_, case, literal
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..database.db_sqlmodel import get_session
-from ..models.JobModel import Job, JobType
+from ..models.JobModel import Job
 from ..models.MemberModel import Member
 from ..models.link_models.JobMember import JobMemberLink
 from ..models.ClientModel import Client
@@ -201,6 +201,7 @@ def _sum_if(cond):
     # SUM(CASE WHEN cond THEN 1 ELSE 0 END)
     return func.coalesce(func.sum(case((cond, 1), else_=0)), 0)
 
+
 def _money_expr():
     """
     Revenue:
@@ -370,7 +371,8 @@ def members_acc_rep_selling_metrics():
         limit = min(max(limit, 1), 200)  # cap razonable
         offset = (page - 1) * limit
 
-        include_status_breakdown = (request.args.get("include_status_breakdown", "1").strip() != "0")
+        include_status_breakdown = (request.args.get(
+            "include_status_breakdown", "1").strip() != "0")
 
         type_ok = _type_expr(job_type)
         year_ok = _year_expr(job_type, year)
@@ -396,41 +398,61 @@ def members_acc_rep_selling_metrics():
         total_par = _sum_if(type_only("PAR")).label("total_par")
 
         # Pending
-        pending_qid = _sum_if(and_(type_only("QID"), status_in(PENDING_BY_TYPE["QID"]))).label("pending_qid")
-        pending_ptl = _sum_if(and_(type_only("PTL"), status_in(PENDING_BY_TYPE["PTL"]))).label("pending_ptl")
+        pending_qid = _sum_if(and_(type_only("QID"), status_in(
+            PENDING_BY_TYPE["QID"]))).label("pending_qid")
+        pending_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            PENDING_BY_TYPE["PTL"]))).label("pending_ptl")
         pending_par = literal(0).label("pending_par")
-        pending_all = (func.coalesce(pending_qid, 0) + func.coalesce(pending_ptl, 0)).label("pending_all")
+        pending_all = (func.coalesce(pending_qid, 0) +
+                       func.coalesce(pending_ptl, 0)).label("pending_all")
 
         # In progress
-        inprog_qid = _sum_if(and_(type_only("QID"), status_in(INPROGRESS_BY_TYPE["QID"]))).label("inprog_qid")
-        inprog_ptl = _sum_if(and_(type_only("PTL"), status_in(INPROGRESS_BY_TYPE["PTL"]))).label("inprog_ptl")
-        inprog_par = _sum_if(and_(type_only("PAR"), status_in(INPROGRESS_BY_TYPE["PAR"]))).label("inprog_par")
-        inprog_all = (func.coalesce(inprog_qid, 0) + func.coalesce(inprog_ptl, 0) + func.coalesce(inprog_par, 0)).label("inprog_all")
+        inprog_qid = _sum_if(and_(type_only("QID"), status_in(
+            INPROGRESS_BY_TYPE["QID"]))).label("inprog_qid")
+        inprog_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            INPROGRESS_BY_TYPE["PTL"]))).label("inprog_ptl")
+        inprog_par = _sum_if(and_(type_only("PAR"), status_in(
+            INPROGRESS_BY_TYPE["PAR"]))).label("inprog_par")
+        inprog_all = (func.coalesce(inprog_qid, 0) + func.coalesce(inprog_ptl,
+                      0) + func.coalesce(inprog_par, 0)).label("inprog_all")
 
         # Completed
-        completed_qid = _sum_if(and_(type_only("QID"), status_in(COMPLETED_BY_TYPE["QID"]))).label("completed_qid")
-        completed_ptl = _sum_if(and_(type_only("PTL"), status_in(COMPLETED_BY_TYPE["PTL"]))).label("completed_ptl")
-        completed_par = _sum_if(and_(type_only("PAR"), status_in(COMPLETED_BY_TYPE["PAR"]))).label("completed_par")
-        completed_all = (func.coalesce(completed_qid, 0) + func.coalesce(completed_ptl, 0) + func.coalesce(completed_par, 0)).label("completed_all")
+        completed_qid = _sum_if(and_(type_only("QID"), status_in(
+            COMPLETED_BY_TYPE["QID"]))).label("completed_qid")
+        completed_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            COMPLETED_BY_TYPE["PTL"]))).label("completed_ptl")
+        completed_par = _sum_if(and_(type_only("PAR"), status_in(
+            COMPLETED_BY_TYPE["PAR"]))).label("completed_par")
+        completed_all = (func.coalesce(completed_qid, 0) + func.coalesce(
+            completed_ptl, 0) + func.coalesce(completed_par, 0)).label("completed_all")
 
         # Cancelled
-        cancelled_all = _sum_if(and_(base_cond, Job.Job_status == CANCELLED_STATUS)).label("cancelled_all")
-        cancelled_qid = _sum_if(and_(type_only("QID"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_qid")
-        cancelled_ptl = _sum_if(and_(type_only("PTL"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_ptl")
-        cancelled_par = _sum_if(and_(type_only("PAR"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_par")
+        cancelled_all = _sum_if(
+            and_(base_cond, Job.Job_status == CANCELLED_STATUS)).label("cancelled_all")
+        cancelled_qid = _sum_if(and_(
+            type_only("QID"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_qid")
+        cancelled_ptl = _sum_if(and_(
+            type_only("PTL"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_ptl")
+        cancelled_par = _sum_if(and_(
+            type_only("PAR"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_par")
 
         # Closed
-        closed_qid = _sum_if(and_(type_only("QID"), status_in(CLOSED_BY_TYPE["QID"]))).label("closed_qid")
-        closed_ptl = _sum_if(and_(type_only("PTL"), status_in(CLOSED_BY_TYPE["PTL"]))).label("closed_ptl")
-        closed_par = _sum_if(and_(type_only("PAR"), status_in(CLOSED_BY_TYPE["PAR"]))).label("closed_par")
-        closed_all = (func.coalesce(closed_qid, 0) + func.coalesce(closed_ptl, 0) + func.coalesce(closed_par, 0)).label("closed_all")
+        closed_qid = _sum_if(and_(type_only("QID"), status_in(
+            CLOSED_BY_TYPE["QID"]))).label("closed_qid")
+        closed_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            CLOSED_BY_TYPE["PTL"]))).label("closed_ptl")
+        closed_par = _sum_if(and_(type_only("PAR"), status_in(
+            CLOSED_BY_TYPE["PAR"]))).label("closed_par")
+        closed_all = (func.coalesce(closed_qid, 0) + func.coalesce(closed_ptl,
+                      0) + func.coalesce(closed_par, 0)).label("closed_all")
 
         # Breakdown por status (opcional)
         status_cols = []
         if include_status_breakdown:
             for s in STATUS_BREAKDOWN_LIST:
                 status_cols.append(
-                    _sum_if(and_(base_cond, Job.Job_status == s)).label(f"st__{s}")
+                    _sum_if(and_(base_cond, Job.Job_status == s)
+                            ).label(f"st__{s}")
                 )
 
         with get_session() as session:
@@ -547,7 +569,8 @@ def members_acc_rep_selling_metrics():
 
             members.append(member_obj)
 
-        total_pages = (int(total_members) + limit - 1) // limit if total_members else 1
+        total_pages = (int(total_members) + limit -
+                       1) // limit if total_members else 1
 
         return jsonify({
             "type": job_type,
@@ -597,7 +620,8 @@ def clients_metrics():
         offset = (page - 1) * limit
 
         # ✅ NEW
-        include_status_breakdown = (request.args.get("include_status_breakdown", "0").strip() != "0")
+        include_status_breakdown = (request.args.get(
+            "include_status_breakdown", "0").strip() != "0")
 
         type_ok = _type_expr(job_type)
         year_ok = _year_expr(job_type, year)
@@ -622,38 +646,58 @@ def clients_metrics():
         total_par = _sum_if(type_only("PAR")).label("total_par")
 
         # Pending
-        pending_qid = _sum_if(and_(type_only("QID"), status_in(PENDING_BY_TYPE["QID"]))).label("pending_qid")
-        pending_ptl = _sum_if(and_(type_only("PTL"), status_in(PENDING_BY_TYPE["PTL"]))).label("pending_ptl")
+        pending_qid = _sum_if(and_(type_only("QID"), status_in(
+            PENDING_BY_TYPE["QID"]))).label("pending_qid")
+        pending_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            PENDING_BY_TYPE["PTL"]))).label("pending_ptl")
         pending_par = literal(0).label("pending_par")
-        pending_all = (func.coalesce(pending_qid, 0) + func.coalesce(pending_ptl, 0)).label("pending_all")
+        pending_all = (func.coalesce(pending_qid, 0) +
+                       func.coalesce(pending_ptl, 0)).label("pending_all")
 
         # In progress
-        inprog_qid = _sum_if(and_(type_only("QID"), status_in(INPROGRESS_BY_TYPE["QID"]))).label("inprog_qid")
-        inprog_ptl = _sum_if(and_(type_only("PTL"), status_in(INPROGRESS_BY_TYPE["PTL"]))).label("inprog_ptl")
-        inprog_par = _sum_if(and_(type_only("PAR"), status_in(INPROGRESS_BY_TYPE["PAR"]))).label("inprog_par")
-        inprog_all = (func.coalesce(inprog_qid, 0) + func.coalesce(inprog_ptl, 0) + func.coalesce(inprog_par, 0)).label("inprog_all")
+        inprog_qid = _sum_if(and_(type_only("QID"), status_in(
+            INPROGRESS_BY_TYPE["QID"]))).label("inprog_qid")
+        inprog_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            INPROGRESS_BY_TYPE["PTL"]))).label("inprog_ptl")
+        inprog_par = _sum_if(and_(type_only("PAR"), status_in(
+            INPROGRESS_BY_TYPE["PAR"]))).label("inprog_par")
+        inprog_all = (func.coalesce(inprog_qid, 0) + func.coalesce(inprog_ptl,
+                      0) + func.coalesce(inprog_par, 0)).label("inprog_all")
 
         # Completed
-        completed_qid = _sum_if(and_(type_only("QID"), status_in(COMPLETED_BY_TYPE["QID"]))).label("completed_qid")
-        completed_ptl = _sum_if(and_(type_only("PTL"), status_in(COMPLETED_BY_TYPE["PTL"]))).label("completed_ptl")
-        completed_par = _sum_if(and_(type_only("PAR"), status_in(COMPLETED_BY_TYPE["PAR"]))).label("completed_par")
-        completed_all = (func.coalesce(completed_qid, 0) + func.coalesce(completed_ptl, 0) + func.coalesce(completed_par, 0)).label("completed_all")
+        completed_qid = _sum_if(and_(type_only("QID"), status_in(
+            COMPLETED_BY_TYPE["QID"]))).label("completed_qid")
+        completed_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            COMPLETED_BY_TYPE["PTL"]))).label("completed_ptl")
+        completed_par = _sum_if(and_(type_only("PAR"), status_in(
+            COMPLETED_BY_TYPE["PAR"]))).label("completed_par")
+        completed_all = (func.coalesce(completed_qid, 0) + func.coalesce(
+            completed_ptl, 0) + func.coalesce(completed_par, 0)).label("completed_all")
 
         # Cancelled
-        cancelled_all = _sum_if(and_(base_cond, Job.Job_status == CANCELLED_STATUS)).label("cancelled_all")
-        cancelled_qid = _sum_if(and_(type_only("QID"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_qid")
-        cancelled_ptl = _sum_if(and_(type_only("PTL"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_ptl")
-        cancelled_par = _sum_if(and_(type_only("PAR"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_par")
+        cancelled_all = _sum_if(
+            and_(base_cond, Job.Job_status == CANCELLED_STATUS)).label("cancelled_all")
+        cancelled_qid = _sum_if(and_(
+            type_only("QID"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_qid")
+        cancelled_ptl = _sum_if(and_(
+            type_only("PTL"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_ptl")
+        cancelled_par = _sum_if(and_(
+            type_only("PAR"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_par")
 
         # Closed
-        closed_qid = _sum_if(and_(type_only("QID"), status_in(CLOSED_BY_TYPE["QID"]))).label("closed_qid")
-        closed_ptl = _sum_if(and_(type_only("PTL"), status_in(CLOSED_BY_TYPE["PTL"]))).label("closed_ptl")
-        closed_par = _sum_if(and_(type_only("PAR"), status_in(CLOSED_BY_TYPE["PAR"]))).label("closed_par")
-        closed_all = (func.coalesce(closed_qid, 0) + func.coalesce(closed_ptl, 0) + func.coalesce(closed_par, 0)).label("closed_all")
+        closed_qid = _sum_if(and_(type_only("QID"), status_in(
+            CLOSED_BY_TYPE["QID"]))).label("closed_qid")
+        closed_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            CLOSED_BY_TYPE["PTL"]))).label("closed_ptl")
+        closed_par = _sum_if(and_(type_only("PAR"), status_in(
+            CLOSED_BY_TYPE["PAR"]))).label("closed_par")
+        closed_all = (func.coalesce(closed_qid, 0) + func.coalesce(closed_ptl,
+                      0) + func.coalesce(closed_par, 0)).label("closed_all")
 
         # Revenue
         revenue_expr = case(
-            (Job.Job_type == "PAR", func.coalesce(Job.Gqm_target_sold_pricing, 0.0)),
+            (Job.Job_type == "PAR", func.coalesce(
+                Job.Gqm_target_sold_pricing, 0.0)),
             else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
         )
 
@@ -663,27 +707,32 @@ def clients_metrics():
         ).label("revenue_all")
 
         revenue_qid = func.coalesce(
-            func.sum(case((type_only("QID"), func.coalesce(Job.Gqm_final_sold_pricing, 0.0)), else_=0.0)),
+            func.sum(case((type_only("QID"), func.coalesce(
+                Job.Gqm_final_sold_pricing, 0.0)), else_=0.0)),
             0.0
         ).label("revenue_qid")
 
         revenue_ptl = func.coalesce(
-            func.sum(case((type_only("PTL"), func.coalesce(Job.Gqm_final_sold_pricing, 0.0)), else_=0.0)),
+            func.sum(case((type_only("PTL"), func.coalesce(
+                Job.Gqm_final_sold_pricing, 0.0)), else_=0.0)),
             0.0
         ).label("revenue_ptl")
 
         revenue_par = func.coalesce(
-            func.sum(case((type_only("PAR"), func.coalesce(Job.Gqm_target_sold_pricing, 0.0)), else_=0.0)),
+            func.sum(case((type_only("PAR"), func.coalesce(
+                Job.Gqm_target_sold_pricing, 0.0)), else_=0.0)),
             0.0
         ).label("revenue_par")
 
         # ✅ NEW: status breakdown columns (safe labels)
-        status_label_map = [(s, f"st_{i:02d}") for i, s in enumerate(STATUS_BREAKDOWN_LIST)]
+        status_label_map = [(s, f"st_{i:02d}")
+                            for i, s in enumerate(STATUS_BREAKDOWN_LIST)]
         status_cols = []
         if include_status_breakdown:
             for status, label in status_label_map:
                 status_cols.append(
-                    _sum_if(and_(base_cond, Job.Job_status == status)).label(label)
+                    _sum_if(and_(base_cond, Job.Job_status == status)
+                            ).label(label)
                 )
 
         with get_session() as session:
@@ -822,13 +871,15 @@ def clients_metrics():
 
             clients.append(item)
 
-        total_pages = (int(total_clients) + limit - 1) // limit if total_clients else 1
+        total_pages = (int(total_clients) + limit -
+                       1) // limit if total_clients else 1
 
         return jsonify({
             "type": job_type,
             "year": year,
             "order_by": order_by,
-            "include_status_breakdown": 1 if include_status_breakdown else 0,  # optional, helpful for debugging
+            # optional, helpful for debugging
+            "include_status_breakdown": 1 if include_status_breakdown else 0,
             "pagination": {
                 "page": page,
                 "limit": limit,
@@ -848,6 +899,7 @@ def clients_metrics():
 # =============================================================================
 # NEW ENDPOINT: Parent Management Co
 # =============================================================================
+
 
 @metrics_bp.get("/parent-mgmt-co")
 def parent_mgmt_co_metrics():
@@ -872,7 +924,8 @@ def parent_mgmt_co_metrics():
         offset = (page - 1) * limit
 
         # ✅ NEW
-        include_status_breakdown = (request.args.get("include_status_breakdown", "0").strip() != "0")
+        include_status_breakdown = (request.args.get(
+            "include_status_breakdown", "0").strip() != "0")
 
         type_ok = _type_expr(job_type)
         year_ok = _year_expr(job_type, year)
@@ -899,38 +952,58 @@ def parent_mgmt_co_metrics():
         total_par = _sum_if(type_only("PAR")).label("total_par")
 
         # Pending
-        pending_qid = _sum_if(and_(type_only("QID"), status_in(PENDING_BY_TYPE["QID"]))).label("pending_qid")
-        pending_ptl = _sum_if(and_(type_only("PTL"), status_in(PENDING_BY_TYPE["PTL"]))).label("pending_ptl")
+        pending_qid = _sum_if(and_(type_only("QID"), status_in(
+            PENDING_BY_TYPE["QID"]))).label("pending_qid")
+        pending_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            PENDING_BY_TYPE["PTL"]))).label("pending_ptl")
         pending_par = literal(0).label("pending_par")
-        pending_all = (func.coalesce(pending_qid, 0) + func.coalesce(pending_ptl, 0)).label("pending_all")
+        pending_all = (func.coalesce(pending_qid, 0) +
+                       func.coalesce(pending_ptl, 0)).label("pending_all")
 
         # In progress
-        inprog_qid = _sum_if(and_(type_only("QID"), status_in(INPROGRESS_BY_TYPE["QID"]))).label("inprog_qid")
-        inprog_ptl = _sum_if(and_(type_only("PTL"), status_in(INPROGRESS_BY_TYPE["PTL"]))).label("inprog_ptl")
-        inprog_par = _sum_if(and_(type_only("PAR"), status_in(INPROGRESS_BY_TYPE["PAR"]))).label("inprog_par")
-        inprog_all = (func.coalesce(inprog_qid, 0) + func.coalesce(inprog_ptl, 0) + func.coalesce(inprog_par, 0)).label("inprog_all")
+        inprog_qid = _sum_if(and_(type_only("QID"), status_in(
+            INPROGRESS_BY_TYPE["QID"]))).label("inprog_qid")
+        inprog_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            INPROGRESS_BY_TYPE["PTL"]))).label("inprog_ptl")
+        inprog_par = _sum_if(and_(type_only("PAR"), status_in(
+            INPROGRESS_BY_TYPE["PAR"]))).label("inprog_par")
+        inprog_all = (func.coalesce(inprog_qid, 0) + func.coalesce(inprog_ptl,
+                      0) + func.coalesce(inprog_par, 0)).label("inprog_all")
 
         # Completed
-        completed_qid = _sum_if(and_(type_only("QID"), status_in(COMPLETED_BY_TYPE["QID"]))).label("completed_qid")
-        completed_ptl = _sum_if(and_(type_only("PTL"), status_in(COMPLETED_BY_TYPE["PTL"]))).label("completed_ptl")
-        completed_par = _sum_if(and_(type_only("PAR"), status_in(COMPLETED_BY_TYPE["PAR"]))).label("completed_par")
-        completed_all = (func.coalesce(completed_qid, 0) + func.coalesce(completed_ptl, 0) + func.coalesce(completed_par, 0)).label("completed_all")
+        completed_qid = _sum_if(and_(type_only("QID"), status_in(
+            COMPLETED_BY_TYPE["QID"]))).label("completed_qid")
+        completed_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            COMPLETED_BY_TYPE["PTL"]))).label("completed_ptl")
+        completed_par = _sum_if(and_(type_only("PAR"), status_in(
+            COMPLETED_BY_TYPE["PAR"]))).label("completed_par")
+        completed_all = (func.coalesce(completed_qid, 0) + func.coalesce(
+            completed_ptl, 0) + func.coalesce(completed_par, 0)).label("completed_all")
 
         # Cancelled
-        cancelled_all = _sum_if(and_(base_cond, Job.Job_status == CANCELLED_STATUS)).label("cancelled_all")
-        cancelled_qid = _sum_if(and_(type_only("QID"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_qid")
-        cancelled_ptl = _sum_if(and_(type_only("PTL"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_ptl")
-        cancelled_par = _sum_if(and_(type_only("PAR"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_par")
+        cancelled_all = _sum_if(
+            and_(base_cond, Job.Job_status == CANCELLED_STATUS)).label("cancelled_all")
+        cancelled_qid = _sum_if(and_(
+            type_only("QID"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_qid")
+        cancelled_ptl = _sum_if(and_(
+            type_only("PTL"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_ptl")
+        cancelled_par = _sum_if(and_(
+            type_only("PAR"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_par")
 
         # Closed
-        closed_qid = _sum_if(and_(type_only("QID"), status_in(CLOSED_BY_TYPE["QID"]))).label("closed_qid")
-        closed_ptl = _sum_if(and_(type_only("PTL"), status_in(CLOSED_BY_TYPE["PTL"]))).label("closed_ptl")
-        closed_par = _sum_if(and_(type_only("PAR"), status_in(CLOSED_BY_TYPE["PAR"]))).label("closed_par")
-        closed_all = (func.coalesce(closed_qid, 0) + func.coalesce(closed_ptl, 0) + func.coalesce(closed_par, 0)).label("closed_all")
+        closed_qid = _sum_if(and_(type_only("QID"), status_in(
+            CLOSED_BY_TYPE["QID"]))).label("closed_qid")
+        closed_ptl = _sum_if(and_(type_only("PTL"), status_in(
+            CLOSED_BY_TYPE["PTL"]))).label("closed_ptl")
+        closed_par = _sum_if(and_(type_only("PAR"), status_in(
+            CLOSED_BY_TYPE["PAR"]))).label("closed_par")
+        closed_all = (func.coalesce(closed_qid, 0) + func.coalesce(closed_ptl,
+                      0) + func.coalesce(closed_par, 0)).label("closed_all")
 
         # Revenue (QID/PTL -> final, PAR -> target)
         revenue_expr = case(
-            (Job.Job_type == "PAR", func.coalesce(Job.Gqm_target_sold_pricing, 0.0)),
+            (Job.Job_type == "PAR", func.coalesce(
+                Job.Gqm_target_sold_pricing, 0.0)),
             else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
         )
 
@@ -940,27 +1013,32 @@ def parent_mgmt_co_metrics():
         ).label("revenue_all")
 
         revenue_qid = func.coalesce(
-            func.sum(case((type_only("QID"), func.coalesce(Job.Gqm_final_sold_pricing, 0.0)), else_=0.0)),
+            func.sum(case((type_only("QID"), func.coalesce(
+                Job.Gqm_final_sold_pricing, 0.0)), else_=0.0)),
             0.0
         ).label("revenue_qid")
 
         revenue_ptl = func.coalesce(
-            func.sum(case((type_only("PTL"), func.coalesce(Job.Gqm_final_sold_pricing, 0.0)), else_=0.0)),
+            func.sum(case((type_only("PTL"), func.coalesce(
+                Job.Gqm_final_sold_pricing, 0.0)), else_=0.0)),
             0.0
         ).label("revenue_ptl")
 
         revenue_par = func.coalesce(
-            func.sum(case((type_only("PAR"), func.coalesce(Job.Gqm_target_sold_pricing, 0.0)), else_=0.0)),
+            func.sum(case((type_only("PAR"), func.coalesce(
+                Job.Gqm_target_sold_pricing, 0.0)), else_=0.0)),
             0.0
         ).label("revenue_par")
 
         # ✅ NEW: status breakdown columns (safe labels)
-        status_label_map = [(s, f"st_{i:02d}") for i, s in enumerate(STATUS_BREAKDOWN_LIST)]
+        status_label_map = [(s, f"st_{i:02d}")
+                            for i, s in enumerate(STATUS_BREAKDOWN_LIST)]
         status_cols = []
         if include_status_breakdown:
             for status, label in status_label_map:
                 status_cols.append(
-                    _sum_if(and_(base_cond, Job.Job_status == status)).label(label)
+                    _sum_if(and_(base_cond, Job.Job_status == status)
+                            ).label(label)
                 )
 
         with get_session() as session:
@@ -1115,7 +1193,8 @@ def parent_mgmt_co_metrics():
             "type": job_type,
             "year": year,
             "order_by": order_by,
-            "include_status_breakdown": 1 if include_status_breakdown else 0,  # opcional, útil para debug
+            # opcional, útil para debug
+            "include_status_breakdown": 1 if include_status_breakdown else 0,
             "pagination": {
                 "page": page,
                 "limit": limit,
@@ -1131,7 +1210,6 @@ def parent_mgmt_co_metrics():
     except Exception as e:
         print(f"Unexpected error metrics parent-mgmt-co: {e}")
         return jsonify({"detail": "Error interno inesperado del servidor.", "code": "internal_error"}), 500
-
 
 
 # =============================================================================

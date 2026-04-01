@@ -40,6 +40,9 @@ class Client(ClientBase, table=True):
         back_populates="client")
     standard_ps: List["StandardPS"] = Relationship(  # type: ignore
         back_populates="client")
+    tlactivity: List["TLActivity"] = Relationship(  # type: ignore
+        back_populates="client",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
     # Relaciones foráneas M:1
     ID_Community_Tracking: Optional[str] = Field(

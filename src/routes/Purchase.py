@@ -14,7 +14,7 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from sqlalchemy import func, or_
-from src.utils.job_calculator import recalculate_and_apply  # ← NEW
+from src.utils.job_calculator import recalculate_and_apply
 
 
 # Blueprint de Purchase:
@@ -73,12 +73,12 @@ def list_purchases():
 @purchase_bp.get("/table")
 def list_purchases_table():
     try:
-        q_param      = request.args.get("q",       "").strip()
+        q_param = request.args.get("q",       "").strip()
         status_param = request.args.get("status",  "").strip()
         job_id_param = request.args.get("job_id",  "").strip()
-        page         = max(1, int(request.args.get("page",  1)))
-        limit        = min(100, max(1, int(request.args.get("limit", 20))))
-        offset       = (page - 1) * limit
+        page = max(1, int(request.args.get("page",  1)))
+        limit = min(100, max(1, int(request.args.get("limit", 20))))
+        offset = (page - 1) * limit
 
         with get_session() as session:
             stmt = select(
@@ -117,7 +117,8 @@ def list_purchases_table():
             count_stmt = select(func.count()).select_from(stmt.subquery())
             total = session.exec(count_stmt).one()
 
-            stmt = stmt.order_by(Purchase.ID_Purchase.desc()).offset(offset).limit(limit)
+            stmt = stmt.order_by(Purchase.ID_Purchase.desc()
+                                 ).offset(offset).limit(limit)
             rows = session.exec(stmt).all()
 
             from ..models.PurchaseOrderModel import PurchaseOrder
@@ -126,11 +127,12 @@ def list_purchases_table():
             purchase_ids = [r.ID_Purchase for r in rows]
 
             order_counts = {}
-            item_counts  = {}
+            item_counts = {}
 
             if purchase_ids:
                 order_count_stmt = (
-                    select(PurchaseOrder.ID_Purchase, func.count(PurchaseOrder.ID_PurchaseOrder).label("cnt"))
+                    select(PurchaseOrder.ID_Purchase, func.count(
+                        PurchaseOrder.ID_PurchaseOrder).label("cnt"))
                     .where(PurchaseOrder.ID_Purchase.in_(purchase_ids))
                     .group_by(PurchaseOrder.ID_Purchase)
                 )
@@ -138,7 +140,8 @@ def list_purchases_table():
                     order_counts[pid] = cnt
 
                 item_count_stmt = (
-                    select(PurchaseOrder.ID_Purchase, func.count(PurchaseOrderItem.ID_PurchaseOrderItem).label("cnt"))
+                    select(PurchaseOrder.ID_Purchase, func.count(
+                        PurchaseOrderItem.ID_PurchaseOrderItem).label("cnt"))
                     .join(PurchaseOrderItem, PurchaseOrderItem.ID_PurchaseOrder == PurchaseOrder.ID_PurchaseOrder)
                     .where(PurchaseOrder.ID_Purchase.in_(purchase_ids))
                     .group_by(PurchaseOrder.ID_Purchase)
@@ -206,7 +209,8 @@ def get_purchase(id_purchase):
             return jsonify(purc_data), 200
 
     except SQLAlchemyError as db_error:
-        print(f"Error de base de datos al buscar purchase {id_purchase}: {db_error}")
+        print(
+            f"Error de base de datos al buscar purchase {id_purchase}: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"

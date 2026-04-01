@@ -24,11 +24,11 @@ matplotlib.use("Agg")
 # ---------------------------------------------------------------------------
 # Brand palette
 # ---------------------------------------------------------------------------
-GQM_GREEN = colors.HexColor("#0B2E1E")
-GQM_GREEN_2 = colors.HexColor("#0F3A27")
+GQM_GREEN = colors.HexColor("#145F3D")
+GQM_GREEN_2 = colors.HexColor("#1E6445")
 GQM_ORANGE = colors.HexColor("#F28C00")
 LIGHT_BG = colors.HexColor("#F6F7F8")
-LIGHT_GREEN = colors.HexColor("#EDF3F0")
+LIGHT_GREEN = colors.HexColor("#DFF1E8")
 CARD_BG = colors.HexColor("#F8FAF9")
 CARD_BORDER = colors.HexColor("#D9E1DD")
 TABLE_GRID = colors.HexColor("#DCE6E1")
@@ -40,30 +40,12 @@ AMBER_ACC = colors.HexColor("#D97706")
 BLUE_ACC = colors.HexColor("#2563EB")
 PURPLE_ACC = colors.HexColor("#7C3AED")
 
-STATUS_ROW_BG = {
-    "PAID":        colors.HexColor("#D1FAE5"),
-    "PARTIAL":     colors.HexColor("#FEF3C7"),
-    "PENDING":     colors.HexColor("#DBEAFE"),
-    "IN PROGRESS": colors.HexColor("#EDE9FE"),
-    "OVERDUE":     colors.HexColor("#FEE2E2"),
-    "CANCELLED":   colors.HexColor("#F3F4F6"),
-}
-STATUS_TEXT_COLORS = {
-    "PAID":        EMERALD,
-    "PARTIAL":     AMBER_ACC,
-    "PENDING":     BLUE_ACC,
-    "IN PROGRESS": PURPLE_ACC,
-    "OVERDUE":     RED_ACC,
-    "CANCELLED":   TEXT_MUTED,
-}
-
-MPL_GREEN = "#0B2E1E"
+MPL_GREEN = "#126942"
 MPL_ORANGE = "#F28C00"
 MPL_BORDER = "#DCE6E1"
 MPL_MUTED = "#5B6B63"
 
 PAGE_W = 7.7 * inch
-ROWS_PER_CHUNK = 40
 
 # High DPI for crisp rendering at any zoom level
 CHART_DPI = 220
@@ -82,7 +64,7 @@ def _fmt_money(v) -> str:
 
 def _fmt_pct(v) -> str:
     try:
-        return f"{float(v):.1f}%"
+        return f"{(float(v) * 100):.1f}%"
     except (TypeError, ValueError):
         return "0.0%"
 
@@ -193,7 +175,7 @@ def _base_tbl_style(has_footer: bool = False) -> list:
 # Charts  — legend inside/near chart, high DPI
 # ---------------------------------------------------------------------------
 
-def _chart_monthly(monthly: list[dict]) -> bytes | None:
+def _chart_monthly(monthly: list[dict], pct_label: str) -> bytes | None:
     if not monthly:
         return None
 
@@ -203,11 +185,9 @@ def _chart_monthly(monthly: list[dict]) -> bytes | None:
     margins = [m["avg_final_pct"] for m in monthly]
 
     n = len(months)
-    fig_w = max(7.4, min(n * 0.65, 14.0))
-    w = max(0.15, min(0.35, 0.6 / max(n, 1)))
-
-    fig, ax1 = plt.subplots(figsize=(fig_w, 3.4))
+    fig, ax1 = plt.subplots(figsize=(7.4, 3.4))
     x = range(n)
+    w = 0.35
 
     b1 = ax1.bar([i - w/2 for i in x], quoted, w, label="Total Quoted",
                  color=MPL_BORDER, edgecolor="#B0BEB8", alpha=0.85)
@@ -222,12 +202,12 @@ def _chart_monthly(monthly: list[dict]) -> bytes | None:
 
     ax2 = ax1.twinx()
     l1, = ax2.plot(list(x), margins, color=MPL_ORANGE, marker="o",
-                   linewidth=2, markersize=5, label="Avg Final %")
-    ax2.set_ylabel("Final % (Avg)", color=MPL_ORANGE,
+                   linewidth=2, markersize=5, label=pct_label)
+    ax2.set_ylabel(pct_label, color=MPL_ORANGE,
                    fontsize=8, fontweight="bold")
-    max_m = max(margins) if margins else 100
-    ax2.set_ylim(0, max(max_m * 1.3, 110))
-    ax2.yaxis.set_major_formatter(mtick.PercentFormatter())
+    max_m = max(margins) if margins else 1.0
+    ax2.set_ylim(0, max(max_m * 1.2, 1.05))
+    ax2.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
     ax2.tick_params(axis="y", labelsize=7, labelcolor=MPL_ORANGE)
 
     rotation = 45 if n > 6 else 0
@@ -237,16 +217,15 @@ def _chart_monthly(monthly: list[dict]) -> bytes | None:
 
     # Legend inside top area — no wasted whitespace below
     handles = [b1, b2, l1]
-    labels = ["Total Quoted", "Final Sold", "Avg Final %"]
-    ax1.legend(handles, labels, loc="upper left", fontsize=7,
-               frameon=True, framealpha=0.85, edgecolor="#ddd",
-               bbox_to_anchor=(0.01, 0.99), borderaxespad=0)
+    labels = ["Total Quoted", "Final Sold", pct_label]
+    ax1.legend(handles, labels, loc='upper center', fontsize=7,
+               frameon=False, ncol=3, bbox_to_anchor=(0.5, 1.15))
 
     fig.tight_layout(pad=0.5)
     return _save_chart(fig)
 
 
-def _chart_quarterly(quarterly: list[dict]) -> bytes | None:
+def _chart_quarterly(quarterly: list[dict], pct_label: str) -> bytes | None:
     if not quarterly:
         return None
 
@@ -257,41 +236,46 @@ def _chart_quarterly(quarterly: list[dict]) -> bytes | None:
 
     fig, ax1 = plt.subplots(figsize=(5.5, 3.0))
     x = range(len(qtrs))
-    w = 0.32
+    w = 0.32 if len(x) > 1 else 0.15
 
     b1 = ax1.bar([i - w/2 for i in x], quoted, w, label="Quoted",
                  color=MPL_BORDER, edgecolor="#B0BEB8", alpha=0.85)
     b2 = ax1.bar([i + w/2 for i in x], sold,   w, label="Final Sold",
                  color=MPL_GREEN, alpha=0.9)
 
+    if len(x) == 1:
+        ax1.set_xlim(-1, 1)
+
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(_y_fmt))
     ax1.tick_params(axis="y", labelsize=7, labelcolor=MPL_GREEN)
     ax1.set_ylabel("Amount ($)", fontsize=8,
                    color=MPL_GREEN, fontweight="bold")
     ax1.spines["top"].set_visible(False)
+
+    rotation = 45 if len(x) > 6 else 0
     ax1.set_xticks(list(x))
-    ax1.set_xticklabels(qtrs, fontsize=8)
+    ax1.set_xticklabels(qtrs, fontsize=6.5,
+                        rotation=rotation, ha="right" if rotation else "center")
 
     ax2 = ax1.twinx()
     l1, = ax2.plot(list(x), pcts, color=MPL_ORANGE, marker="o",
-                   linewidth=2, markersize=5, label="Final %")
-    max_p = max(pcts) if pcts else 100
-    ax2.set_ylim(0, max(max_p * 1.3, 110))
-    ax2.yaxis.set_major_formatter(mtick.PercentFormatter())
+                   linewidth=2, markersize=5, label=pct_label)
+    max_p = max(pcts) if pcts else 1.0
+    ax2.set_ylim(0, max(max_p * 1.2, 1.05))
+    ax2.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
     ax2.tick_params(axis="y", labelsize=7, labelcolor=MPL_ORANGE)
-    ax2.set_ylabel("Final %", fontsize=8, color=MPL_ORANGE, fontweight="bold")
+    ax2.set_ylabel(pct_label, fontsize=8, color=MPL_ORANGE, fontweight="bold")
 
     handles = [b1, b2, l1]
-    labels = ["Quoted", "Final Sold", "Final %"]
-    ax1.legend(handles, labels, loc="upper left", fontsize=7,
-               frameon=True, framealpha=0.85, edgecolor="#ddd",
-               bbox_to_anchor=(0.01, 0.99), borderaxespad=0)
+    labels = ["Quoted", "Final Sold", pct_label]
+    ax1.legend(handles, labels, loc='upper center', fontsize=7,
+               frameon=False, ncol=3, bbox_to_anchor=(0.5, 1.15))
 
     fig.tight_layout(pad=0.5)
     return _save_chart(fig)
 
 
-def _chart_rep(rep_list: list[dict]) -> bytes | None:
+def _chart_rep(rep_list: list[dict], rep_label: str, pct_label: str) -> bytes | None:
     if not rep_list:
         return None
 
@@ -315,7 +299,7 @@ def _chart_rep(rep_list: list[dict]) -> bytes | None:
     for bar, val, pct in zip(bars, finals, pcts):
         ax.text(bar.get_width() + x_max * 0.01,
                 bar.get_y() + bar.get_height() / 2,
-                f"{_fmt_money(val)}  ({pct:.1f}%)",
+                f"{_fmt_money(val)}  ({(pct * 100):.1f}%)",
                 va="center", ha="left", fontsize=6.5, color=MPL_GREEN)
 
     ax.set_yticks(list(y))
@@ -324,7 +308,7 @@ def _chart_rep(rep_list: list[dict]) -> bytes | None:
     ax.tick_params(axis="x", labelsize=7)
     ax.set_xlabel("Total Final Sold", fontsize=8,
                   color=MPL_GREEN, fontweight="bold")
-    ax.set_title("Rep Performance — Total Final Sold & Avg Margin %",
+    ax.set_title(f"{rep_label} Performance — Total Final Sold & {pct_label}",
                  fontsize=9, fontweight="bold", color=MPL_GREEN, pad=8)
     ax.invert_yaxis()
     ax.spines["top"].set_visible(False)
@@ -342,24 +326,37 @@ def _chart_status(status_list: list[dict]) -> bytes | None:
     labels = [s["status"] for s in status_list]
     counts = [s["count"] for s in status_list]
     bg_map = {
-        "PAID":        "#059669",
-        "PARTIAL":     "#D97706",
-        "PENDING":     "#2563EB",
-        "IN PROGRESS": "#7C3AED",
-        "OVERDUE":     "#DC2626",
-        "CANCELLED":   "#9CA3AF",
+        # --- COMUNES / QID ---
+        "Assigned/P.quote":             "#D1F3EC",
+        "Waiting for approval":         "#2564EBB1",
+        "Scheduled/Work in progress":   "#EFEF94",
+        "Cancelled":                    "#F68F8F",
+        "Completed P.INV / POs":        "#7C3AED",
+        "Invoiced":                     "#FF8B38",
+        "HOLD":                         "#F7F0C5",
+        "PAID":                         "#7BEB7C",
+        "Warranty":                     "#B5E3FF",
+
+        # --- ESPECÍFICOS PTL ---
+        "Received-Stand By":            "#FFCD82",
+        "Assigned-In progress":         "#EFEF94",
+        "Completed PVI":                "#7C3AEDCA",
+        "Paid":                         "#7BEB7DC7",
+
+        # --- ESPECÍFICOS PAR ---
+        "In Progress":                  "#F7F784",
     }
     bar_colors = [bg_map.get(l, "#6B7280") for l in labels]
 
-    fig, ax = plt.subplots(figsize=(5.5, 2.8))
+    fig, ax = plt.subplots(figsize=(8.5, 3.5))
     bars = ax.bar(range(len(labels)), counts, color=bar_colors,
-                  edgecolor="white", linewidth=0.8, width=0.55)
+                  edgecolor="#D8D8D8", linewidth=0.6, width=0.55)
 
     top = max(counts) if counts else 1
     for bar, cnt in zip(bars, counts):
         ax.text(bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + top * 0.02,
-                str(cnt), ha="center", va="bottom", fontsize=8,
+                str(cnt), ha="center", va="bottom", fontsize=6,
                 fontweight="bold", color=MPL_GREEN)
 
     ax.set_xticks(range(len(labels)))
@@ -383,10 +380,10 @@ def _chart_service(service_list: list[dict]) -> bytes | None:
     finals = [s["final"] for s in items]
     premiums = [s["premium"] for s in items]
 
-    fig_h = max(2.5, len(services) * 0.42)
+    fig_h = max(2.8, len(services) * 0.4)
     fig, ax = plt.subplots(figsize=(6.5, fig_h))
     y = range(len(services))
-    h = 0.32
+    h = 0.35
 
     ax.barh([i + h/2 for i in y], finals,   h,
             label="Final Sold", color=MPL_GREEN,  alpha=0.88)
@@ -405,8 +402,7 @@ def _chart_service(service_list: list[dict]) -> bytes | None:
     ax.spines["right"].set_visible(False)
 
     # Legend inside lower-right where bars are shortest
-    ax.legend(fontsize=7, frameon=True, framealpha=0.85,
-              edgecolor="#ddd", loc="lower right")
+    ax.legend(loc="lower right", fontsize=7, framealpha=0.8)
 
     fig.tight_layout(pad=0.5)
     return _save_chart(fig)
@@ -431,7 +427,8 @@ def _build_header(logo_path: str | None, filters: dict, styles: dict) -> list:
     if logo_path:
         p = Path(logo_path)
         if p.exists():
-            logo_cell = _fit_logo(str(p), max_w=1.3*inch, max_h=0.55*inch)
+            logo_cell = _fit_logo(
+                str(p.absolute()), max_w=0.8*inch, max_h=0.4*inch)
 
     title_cell = [
         Paragraph("Jobs Financial Performance Report", styles["MainTitle"]),
@@ -440,7 +437,10 @@ def _build_header(logo_path: str | None, filters: dict, styles: dict) -> list:
 
     tbl = Table([[logo_cell, title_cell]],
                 colWidths=[1.5*inch, PAGE_W - 1.5*inch])
-    tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+    ]))
 
     return [
         tbl,
@@ -453,7 +453,7 @@ def _build_header(logo_path: str | None, filters: dict, styles: dict) -> list:
 # KPI Cards
 # ---------------------------------------------------------------------------
 
-def _build_kpi_cards(summary: dict, pipeline: float, styles: dict) -> list:
+def _build_kpi_cards(summary: dict, pipeline: float, styles: dict, pct_label: str) -> list:
     def card(label, value, sub=""):
         return [
             Spacer(1, 6),
@@ -479,7 +479,7 @@ def _build_kpi_cards(summary: dict, pipeline: float, styles: dict) -> list:
             "total_premium")),    "Final Sold − Adj Formula"),
     ]
     row2 = [
-        card("AVG FINAL %",       _fmt_pct(summary.get(
+        card(pct_label.upper(),       _fmt_pct(summary.get(
             "avg_final_pct")),      "Margin Performance"),
         card("# JOBS PAID",       str(paid),
              f"of {total} total jobs"),
@@ -507,13 +507,13 @@ def _build_kpi_cards(summary: dict, pipeline: float, styles: dict) -> list:
 # Monthly
 # ---------------------------------------------------------------------------
 
-def _build_monthly_section(monthly: list[dict], styles: dict) -> list:
+def _build_monthly_section(monthly: list[dict], styles: dict, pct_label: str) -> list:
     if not monthly:
         return []
 
     story = [Paragraph("Monthly Financial Evolution", styles["SectionHeader"])]
 
-    chart_png = _chart_monthly(monthly)
+    chart_png = _chart_monthly(monthly, pct_label)
     if chart_png:
         story.append(Image(io.BytesIO(chart_png),
                      width=PAGE_W, height=3.3*inch))
@@ -521,7 +521,7 @@ def _build_monthly_section(monthly: list[dict], styles: dict) -> list:
 
     hdr = [Paragraph(h, styles["THeader"]) for h in
            ["Month", "Jobs", "Paid", "Quoted", "Formula", "Adj Formula",
-            "Final Sold", "Premium $", "Avg Final %"]]
+            "Final Sold", "Premium $", pct_label]]
     rows = [hdr]
     for m in monthly:
         rows.append([
@@ -561,21 +561,23 @@ def _build_monthly_section(monthly: list[dict], styles: dict) -> list:
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style(has_footer=True)))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 10)
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Quarterly
 # ---------------------------------------------------------------------------
 
-def _build_quarterly_section(quarterly: list[dict], styles: dict) -> list:
+def _build_quarterly_section(quarterly: list[dict], styles: dict, pct_label: str) -> list:
     if not quarterly:
         return []
 
     story = [Paragraph("Quarterly Breakdown", styles["SectionHeader"])]
 
-    chart_png = _chart_quarterly(quarterly)
+    chart_png = _chart_quarterly(quarterly, pct_label)
     if chart_png:
         story.append(Image(io.BytesIO(chart_png),
                      width=5.5*inch, height=2.9*inch))
@@ -583,7 +585,7 @@ def _build_quarterly_section(quarterly: list[dict], styles: dict) -> list:
 
     hdr = [Paragraph(h, styles["THeader"]) for h in
            ["Quarter", "Jobs", "Paid", "Quoted", "Formula",
-            "Final Sold", "Premium $", "Avg Final %"]]
+            "Final Sold", "Premium $", pct_label]]
     rows = [hdr]
     for q in quarterly:
         rows.append([
@@ -620,21 +622,23 @@ def _build_quarterly_section(quarterly: list[dict], styles: dict) -> list:
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style(has_footer=True)))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 10)
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Rep
 # ---------------------------------------------------------------------------
 
-def _build_rep_section(rep_list: list[dict], styles: dict) -> list:
+def _build_rep_section(rep_list: list[dict], rep_label: str, pct_label: str, styles: dict) -> list:
     if not rep_list:
         return []
 
-    story = [Paragraph("Rep Performance", styles["SectionHeader"])]
+    story = [Paragraph(f"{rep_label} Performance", styles["SectionHeader"])]
 
-    chart_png = _chart_rep(rep_list)
+    chart_png = _chart_rep(rep_list, rep_label, pct_label)
     if chart_png:
         chart_h = max(2.5, len(rep_list) * 0.42)
         story.append(Image(io.BytesIO(chart_png),
@@ -642,8 +646,8 @@ def _build_rep_section(rep_list: list[dict], styles: dict) -> list:
         story.append(Spacer(1, 8))
 
     hdr = [Paragraph(h, styles["THeader"]) for h in
-           ["Rep", "Jobs", "Paid", "Total Quoted",
-            "Total Final Sold", "Avg Final %", "Total Premium $"]]
+           [rep_label, "Jobs", "Paid", "Total Quoted",
+            "Total Final Sold", pct_label, "Total Premium $"]]
     rows = [hdr]
     for r in rep_list:
         rows.append([
@@ -661,8 +665,10 @@ def _build_rep_section(rep_list: list[dict], styles: dict) -> list:
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style()))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 10)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -694,12 +700,8 @@ def _build_status_section(status_list: list[dict], pipeline: float, styles: dict
     row_cmds = []
     for i, s in enumerate(status_list, start=1):
         sn = s["status"]
-        bg = STATUS_ROW_BG.get(sn, colors.white)
-        tc = STATUS_TEXT_COLORS.get(sn, TEXT_DARK)
-        row_cmds.append(("BACKGROUND", (0, i), (0, i), bg))
         rows.append([
-            Paragraph(
-                f'<font color="{tc.hexval()}"><b>{sn}</b></font>', styles["TCell"]),
+            Paragraph(sn, styles["TCellB"]),
             Paragraph(str(s["count"]),         styles["TCellC"]),
             Paragraph(_fmt_pct(s["pct"]),      styles["TCellC"]),
             Paragraph(_fmt_money(s["quoted"]), styles["TCellR"]),
@@ -711,8 +713,10 @@ def _build_status_section(status_list: list[dict], pipeline: float, styles: dict
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style() + row_cmds))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 10)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -723,8 +727,10 @@ def _build_service_section(service_list: list[dict], styles: dict) -> list:
     if not service_list:
         return []
 
-    story = [Paragraph("Profitability by Service Type",
-                       styles["SectionHeader"])]
+    story = []
+
+    story.append(Paragraph("Profitability by Service Type",
+                 styles["SectionHeader"]))
 
     chart_png = _chart_service(service_list)
     if chart_png:
@@ -750,50 +756,77 @@ def _build_service_section(service_list: list[dict], styles: dict) -> list:
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style()))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 15)
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Job detail table
 # ---------------------------------------------------------------------------
 
-def _job_detail_chunk(chunk: list[dict], styles: dict) -> Table:
-    hdr = [Paragraph(h, styles["THeader"]) for h in
-           ["Job ID", "Client", "Rep", "Status", "Service",
-            "Date", "Formula", "Adj Formula", "Target", "Final", "%", "Premium"]]
+def _job_detail_chunk(chunk: list[dict], job_type: str, rep_label: str, pct_label: str, styles: dict) -> Table:
+    hide_service = job_type in ("PTL", "PAR")
+    hide_final = job_type == "PAR"
+
+    hdr_labels = ["Job ID", "Client", rep_label, "Status"]
+    if not hide_service:
+        hdr_labels.append("Service")
+    hdr_labels.extend(["Date", "Formula Cost", "Adj Formula Cost", "Target Sold"])
+    if not hide_final:
+        hdr_labels.append("Final Sold")
+    hdr_labels.extend([pct_label, "Premium $"])
+
+    if not hide_service and not hide_final: # QID, ALL
+        col_w = [0.60*inch, 0.85*inch, 0.70*inch, 0.70*inch, 0.60*inch,
+                 0.60*inch, 0.65*inch, 0.65*inch, 0.65*inch, 0.65*inch,
+                 0.45*inch, 0.60*inch]
+    elif hide_service and not hide_final: # PTL
+        col_w = [0.65*inch, 1.05*inch, 0.85*inch, 0.70*inch, 0.70*inch,
+                 0.70*inch, 0.70*inch, 0.65*inch, 0.65*inch, 0.50*inch,
+                 0.55*inch]
+    else: # PAR
+        col_w = [0.70*inch, 1.10*inch, 0.90*inch, 0.80*inch, 0.80*inch,
+                 0.70*inch, 0.70*inch, 0.70*inch, 0.60*inch, 0.70*inch]
+
+    hdr = [Paragraph(h, styles["THeader"]) for h in hdr_labels]
     rows = [hdr]
     row_cmds = []
 
     for i, j in enumerate(chunk, start=1):
-        status = (j["status"] or "").upper()
-        bg = STATUS_ROW_BG.get(status, colors.white)
-        tc = STATUS_TEXT_COLORS.get(status, TEXT_DARK)
-        row_cmds.append(("BACKGROUND", (3, i), (3, i), bg))
+        status = j["status"] or ""
 
         client = j["client"]
         if len(client) > 22:
             client = client[:19] + "…"
 
-        rows.append([
+        row_data = [
             Paragraph(j["job_id"],                 styles["TCellB"]),
             Paragraph(client,                       styles["TCell"]),
             Paragraph(j["rep"],                    styles["TCell"]),
-            Paragraph(f'<font color="{tc.hexval()}"><b>{status}</b></font>',
-                      styles["TCellC"]),
-            Paragraph(j["service"],                styles["TCell"]),
+            Paragraph(f'<b>{status}</b>',          styles["TCellC"]),
+        ]
+        
+        if not hide_service:
+            row_data.append(Paragraph(j["service"], styles["TCell"]))
+
+        row_data.extend([
             Paragraph(j["date"],                   styles["TCellC"]),
             Paragraph(_fmt_money(j["formula"]),    styles["TCellR"]),
             Paragraph(_fmt_money(j["adj_formula"]), styles["TCellR"]),
             Paragraph(_fmt_money(j["target"]),     styles["TCellR"]),
-            Paragraph(_fmt_money(j["final"]),      styles["TCellR"]),
+        ])
+        
+        if not hide_final:
+            row_data.append(Paragraph(_fmt_money(j["final"]), styles["TCellR"]))
+            
+        row_data.extend([
             Paragraph(_fmt_pct(j["pct"]),          styles["TCellR"]),
             Paragraph(_fmt_money(j["premium"]),    styles["TCellR"]),
         ])
+        rows.append(row_data)
 
-    col_w = [0.60*inch, 0.90*inch, 0.70*inch, 0.70*inch, 0.65*inch,
-             0.65*inch, 0.65*inch, 0.65*inch, 0.65*inch, 0.65*inch,
-             0.40*inch, 0.60*inch]
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0),  (-1, 0),  LIGHT_GREEN),
@@ -809,7 +842,7 @@ def _job_detail_chunk(chunk: list[dict], styles: dict) -> Table:
     return tbl
 
 
-def _build_job_detail_section(jobs: list[dict], styles: dict) -> list:
+def _build_job_detail_section(jobs: list[dict], job_type: str, rep_label: str, pct_label: str, styles: dict) -> list:
     if not jobs:
         return []
 
@@ -822,11 +855,8 @@ def _build_job_detail_section(jobs: list[dict], styles: dict) -> list:
         Spacer(1, 4),
     ]
 
-    chunks = [jobs[i:i + ROWS_PER_CHUNK]
-              for i in range(0, len(jobs), ROWS_PER_CHUNK)]
-    for chunk in chunks:
-        story.append(_job_detail_chunk(chunk, styles))
-        story.append(Spacer(1, 6))
+    story.append(_job_detail_chunk(jobs, job_type, rep_label, pct_label, styles))
+    story.append(Spacer(1, 6))
 
     return story
 
@@ -853,18 +883,21 @@ def build_job_financial_report(
     styles = _make_styles()
     filters = data.get("filters", {})
     summary = data.get("summary", {})
+    job_type = filters.get("job_type") or "ALL"
+    rep_label = data.get("rep_label", "Rep")
+    pct_label = data.get("pct_label", "Avg Final %")
     pipeline = float(data.get("pipeline", 0))
     story = []
 
     story.extend(_build_header(logo_path, filters, styles))
-    story.extend(_build_kpi_cards(summary, pipeline, styles))
-    story.extend(_build_monthly_section(data.get("monthly",   []), styles))
-    story.extend(_build_quarterly_section(data.get("quarterly", []), styles))
-    story.extend(_build_rep_section(data.get("rep",       []), styles))
+    story.extend(_build_kpi_cards(summary, pipeline, styles, pct_label))
+    story.extend(_build_monthly_section(data.get("monthly",   []), styles, pct_label))
+    story.extend(_build_quarterly_section(data.get("quarterly", []), styles, pct_label))
+    story.extend(_build_rep_section(data.get("rep",       []), rep_label, pct_label, styles))
     story.extend(_build_status_section(
         data.get("status",    []), pipeline, styles))
     story.extend(_build_service_section(data.get("service",   []), styles))
-    story.extend(_build_job_detail_section(data.get("jobs",      []), styles))
+    story.extend(_build_job_detail_section(data.get("jobs",      []), job_type, rep_label, pct_label, styles))
 
     def _on_page(canvas, doc_):
         canvas.saveState()

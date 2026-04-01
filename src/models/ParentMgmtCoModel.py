@@ -29,6 +29,9 @@ class ParentMgmtCo(PaMgmtCoBase, table=True):
         back_populates="parent_mgmt_co")
     managers: List["Manager"] = Relationship(  # type: ignore
         back_populates="parent_mgmt_co")
+    tlactivity: List["TLActivity"] = Relationship(  # type: ignore
+        back_populates="parent_mgmt_co",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
 
 class PaMgmtCoCreate(PaMgmtCoBase):
