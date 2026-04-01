@@ -17,21 +17,19 @@ from src.models.ClientModel import Client
 
 # Orden lógico para la visualización en el reporte (de inicial a final)
 STATUS_ORDER = [
-    "RECEIVED-STAND BY", "STAND BY", "ENTERED", "HOLD",
-    "ASSIGNED/P. QUOTE", "ASSIGNED/SCHEDULED", "WAITING FOR APPROVAL",
-    "SCHEDULED / WORK IN PROGRESS", "IN PROGRESS",
-    "COMPLETED P. INV / POs", "COMPLETED PVI / POs", "COMPLETED",
-    "INVOICED", "PAID", "WARRANTY", "CANCELLED"
+    "Received-Stand By", "HOLD", "Assigned/P.quote", "Waiting for approval",
+    "Scheduled/Work in progress", "Assigned-In progress", "In Progress",
+    "Completed P.INV / POs", "Completed PVI", "Invoiced", "PAID", "Paid",
+    "Warranty", "Cancelled"
 ]
 ACTIVE_STATUSES = {
-    "ASSIGNED/P. QUOTE",
-    "ASSIGNED/SCHEDULED",
-    "WAITING FOR APPROVAL",
-    "SCHEDULED / WORK IN PROGRESS",
-    "IN PROGRESS",
-    "INVOICED",
+    "Received-Stand By",
     "HOLD",
-    "RECEIVED-STAND BY"
+    "Assigned/P.quote",
+    "Waiting for approval",
+    "Scheduled/Work in progress",
+    "Assigned-In progress",
+    "In Progress"
 }
 
 
@@ -77,7 +75,7 @@ def _safe_float(v) -> float:
 
 
 def _pct(num: float, den: float) -> float:
-    return round((num / den) * 100, 2) if den else 0.0
+    return round((num / den), 4) if den else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -259,12 +257,12 @@ def get_jobs_report_data(
     # 5. STATUS DISTRIBUTION & PIPELINE
     # ------------------------------------------------------------------
     stmt_status = select(
-        func.upper(func.trim(Job.Job_status)).label("status"),
+        func.trim(Job.Job_status).label("status"),
         func.count(Job.ID_Jobs).label("count"),
         func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
         func.sum(Job.Gqm_final_sold_pricing).label("final"),
         func.sum(Job.Gqm_premium_in_money).label("premium"),
-    ).group_by(func.upper(func.trim(Job.Job_status)))
+    ).group_by(func.trim(Job.Job_status))
 
     stmt_status = _apply_filters(stmt_status, year, month, job_type, client_id)
 
@@ -272,7 +270,7 @@ def get_jobs_report_data(
     pipeline = 0.0
 
     for row in session.exec(stmt_status).all():
-        status_name = (row.status or "UNKNOWN").strip().upper()
+        status_name = (row.status or "UNKNOWN").strip()
         quoted = _safe_float(row.quoted)
         final = _safe_float(row.final)
         count = int(row.count or 0)
@@ -354,7 +352,7 @@ def get_jobs_report_data(
             "job_id":      job.ID_Jobs,
             "client":      client.Client_Community if client else "—",
             "rep":         ", ".join(rep_map.get(job.ID_Jobs, ["—"])),
-            "status":      job.Job_status or "—",
+            "status":      (job.Job_status or "—").strip(),
             "service":     job.Service_type or "—",
             "date": display_date.strftime("%Y-%m-%d") if hasattr(display_date, "strftime") else "—",
             "formula":     _safe_float(job.Gqm_formula_pricing),

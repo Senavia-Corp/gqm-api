@@ -40,31 +40,13 @@ AMBER_ACC = colors.HexColor("#D97706")
 BLUE_ACC = colors.HexColor("#2563EB")
 PURPLE_ACC = colors.HexColor("#7C3AED")
 
-STATUS_TEXT_COLORS = {
-    # Texto Blanco para fondos oscuros o intensos
-    "WAITING FOR APPROVAL":         colors.HexColor("#2564EB"),
-    "COMPLETED P. INV / POs":       colors.HexColor("#7C3AED"),
-    "COMPLETED PVI / POs":          colors.HexColor("#7C3AED"),
-    "INVOICED":                     colors.HexColor("#FF8B38"),
-
-    # Texto Oscuro para fondos claros/pastel
-    "ASSIGNED/P. QUOTE":            colors.HexColor("#6DB4A5"),
-    "SCHEDULED / WORK IN PROGRESS": colors.HexColor("#EFEF94"),
-    "CANCELLED":                    colors.HexColor("#942626"),
-    "HOLD":                         AMBER_ACC,
-    "PAID":                         EMERALD,
-    "WARRANTY":                     BLUE_ACC,
-    "RECEIVED-STAND BY":            colors.HexColor("#FFCD82"),
-    "IN PROGRESS":                  colors.HexColor("#DCDC63"),
-}
-
 MPL_GREEN = "#126942"
 MPL_ORANGE = "#F28C00"
 MPL_BORDER = "#DCE6E1"
 MPL_MUTED = "#5B6B63"
 
 PAGE_W = 7.7 * inch
-ROWS_PER_CHUNK = 100
+ROWS_PER_CHUNK = 27
 
 # High DPI for crisp rendering at any zoom level
 CHART_DPI = 220
@@ -83,7 +65,7 @@ def _fmt_money(v) -> str:
 
 def _fmt_pct(v) -> str:
     try:
-        return f"{float(v):.1f}%"
+        return f"{(float(v) * 100):.1f}%"
     except (TypeError, ValueError):
         return "0.0%"
 
@@ -224,9 +206,9 @@ def _chart_monthly(monthly: list[dict]) -> bytes | None:
                    linewidth=2, markersize=5, label="Avg Final %")
     ax2.set_ylabel("Final % (Avg)", color=MPL_ORANGE,
                    fontsize=8, fontweight="bold")
-    max_m = max(margins) if margins else 100
-    ax2.set_ylim(0, max(max_m * 1.3, 110))
-    ax2.yaxis.set_major_formatter(mtick.PercentFormatter())
+    max_m = max(margins) if margins else 1.0
+    ax2.set_ylim(0, max(max_m * 1.2, 1.05))
+    ax2.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
     ax2.tick_params(axis="y", labelsize=7, labelcolor=MPL_ORANGE)
 
     rotation = 45 if n > 6 else 0
@@ -279,9 +261,9 @@ def _chart_quarterly(quarterly: list[dict]) -> bytes | None:
     ax2 = ax1.twinx()
     l1, = ax2.plot(list(x), pcts, color=MPL_ORANGE, marker="o",
                    linewidth=2, markersize=5, label="Final %")
-    max_p = max(pcts) if pcts else 100
-    ax2.set_ylim(0, max(max_p * 1.3, 110))
-    ax2.yaxis.set_major_formatter(mtick.PercentFormatter())
+    max_p = max(pcts) if pcts else 1.0
+    ax2.set_ylim(0, max(max_p * 1.2, 1.05))
+    ax2.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
     ax2.tick_params(axis="y", labelsize=7, labelcolor=MPL_ORANGE)
     ax2.set_ylabel("Final %", fontsize=8, color=MPL_ORANGE, fontweight="bold")
 
@@ -318,7 +300,7 @@ def _chart_rep(rep_list: list[dict]) -> bytes | None:
     for bar, val, pct in zip(bars, finals, pcts):
         ax.text(bar.get_width() + x_max * 0.01,
                 bar.get_y() + bar.get_height() / 2,
-                f"{_fmt_money(val)}  ({pct:.1f}%)",
+                f"{_fmt_money(val)}  ({(pct * 100):.1f}%)",
                 va="center", ha="left", fontsize=6.5, color=MPL_GREEN)
 
     ax.set_yticks(list(y))
@@ -346,11 +328,11 @@ def _chart_status(status_list: list[dict]) -> bytes | None:
     counts = [s["count"] for s in status_list]
     bg_map = {
         # --- COMUNES / QID ---
-        "Assigned/P. Quote":            "#D1F3EC",
-        "Waiting for Approval":         "#2564EBB1",
-        "Scheduled / Work in Progress": "#EFEF94",
+        "Assigned/P.quote":             "#D1F3EC",
+        "Waiting for approval":         "#2564EBB1",
+        "Scheduled/Work in progress":   "#EFEF94",
         "Cancelled":                    "#F68F8F",
-        "Completed P. INV / POs":       "#7C3AED",
+        "Completed P.INV / POs":        "#7C3AED",
         "Invoiced":                     "#FF8B38",
         "HOLD":                         "#F7F0C5",
         "PAID":                         "#7BEB7C",
@@ -358,11 +340,12 @@ def _chart_status(status_list: list[dict]) -> bytes | None:
 
         # --- ESPECÍFICOS PTL ---
         "Received-Stand By":            "#FFCD82",
+        "Assigned-In progress":         "#EFEF94",
+        "Completed PVI":                "#7C3AEDCA",
         "Paid":                         "#7BEB7DC7",
 
         # --- ESPECÍFICOS PAR ---
         "In Progress":                  "#F7F784",
-        "Completed PVI / POs":          "#7C3AEDCA",
     }
     bar_colors = [bg_map.get(l, "#6B7280") for l in labels]
 
@@ -579,8 +562,10 @@ def _build_monthly_section(monthly: list[dict], styles: dict) -> list:
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style(has_footer=True)))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 10)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -638,8 +623,10 @@ def _build_quarterly_section(quarterly: list[dict], styles: dict) -> list:
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style(has_footer=True)))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 10)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -679,8 +666,10 @@ def _build_rep_section(rep_list: list[dict], styles: dict) -> list:
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style()))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 10)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -712,12 +701,8 @@ def _build_status_section(status_list: list[dict], pipeline: float, styles: dict
     row_cmds = []
     for i, s in enumerate(status_list, start=1):
         sn = s["status"]
-        bg = colors.white
-        tc = STATUS_TEXT_COLORS.get(sn, TEXT_DARK)
-        row_cmds.append(("BACKGROUND", (0, i), (0, i), bg))
         rows.append([
-            Paragraph(
-                f'<font color="{tc.hexval()}"><b>{sn}</b></font>', styles["TCell"]),
+            Paragraph(sn, styles["TCellB"]),
             Paragraph(str(s["count"]),         styles["TCellC"]),
             Paragraph(_fmt_pct(s["pct"]),      styles["TCellC"]),
             Paragraph(_fmt_money(s["quoted"]), styles["TCellR"]),
@@ -729,8 +714,10 @@ def _build_status_section(status_list: list[dict], pipeline: float, styles: dict
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle(_base_tbl_style() + row_cmds))
     story.append(tbl)
-    story.append(Spacer(1, 10))
-    return story
+    return [
+        KeepTogether(story),
+        Spacer(1, 10)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -788,11 +775,7 @@ def _job_detail_chunk(chunk: list[dict], styles: dict) -> Table:
     row_cmds = []
 
     for i, j in enumerate(chunk, start=1):
-        status = (j["status"] or "").upper()
-        bg = colors.white
-        tc = STATUS_TEXT_COLORS.get(status, TEXT_DARK)
-        row_cmds.append(("BACKGROUND", (3, i), (3, i), bg))
-        row_cmds.append(("TEXTCOLOR", (3, i), (3, i), tc))
+        status = j["status"] or ""
 
         client = j["client"]
         if len(client) > 22:
@@ -802,8 +785,7 @@ def _job_detail_chunk(chunk: list[dict], styles: dict) -> Table:
             Paragraph(j["job_id"],                 styles["TCellB"]),
             Paragraph(client,                       styles["TCell"]),
             Paragraph(j["rep"],                    styles["TCell"]),
-            Paragraph(f'<font color="{tc.hexval()}"><b>{status}</b></font>',
-                      styles["TCellC"]),
+            Paragraph(f'<b>{status}</b>',          styles["TCellC"]),
             Paragraph(j["service"],                styles["TCell"]),
             Paragraph(j["date"],                   styles["TCellC"]),
             Paragraph(_fmt_money(j["formula"]),    styles["TCellR"]),
