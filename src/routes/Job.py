@@ -6,6 +6,7 @@ from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..models.MemberModel import Member
 from ..models.ClientModel import Client
+from ..models.ParentMgmtCoModel import ParentMgmtCo
 from ..models.SubcontractorModel import Subcontractor
 from ..models.FinancialDocModel import FinancialDocument
 from ..models.link_models.JobMember import JobMemberLink
@@ -149,7 +150,7 @@ def list_jobs_table():
                         Job.ID_Jobs, Job.Job_type, Job.Project_name,
                         Job.Project_location, Job.Job_status, Job.Date_assigned,
                         Job.Gqm_formula_pricing, Job.ID_Client, Job.Estimated_start_date, Job.Gqm_target_sold_pricing,
-                        Job.Gqm_target_return
+                        Job.Gqm_target_return, Job.Service_type
                     ),
                     selectinload(Job.client).load_only(
                         Client.ID_Client, Client.Client_Community),
@@ -169,6 +170,12 @@ def list_jobs_table():
                     or_(
                         Job.Project_name.ilike(pattern),
                         Job.ID_Jobs.ilike(pattern),
+                        Job.Project_location.ilike(pattern),
+                        Job.Job_status.ilike(pattern),
+                        Job.Service_type.ilike(pattern),
+                        Job.client.has(Client.Client_Community.ilike(pattern)),
+                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
+                        Job.members.any(Member.Member_Name.ilike(pattern))
                     )
                 )
 
@@ -202,6 +209,12 @@ def list_jobs_table():
                     or_(
                         Job.Project_name.ilike(pattern),
                         Job.ID_Jobs.ilike(pattern),
+                        Job.Project_location.ilike(pattern),
+                        Job.Job_status.ilike(pattern),
+                        Job.Service_type.ilike(pattern),
+                        Job.client.has(Client.Client_Community.ilike(pattern)),
+                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
+                        Job.members.any(Member.Member_Name.ilike(pattern))
                     )
                 )
 
@@ -244,6 +257,7 @@ def list_jobs_table():
                     "Project_name": j.Project_name, "Project_location": j.Project_location,
                     "Job_status": j.Job_status, "Date_assigned": j.Date_assigned,
                     "Estimated_start_date": j.Estimated_start_date,
+                    "Service_type": j.Service_type,
                     "Gqm_formula_pricing": j.Gqm_formula_pricing,
                     "Gqm_target_return": j.Gqm_target_return,
                     "Gqm_target_sold_pricing": j.Gqm_target_sold_pricing,
