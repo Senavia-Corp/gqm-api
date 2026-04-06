@@ -16,6 +16,7 @@ from ..utils.mappers.to_podio.subcontractor_mapper import map_subc_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
+from src.utils.middleware.auth.routes_protection import require_permission
 
 
 # Blueprint de Subcontractor
@@ -28,6 +29,7 @@ subcontractor_bp = Blueprint(
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los subcontratistas
 @subcontractor_bp.get("/")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 @paginate()
 def list_subcontractors():
@@ -62,6 +64,7 @@ def list_subcontractors():
 
 
 @subcontractor_bp.get("/subcontractors_table")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 def list_subcontractors_table():
     """
@@ -149,6 +152,7 @@ def list_subcontractors_table():
 
 # Ruta para conseguir un subcontratista por ID
 @subcontractor_bp.get("/<id_subcontractor>")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 def get_subcontractor(id_subcontractor):
 
@@ -184,6 +188,7 @@ def get_subcontractor(id_subcontractor):
 
 # Ruta para conseguir un subcontratista por estado
 @subcontractor_bp.get("/status/<status>")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 @paginate()
 def list_subcontractor_by_state(status):
@@ -216,6 +221,7 @@ def list_subcontractor_by_state(status):
 
 # Ruta para conseguir un subcontratista por GQM compliance
 @subcontractor_bp.get("/compliance/<compliance>")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 @paginate()
 def list_subc_by_gqm_compliance(compliance):
@@ -248,6 +254,7 @@ def list_subc_by_gqm_compliance(compliance):
 
 # Ruta para conseguir un subcontratista por GQM best service training
 @subcontractor_bp.get("/bts/<bts>")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 @paginate()
 def list_subcontractor_by_gqm_bts(bts):
@@ -281,6 +288,7 @@ def list_subcontractor_by_gqm_bts(bts):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un subcontratista
 @subcontractor_bp.post("/")
+@require_permission("subcontractor:create")
 @handle_exceptions()
 @audit("Subcontractor created", entity_type="Subcontractor", id_from="response")
 def create_subcontractor():
@@ -331,6 +339,7 @@ def create_subcontractor():
 
 # Ruta para actualizar un subcontratista
 @subcontractor_bp.patch("/<subc_id>")
+@require_permission("subcontractor:update")
 @handle_exceptions()
 @audit("Subcontractor updated", entity_type="Subcontractor", id_param="subc_id")
 def update_subcontractor(subc_id):
@@ -393,6 +402,7 @@ def update_subcontractor(subc_id):
 
 # Ruta para eliminar un subcontratista
 @subcontractor_bp.delete("/<subc_id>")
+@require_permission("subcontractor:delete")
 @handle_exceptions()
 @audit("Subcontractor deleted", entity_type="Subcontractor", id_param="subc_id")
 def delete_subcontractor(subc_id):

@@ -30,6 +30,9 @@ from src.services.commission_service import process_job_to_commissions
 from src.utils.middleware.auth.routes_protection import require_permission
 from src.utils.policy_evaluator import PolicyEvaluator
 from src.models.JobModel import JobReadBasic
+from src.models.ComDetailModel import CommissionDetail
+from src.models.ComGroupModel import CommissionGroup
+from src.models.CommissionModel import Commission
 from flask import g
 
 def serialize_job(job_dict, policies):
@@ -300,6 +303,8 @@ def get_job_by_id(id_job):
                 joinedload(Job.subcontractors).joinedload(
                     Subcontractor.orders),
                 joinedload(Job.building_dept),
+                selectinload(Job.comdetails).joinedload(CommissionDetail.comgroup).joinedload(
+                    CommissionGroup.commission).joinedload(Commission.member),
                 selectinload(Job.financial_docs).options(
                     selectinload(FinancialDocument.financial_doc_items),
                     selectinload(FinancialDocument.financial_transactions)))
@@ -322,7 +327,8 @@ def get_job_by_id(id_job):
             obj, ["client", "members", "multipliers", "building_dept", "change_orders",
                   "attachments", "subcontractors.technicians", "tasks",
                   "subcontractors.orders", "estimate_costs", "payment_units",
-                  "financial_docs.financial_doc_items", "financial_docs.financial_transactions"])
+                  "financial_docs.financial_doc_items", "financial_docs.financial_transactions",
+                  "comdetails.comgroup.commission.member"])
 
         for member in job_data.get("members", []):
             member["rol"] = roles_map.get(member["ID_Member"], [])

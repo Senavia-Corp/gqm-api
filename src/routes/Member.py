@@ -15,6 +15,7 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
+from src.utils.middleware.auth.routes_protection import require_permission
 
 # Blueprint de Member:
 member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
@@ -25,6 +26,7 @@ member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los miembros GQM
 @member_bp.get("/")
+@require_permission("member:read")
 @handle_exceptions()
 @paginate()  # decorador de paginación
 def list_members():
@@ -58,6 +60,7 @@ def list_members():
 
 # Ruta para conseguir un miembro GQM por ID_Member
 @member_bp.get("/<id_member>")
+@require_permission("member:read")
 @handle_exceptions()
 def get_member_by_id(id_member):
 
@@ -88,6 +91,7 @@ def get_member_by_id(id_member):
 
 
 @member_bp.get("/member_table")
+@require_permission("member:read")
 @handle_exceptions()
 def list_members_table():
 
@@ -164,6 +168,7 @@ def list_members_table():
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un miembro GQM
 @member_bp.post("/")
+@require_permission("member:create")
 @handle_exceptions()
 @audit("Member created", entity_type="Member", id_from="response")
 def create_member():
@@ -197,6 +202,7 @@ def create_member():
 
 # Ruta para actualizar un miembro GQM
 @member_bp.patch("/<id_member>")
+@require_permission("member:update")
 @handle_exceptions()
 @audit("Member updated", entity_type="Member", id_param="id_member")
 def update_member(id_member):
@@ -238,6 +244,7 @@ def update_member(id_member):
 
 # Ruta para eliminar un miembro GQM
 @member_bp.delete("/<id_member>")
+@require_permission("member:delete")
 @handle_exceptions()
 @audit("Member deleted", entity_type="Member", id_param="id_member")
 def delete_member(id_member):

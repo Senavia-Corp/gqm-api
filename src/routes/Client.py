@@ -17,6 +17,7 @@ from ..utils.mappers.to_podio.client_mapper import map_client_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
+from src.utils.middleware.auth.routes_protection import require_permission
 
 # Blueprint de Client:
 client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")
@@ -27,6 +28,7 @@ client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los clientes
 @client_bp.get("/")
+@require_permission("client:read")
 @handle_exceptions()
 @paginate()
 def list_clients():
@@ -57,6 +59,7 @@ def list_clients():
 
 
 @client_bp.get("/table")
+@require_permission("client:read")
 @handle_exceptions()
 def list_clients_table():
     """
@@ -145,6 +148,7 @@ def list_clients_table():
 
 # Ruta para conseguir un cliente por ID
 @client_bp.get("/<id_client>")
+@require_permission("client:read")
 @handle_exceptions()
 def get_client(id_client):
 
@@ -176,6 +180,7 @@ def get_client(id_client):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un cliente
 @client_bp.post("/")
+@require_permission("client:create")
 @handle_exceptions()
 @audit("Client created", entity_type="Client", id_from="response")
 def create_client():
@@ -226,6 +231,7 @@ def create_client():
 
 # Ruta para actualizar un cliente
 @client_bp.patch("/<id_client>")
+@require_permission("client:update")
 @handle_exceptions()
 @audit("Client updated", entity_type="Client", id_param="id_client")
 def update_client(id_client):
@@ -287,6 +293,7 @@ def update_client(id_client):
 
 # Ruta para eliminar un cliente
 @client_bp.delete("/<id_client>")
+@require_permission("client:delete")
 @handle_exceptions()
 @audit("Client deleted", entity_type="Client", id_param="id_client")
 def delete_client(id_client):
