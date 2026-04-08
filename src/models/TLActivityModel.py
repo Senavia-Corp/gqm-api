@@ -5,6 +5,8 @@ from .JobModel import Job
 from .TechnicianModel import Technician
 from .MemberModel import Member
 from .SubcontractorModel import Subcontractor
+from .ClientModel import Client
+from .ParentMgmtCoModel import ParentMgmtCo
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -35,6 +37,14 @@ class TLActivity(TLActivityBase, table=True):
         default=None, foreign_key="subcontractor.ID_Subcontractor")
     subcontractor: Optional[Subcontractor] = Relationship(
         back_populates="tlactivity")
+    ID_Client: Optional[str] = Field(
+        default=None, foreign_key="client.ID_Client")
+    client: Optional[Client] = Relationship(
+        back_populates="tlactivity")
+    ID_Community_Tracking: Optional[str] = Field(
+        default=None, foreign_key="parent_mgmt_co.ID_Community_Tracking")
+    parent_mgmt_co: Optional[ParentMgmtCo] = Relationship(
+        back_populates="tlactivity")
 
 
 class TLActivityCreate(TLActivityBase):
@@ -42,6 +52,8 @@ class TLActivityCreate(TLActivityBase):
     ID_Member: Optional[str] = None
     ID_Technician: Optional[str] = None
     ID_Subcontractor: Optional[str] = None
+    ID_Client: Optional[str] = None
+    ID_Community_Tracking: Optional[str] = None
 
 
 class TLActivityUpdate(TLActivityBase):
@@ -49,3 +61,5 @@ class TLActivityUpdate(TLActivityBase):
     ID_Member: Optional[str] = None
     ID_Technician: Optional[str] = None
     ID_Subcontractor: Optional[str] = None
+    ID_Client: Optional[str] = None
+    ID_Community_Tracking: Optional[str] = None

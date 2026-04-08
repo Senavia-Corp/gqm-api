@@ -43,8 +43,10 @@ class Member(MemberBase, table=True):
     tasks: List["Tasks"] = Relationship(  # type: ignore
         back_populates="member")
     chat_messages: List["ChatMessage"] = Relationship(  # type: ignore
-        back_populates="member"
-    )
+        back_populates="member")
+    commissions: List["Commission"] = Relationship(  # type: ignore
+        back_populates="member",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
     # Relación de muchos a muchos
     jobs: List["Job"] = Relationship(  # type: ignore

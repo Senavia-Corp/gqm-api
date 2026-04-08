@@ -40,6 +40,11 @@ from src.routes.Links.PurchaseSupplierLink import purchase_supplier_bp
 from src.routes.StandardPS import standard_ps_bp
 from src.routes.BuildingDepartment import bldg_dept_bp
 from src.routes.ChatMessage import chat_bp
+from src.routes.Commission import commission_bp
+from src.routes.CommissionGroup import commission_group_bp
+from src.routes.CommissionDetail import commission_detail_bp
+from src.routes.GQMInventory import inventory_bp
+from src.routes.Reimbursement import reimbursement_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion de Podio a Postgre (datos antiguos):
@@ -56,8 +61,9 @@ from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 # Rutas de métricas
 from src.routes.MetricsJobs import metrics_bp
-from src.routes.financial_metrics_bp import financial_metrics_bp
+from src.routes.financial_routes.financial_metrics_bp import financial_metrics_bp
 from src.routes.timeline_metrics_bp import timeline_metrics_bp
+from src.routes.financial_routes.FinancialJobReports import financial_jobs_bp
 
 
 # Test
@@ -84,11 +90,15 @@ def create_app():
     app.register_blueprint(client_bp)
     app.register_blueprint(client_manager_bp)
     app.register_blueprint(client_member_bp)
+    app.register_blueprint(commission_bp)
+    app.register_blueprint(commission_group_bp)
+    app.register_blueprint(commission_detail_bp)
     app.register_blueprint(estimate_bp)
     app.register_blueprint(fdoc_item_bp)
     app.register_blueprint(fdocument_bp)
     app.register_blueprint(ftransaction_bp)
     app.register_blueprint(fdocument_ftransaction_bp)
+    app.register_blueprint(inventory_bp)
     app.register_blueprint(job_bp)
     app.register_blueprint(job_multiplier_bp)
     app.register_blueprint(job_member_bp)
@@ -109,6 +119,7 @@ def create_app():
     app.register_blueprint(purchase_order_bp)
     app.register_blueprint(purchase_order_item_bp)
     app.register_blueprint(purchase_supplier_bp)
+    app.register_blueprint(reimbursement_bp)
     app.register_blueprint(role_bp)
     app.register_blueprint(skills_bp)
     app.register_blueprint(skills_subcontractors_bp)
@@ -145,6 +156,7 @@ def create_app():
     app.register_blueprint(metrics_bp)
     app.register_blueprint(financial_metrics_bp)
     app.register_blueprint(timeline_metrics_bp)
+    app.register_blueprint(financial_jobs_bp)
 
     # Ruta simple
 

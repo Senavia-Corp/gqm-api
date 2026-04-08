@@ -26,8 +26,9 @@ from src.podio.webhook.jobs_hook_sync import process_jobs_podio
 from src.utils.mappers.qbo_aux_functions import MODEL_MAP, QBO_API_NAME
 from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event_delete_qbo
 from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
-from src.utils.audit import log_activity
+from src.utils.audit import log_activity, SOURCE_PODIO
 from src.utils.job_calculator import recalculate_and_apply
+from src.services.commission_service import process_job_to_commissions
 
 
 webhook_bp = Blueprint("webhook", __name__)
@@ -61,6 +62,8 @@ def podio_general_webhook(app_type):
         router, mapper, Model, id_field = APP_ROUTER_MAP[app_type]
         print(f"📩 Evento recibido: {event_type} | Item ID: {item_id}")
 
+        entity_type = Model.__name__  # Dinámico: "ParentMgmtCo" o "BuildingDept"
+
         with get_session() as session:
             existing = None
             if event_type != "item.delete" and event_type != "file.change":
@@ -75,15 +78,20 @@ def podio_general_webhook(app_type):
             else:
                 item_unique_id = str(item_id)
 
+            # --- EJECUCIÓN DE EVENTOS ---
+
             if event_type == "item.create":
                 event_create(session=session, Model=Model, item_id=item_id,
                              item_data=item_data, item_unique_id=item_unique_id)
+                action = f"{entity_type} created from Podio"
             elif event_type == "item.update":
                 event_update(session=session, Model=Model,
                              item_id=item_id, item_data=item_data)
+                action = f"{entity_type} updated from Podio"
             elif event_type == "item.delete":
                 event_delete(session=session, Model=Model,
                              item_unique_id=item_unique_id)
+                action = f"{entity_type} deleted from Podio"
 
             elif event_type == "file.change":
                 updated_entity = session.exec(
@@ -97,6 +105,18 @@ def podio_general_webhook(app_type):
                         fk_field=id_field,
                         fk_value=getattr(updated_entity, id_field)
                     )
+                action = f"File changed in {entity_type} (Podio)"
+
+            # --- REGISTRO EN AUDITORÍA ---
+            if item_unique_id:
+                log_activity(
+                    session,
+                    action=action,
+                    entity_id=item_unique_id,
+                    entity_type=entity_type,
+                    source=SOURCE_PODIO,
+                    description=f"Podio item_id: {item_id}"
+                )
 
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
@@ -130,9 +150,13 @@ def podio_relations_webhook(app_type):
 
         router, processor, Model, fk_field = APP_ROUTER_MAP[app_type]
         item_id = data.get("item_id")
-        event_type = data.get("type")
 
+        event_type = data.get("type")
         print(f"📩 Evento recibido: {event_type} | Item ID: {item_id}")
+
+        entity_type = Model.__name__
+
+        # --- EJECUCIÓN DE EVENTOS ---
 
         with get_session() as session:
             if event_type in ["item.create", "item.update"]:
@@ -155,6 +179,20 @@ def podio_relations_webhook(app_type):
                         fk_field=fk_field,
                         fk_value=getattr(updated_entity, fk_field)
                     )
+
+            # Re-fetch para auditoría (obtener el ID real generado o existente)
+            obj = session.exec(select(Model).where(
+                Model.podio_item_id == str(item_id))).first()
+            if obj or event_type == "item.delete":
+                eid = getattr(obj, fk_field) if obj else str(item_id)
+                log_activity(
+                    session,
+                    action=f"{entity_type} {event_type.split('.')[-1]}d from Podio",
+                    entity_id=eid,
+                    entity_type=entity_type,
+                    source=SOURCE_PODIO,
+                    description=f"Podio item_id: {item_id}"
+                )
 
             else:
                 print(f"⚠️ Evento no manejado: {event_type}")
@@ -224,6 +262,17 @@ def podio_jobs_webhook(app_type, year):
                 if updated_job:
                     recalculate_and_apply(updated_job.ID_Jobs, session)
 
+                    # --- 💰 TRIGGER DE COMISIONES (LOCAL) ---
+                    # Normalizar ambos estados a mayúsculas para la comparación
+                    new_status_norm = (updated_job.Job_status or "").upper()
+                    old_status_norm = (old_status or "").upper()
+
+                    # Comparación contra "PAID" una sola vez
+                    if new_status_norm == "PAID" and old_status_norm != "PAID":
+                        print(
+                            f"💰 [Podio Sync] Detectado cambio a PAID para Job {updated_job.ID_Jobs}. Procesando comisiones...")
+                        process_job_to_commissions(updated_job, session)
+
                     is_create = event_type == "item.create"
                     action = "Job created from Podio" if is_create else "Job updated from Podio"
 
@@ -239,10 +288,11 @@ def podio_jobs_webhook(app_type, year):
                     log_activity(
                         session,
                         action=action,
-                        job_id=updated_job.ID_Jobs,
+                        entity_id=updated_job.ID_Jobs,
+                        entity_type="Job",
                         member_id=None,
                         description="  |  ".join(desc_parts),
-                        source="podio",
+                        source=SOURCE_PODIO,
                     )
 
             # ── DELETE ────────────────────────────────────────────────────
@@ -274,10 +324,11 @@ def podio_jobs_webhook(app_type, year):
                 log_activity(
                     session,
                     action="Job deleted from Podio",
-                    job_id=job_id_for_log,
+                    entity_id=job_id_for_log,
+                    entity_type="Job",
                     member_id=None,
                     description=f"Podio item_id: {item_id} | Changed by: Unknown",
-                    source="podio",
+                    source=SOURCE_PODIO,
                 )
 
             # ── FILE CHANGE ───────────────────────────────────────────────
@@ -317,11 +368,12 @@ def podio_jobs_webhook(app_type, year):
                     log_activity(
                         session,
                         action=action_map.get(
-                            action_type, "File change from Podio"),
-                        job_id=updated_job.ID_Jobs,
+                            action_type, f"File {action_type} from Podio"),
+                        entity_id=updated_job.ID_Jobs,
+                        entity_type="Job",
                         member_id=None,
                         description=f"Podio item_id: {item_id} | file_ids: {file_ids} | Changed by: {changed_by}",
-                        source="podio",
+                        source=SOURCE_PODIO,
                     )
 
             else:

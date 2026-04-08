@@ -6,10 +6,8 @@ from ..database.db_sqlmodel import get_session
 from ..models.MultiplierRModel import MultiplierR, MultiplierRBase
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
-from ..utils.relationships import add_relationships
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
-from sqlalchemy.orm import joinedload
 
 # Blueprint de Member:
 multiplier_bp = Blueprint("multiplier_blueprint",

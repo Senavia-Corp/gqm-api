@@ -5,7 +5,7 @@ from sqlmodel import select
 from sqlalchemy.orm import joinedload
 
 from ..database.db_sqlmodel import get_session
-from ..models.AttachmentsModel import Attachments, AttachmentsCreate, AttachmentsUpdate
+from ..models.AttachmentsModel import Attachments, AttachmentsUpdate
 from ..utils.id_generator import generate_custom_id
 from ..utils.relationships import add_relationships
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -94,6 +94,7 @@ def upload_attachment():
         - year:         Año del Job
         - description:  Descripción opcional
         - tag:          Tag opcional (default: "general")
+        - access_level: Nivel de acceso/carpeta (ej: "members", "technicians"). Solo aplica para Jobs.
     """
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
 
@@ -106,6 +107,7 @@ def upload_attachment():
     year = request.form.get("year")
     description = request.form.get("description", "")
     tag = request.form.get("tag", "general")
+    access_level = request.form.get("access_level", "").strip().lower()
 
     if not file.filename:
         raise AppException("El archivo no tiene nombre.", "file_no_name", 400)
@@ -144,9 +146,13 @@ def upload_attachment():
     mimetype = file.mimetype or "application/octet-stream"
 
     # ── 4. Subir a Cloudinary ────────────────────────────────────
-    # Folder: Jobs/{app_type}/{entity_id} → Jobs/PAR/PAR5147
+    # Folder base p.ej: Jobs/PAR/PAR5147
     if entity_type == "job":
         folder = f"Jobs/{app_type}/{entity_id}"
+        if access_level in ["members", "technicians"]:
+            folder = f"{folder}/{access_level}"
+        elif access_level:
+            folder = f"{folder}/{access_level}"
     else:
         folder = f"{app_type}/{entity_id}"
 

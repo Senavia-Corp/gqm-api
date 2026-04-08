@@ -6,7 +6,6 @@ from ..models.TechnicianModel import Technician
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload, load_only
 from sqlalchemy import func, or_
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -16,6 +15,8 @@ from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.subcontractor_mapper import map_subc_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from ..utils.audit import audit
+from src.utils.middleware.auth.routes_protection import require_permission
 
 
 # Blueprint de Subcontractor
@@ -28,6 +29,7 @@ subcontractor_bp = Blueprint(
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los subcontratistas
 @subcontractor_bp.get("/")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 @paginate()
 def list_subcontractors():
@@ -62,6 +64,7 @@ def list_subcontractors():
 
 
 @subcontractor_bp.get("/subcontractors_table")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 def list_subcontractors_table():
     """
@@ -75,10 +78,10 @@ def list_subcontractors_table():
         q      (str,  optional) — búsqueda global contra Name, Organization,
                                   Email_Address, Specialty, ID_Subcontractor
     """
-    page   = max(1, int(request.args.get("page",  1)))
-    limit  = min(200, max(1, int(request.args.get("limit", 10))))
+    page = max(1, int(request.args.get("page",  1)))
+    limit = min(200, max(1, int(request.args.get("limit", 10))))
     status = request.args.get("status", "").strip() or None
-    q      = request.args.get("q", "").strip()
+    q = request.args.get("q", "").strip()
 
     with get_session() as session:
 
@@ -121,7 +124,8 @@ def list_subcontractors_table():
 
         # ── Paginación SQL ─────────────────────────────────────────────────
         offset = (page - 1) * limit
-        stmt = stmt.order_by(Subcontractor.ID_Subcontractor.desc()).offset(offset).limit(limit)
+        stmt = stmt.order_by(Subcontractor.ID_Subcontractor.desc()).offset(
+            offset).limit(limit)
         results = session.exec(stmt).all()
 
         # ── Serializar ─────────────────────────────────────────────────────
@@ -148,6 +152,7 @@ def list_subcontractors_table():
 
 # Ruta para conseguir un subcontratista por ID
 @subcontractor_bp.get("/<id_subcontractor>")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 def get_subcontractor(id_subcontractor):
 
@@ -183,6 +188,7 @@ def get_subcontractor(id_subcontractor):
 
 # Ruta para conseguir un subcontratista por estado
 @subcontractor_bp.get("/status/<status>")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 @paginate()
 def list_subcontractor_by_state(status):
@@ -215,6 +221,7 @@ def list_subcontractor_by_state(status):
 
 # Ruta para conseguir un subcontratista por GQM compliance
 @subcontractor_bp.get("/compliance/<compliance>")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 @paginate()
 def list_subc_by_gqm_compliance(compliance):
@@ -234,7 +241,7 @@ def list_subc_by_gqm_compliance(compliance):
         results = session.exec(statement).unique().all()
 
         if not results:
-            return [], 404
+            return [], 200
 
         subcontr_data = [
             add_relationships(
@@ -247,6 +254,7 @@ def list_subc_by_gqm_compliance(compliance):
 
 # Ruta para conseguir un subcontratista por GQM best service training
 @subcontractor_bp.get("/bts/<bts>")
+@require_permission("subcontractor:read")
 @handle_exceptions()
 @paginate()
 def list_subcontractor_by_gqm_bts(bts):
@@ -280,7 +288,9 @@ def list_subcontractor_by_gqm_bts(bts):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un subcontratista
 @subcontractor_bp.post("/")
+@require_permission("subcontractor:create")
 @handle_exceptions()
+@audit("Subcontractor created", entity_type="Subcontractor", id_from="response")
 def create_subcontractor():
 
     data = request.get_json()
@@ -329,7 +339,9 @@ def create_subcontractor():
 
 # Ruta para actualizar un subcontratista
 @subcontractor_bp.patch("/<subc_id>")
+@require_permission("subcontractor:update")
 @handle_exceptions()
+@audit("Subcontractor updated", entity_type="Subcontractor", id_param="subc_id")
 def update_subcontractor(subc_id):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -390,7 +402,9 @@ def update_subcontractor(subc_id):
 
 # Ruta para eliminar un subcontratista
 @subcontractor_bp.delete("/<subc_id>")
+@require_permission("subcontractor:delete")
 @handle_exceptions()
+@audit("Subcontractor deleted", entity_type="Subcontractor", id_param="subc_id")
 def delete_subcontractor(subc_id):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
