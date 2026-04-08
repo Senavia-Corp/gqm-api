@@ -84,6 +84,7 @@ def update_estimate(id_estimate):
 
         # Capturar job_id antes de modificar por si ID_Jobs cambiara
         job_id_for_calc = obj.ID_Jobs
+        old_order_id = obj.ID_Order
 
         update_data = EstimateUpdate.model_validate(
             data).model_dump(exclude_unset=True)
@@ -94,6 +95,10 @@ def update_estimate(id_estimate):
         # ── [NUEVO] Recálculo automático de la Order asociada ────────
         if obj.ID_Order:
             recalculate_order_formulas(obj.ID_Order, session)
+            session.commit()
+        
+        if old_order_id and old_order_id != obj.ID_Order:
+            recalculate_order_formulas(old_order_id, session)
             session.commit()
         # ─────────────────────────────────────────────────────────────
 
