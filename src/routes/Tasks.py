@@ -26,9 +26,11 @@ tasks_bp = Blueprint("tasks_blueprint", __name__, url_prefix="/tasks")
 def list_tasks():
     with get_session() as session:
         results = session.exec(
-            select(Tasks).options(joinedload(Tasks.job), joinedload(Tasks.technician))
+            select(Tasks).options(joinedload(Tasks.job),
+                                  joinedload(Tasks.technician))
         ).unique().all()
-        if not results: return [], 200
+        if not results:
+            return [], 200
         return [add_relationships(t, ["job", "technician"]) for t in results], 200
 
 
@@ -40,9 +42,9 @@ def get_weekly_tasks():
     Query param opcional: ?job_type=QID | PTL | PAR
     Incluye relaciones: job y member.
     """
-    today   = date.today()
-    monday  = today - timedelta(days=today.weekday())
-    sunday  = monday + timedelta(days=6)
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
 
     job_type_param = request.args.get("job_type", None)
 
@@ -79,9 +81,9 @@ def get_weekly_tasks():
                 "Task_status":      t.Task_status,
                 "Priority":         t.Priority,
                 "Designation_date": t.Designation_date.isoformat() if t.Designation_date else None,
-                "Delivery_date":    t.Delivery_date.isoformat()    if t.Delivery_date    else None,
-                "job":              t.job.model_dump()              if t.job              else None,
-                "member":           t.member.model_dump()           if t.member           else None,
+                "Delivery_date":    t.Delivery_date.isoformat() if t.Delivery_date else None,
+                "job":              t.job.model_dump() if t.job else None,
+                "member":           t.member.model_dump() if t.member else None,
             })
 
         return payload, 200
@@ -96,7 +98,8 @@ def get_tasks(id_tasks):
             .options(joinedload(Tasks.job), joinedload(Tasks.technician))
             .where(Tasks.ID_Tasks == id_tasks)
         ).unique().first()
-        if not obj: raise AppException("Task no encontrado.", "task_not_found", 404)
+        if not obj:
+            raise AppException("Task no encontrado.", "task_not_found", 404)
         return add_relationships(obj, ["job", "technician"]), 200
 
 
@@ -111,19 +114,21 @@ def get_tasks_by_job(id_jobs, id_tech):
             .where(Tasks.ID_Jobs == id_jobs)
             .where(Tasks.ID_Technician == id_tech)
         ).unique().all()
-        if not results: return [], 200
+        if not results:
+            return [], 200
         return [add_relationships(t, ["job", "technician"]) for t in results], 200
 
 
-# ── WRITE routes ──────────────────────────────────────────────────────────────
+# --------------- RUTAS POST, PATCH AND DELETE----------#
 
 @tasks_bp.post("/")
 @handle_exceptions()
-@audit("Task created", job_id_from="body")
+@audit("Task created", entity_type="Tasks", id_from="response")
 def create_tasks():
-    data         = request.get_json()
+    data = request.get_json()
     create_tasks = TasksCreate.model_validate(data)
-    obj          = Tasks(**create_tasks.model_dump(exclude_unset=False, exclude_none=False))
+    obj = Tasks(
+        **create_tasks.model_dump(exclude_unset=False, exclude_none=False))
 
     with get_session() as session:
         obj.ID_Tasks = generate_custom_id(session, Tasks, "ID_Tasks", "TSK")
@@ -134,14 +139,17 @@ def create_tasks():
 
 @tasks_bp.patch("/<task_id>")
 @handle_exceptions()
-@audit("Task updated", id_param="task_id", job_id_from="response")
+@audit("Task updated", entity_type="Tasks", id_param="task_id")
 def update_tasks(task_id):
     data = request.get_json()
     with get_session() as session:
-        obj = session.exec(select(Tasks).where(Tasks.ID_Tasks == task_id)).first()
-        if not obj: raise AppException("Task no encontrado.", "task_not_found", 404)
+        obj = session.exec(select(Tasks).where(
+            Tasks.ID_Tasks == task_id)).first()
+        if not obj:
+            raise AppException("Task no encontrado.", "task_not_found", 404)
 
-        update_data = TasksUpdate.model_validate(data).model_dump(exclude_unset=True)
+        update_data = TasksUpdate.model_validate(
+            data).model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(obj, key, value)
         save_with_retry(session, obj)
@@ -151,11 +159,13 @@ def update_tasks(task_id):
 
 @tasks_bp.delete("/<task_id>")
 @handle_exceptions()
-@audit("Task deleted", id_param="task_id", job_id_from="response")
+@audit("Task deleted", entity_type="Tasks", id_param="task_id")
 def delete_tasks(task_id):
     with get_session() as session:
-        obj = session.exec(select(Tasks).where(Tasks.ID_Tasks == task_id)).first()
-        if not obj: raise AppException("Task no encontrado.", "task_not_found", 404)
+        obj = session.exec(select(Tasks).where(
+            Tasks.ID_Tasks == task_id)).first()
+        if not obj:
+            raise AppException("Task no encontrado.", "task_not_found", 404)
 
         delete_with_retry(session, obj)
         logger.info("🗑️ Task eliminado | task_id=%s", task_id)

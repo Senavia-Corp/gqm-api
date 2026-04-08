@@ -6,6 +6,7 @@ from ..database.db_sqlmodel import get_session
 from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..models.MemberModel import Member
 from ..models.ClientModel import Client
+from ..models.ParentMgmtCoModel import ParentMgmtCo
 from ..models.SubcontractorModel import Subcontractor
 from ..models.FinancialDocModel import FinancialDocument
 from ..models.link_models.JobMember import JobMemberLink
@@ -24,17 +25,44 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
-from ..utils.job_calculator import recalculate_and_apply  # ← NEW
+from ..utils.job_calculator import recalculate_and_apply
+from src.services.commission_service import process_job_to_commissions
+from src.utils.middleware.auth.routes_protection import require_permission
+from src.utils.policy_evaluator import PolicyEvaluator
+from src.models.JobModel import JobReadBasic
+from src.models.ComDetailModel import CommissionDetail
+from src.models.ComGroupModel import CommissionGroup
+from src.models.CommissionModel import Commission
+from flask import g
+
+def serialize_job(job_dict, policies):
+    if not isinstance(job_dict, dict):
+        if hasattr(job_dict, "model_dump"):
+            job_dict = job_dict.model_dump()
+        else:
+            return job_dict
+    if PolicyEvaluator.evaluate(policies, "job:read"):
+        return job_dict
+    elif PolicyEvaluator.evaluate(policies, "job:read_basics"):
+        return JobReadBasic.model_validate(job_dict).model_dump(exclude_unset=True)
+    return job_dict
+
 
 # Blueprint de Jobs:
 job_bp = Blueprint("job_blueprint", __name__, url_prefix="/jobs")
+
+MONTH_NUMBER = {
+    "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4,
+    "MAY": 5, "JUNE": 6, "JULY": 7, "AUGUST": 8,
+    "SEPTEMBER": 9, "OCTOBER": 10, "NOVEMBER": 11, "DECEMBER": 12,
+}
 
 # -------------------RUTAS CRUD-------------------#
 
 
 # --------------------RUTAS GET-------------------#
-
 @job_bp.get("/")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def list_jobs():
@@ -86,10 +114,12 @@ def list_jobs():
                 member["rol"] = roles_map.get(key)
             jobs_data.append(job_dict)
 
-        return jobs_data, 200
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(j, policies) for j in jobs_data], 200
 
 
 @job_bp.get("/jobs_table")
+@require_permission(["job:read", "job:read_basics"])
 def list_jobs_table():
     try:
         page = int(request.args.get("page",  1))
@@ -101,9 +131,9 @@ def list_jobs_table():
         limit = min(limit, 200)
 
         job_type = request.args.get("type")
-        status   = request.args.get("status")
-        year     = request.args.get("year")
-        search   = request.args.get("search", "").strip()
+        status = request.args.get("status")
+        year = request.args.get("year")
+        search = request.args.get("search", "").strip()
 
         if job_type:
             job_type = job_type.upper()
@@ -123,7 +153,7 @@ def list_jobs_table():
                         Job.ID_Jobs, Job.Job_type, Job.Project_name,
                         Job.Project_location, Job.Job_status, Job.Date_assigned,
                         Job.Gqm_formula_pricing, Job.ID_Client, Job.Estimated_start_date, Job.Gqm_target_sold_pricing,
-                        Job.Gqm_target_return
+                        Job.Gqm_target_return, Job.Service_type
                     ),
                     selectinload(Job.client).load_only(
                         Client.ID_Client, Client.Client_Community),
@@ -143,6 +173,12 @@ def list_jobs_table():
                     or_(
                         Job.Project_name.ilike(pattern),
                         Job.ID_Jobs.ilike(pattern),
+                        Job.Project_location.ilike(pattern),
+                        Job.Job_status.ilike(pattern),
+                        Job.Service_type.ilike(pattern),
+                        Job.client.has(Client.Client_Community.ilike(pattern)),
+                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
+                        Job.members.any(Member.Member_Name.ilike(pattern))
                     )
                 )
 
@@ -176,6 +212,12 @@ def list_jobs_table():
                     or_(
                         Job.Project_name.ilike(pattern),
                         Job.ID_Jobs.ilike(pattern),
+                        Job.Project_location.ilike(pattern),
+                        Job.Job_status.ilike(pattern),
+                        Job.Service_type.ilike(pattern),
+                        Job.client.has(Client.Client_Community.ilike(pattern)),
+                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
+                        Job.members.any(Member.Member_Name.ilike(pattern))
                     )
                 )
 
@@ -218,6 +260,7 @@ def list_jobs_table():
                     "Project_name": j.Project_name, "Project_location": j.Project_location,
                     "Job_status": j.Job_status, "Date_assigned": j.Date_assigned,
                     "Estimated_start_date": j.Estimated_start_date,
+                    "Service_type": j.Service_type,
                     "Gqm_formula_pricing": j.Gqm_formula_pricing,
                     "Gqm_target_return": j.Gqm_target_return,
                     "Gqm_target_sold_pricing": j.Gqm_target_sold_pricing,
@@ -234,6 +277,8 @@ def list_jobs_table():
                         "rol": roles_map.get((j.ID_Jobs, m.ID_Member))})
                 out.append(j_dict)
 
+            policies = getattr(g, "user_policies", [])
+            out = [serialize_job(j, policies) for j in out]
             return jsonify({"page": page, "limit": limit, "total": total, "results": out}), 200
 
     except Exception as e:
@@ -242,6 +287,7 @@ def list_jobs_table():
 
 
 @job_bp.get("/<id_job>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 def get_job_by_id(id_job):
     with get_session() as session:
@@ -257,6 +303,8 @@ def get_job_by_id(id_job):
                 joinedload(Job.subcontractors).joinedload(
                     Subcontractor.orders),
                 joinedload(Job.building_dept),
+                selectinload(Job.comdetails).joinedload(CommissionDetail.comgroup).joinedload(
+                    CommissionGroup.commission).joinedload(Commission.member),
                 selectinload(Job.financial_docs).options(
                     selectinload(FinancialDocument.financial_doc_items),
                     selectinload(FinancialDocument.financial_transactions)))
@@ -269,22 +317,29 @@ def get_job_by_id(id_job):
         roles_statement = select(JobMemberLink).where(
             JobMemberLink.job_id == obj.ID_Jobs)
         roles = session.exec(roles_statement).all()
-        roles_map = {link.member_id: link.rol for link in roles}
+        roles_map = {}
+        for link in roles:
+            if link.member_id not in roles_map:
+                roles_map[link.member_id] = []
+            roles_map[link.member_id].append(link.rol)
 
         job_data = add_relationships(
             obj, ["client", "members", "multipliers", "building_dept", "change_orders",
                   "attachments", "subcontractors.technicians", "tasks",
                   "subcontractors.orders", "estimate_costs", "payment_units",
-                  "financial_docs.financial_doc_items", "financial_docs.financial_transactions"])
+                  "financial_docs.financial_doc_items", "financial_docs.financial_transactions",
+                  "comdetails.comgroup.commission.member"])
 
         for member in job_data.get("members", []):
-            member["rol"] = roles_map.get(member["ID_Member"])
+            member["rol"] = roles_map.get(member["ID_Member"], [])
 
         job_data.pop("ID_Client", None)
-        return job_data, 200
+        policies = getattr(g, "user_policies", [])
+        return serialize_job(job_data, policies), 200
 
 
 @job_bp.get("/by-type-year")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def get_jobs_by_type_year():
@@ -332,6 +387,7 @@ def get_jobs_by_type_year():
 
 
 @job_bp.get("/status/<status>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def list_jobs_by_status(status):
@@ -353,6 +409,7 @@ def list_jobs_by_status(status):
 
 
 @job_bp.get("/client/<id_client>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def get_job_by_clientID(id_client):
@@ -373,6 +430,7 @@ def get_job_by_clientID(id_client):
 
 
 @job_bp.get("/member/<id_member>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def get_job_by_memberID(id_member):
@@ -392,7 +450,149 @@ def get_job_by_memberID(id_member):
                 "attachments", "subcontractors.technicians"]) for job in results], 200
 
 
+@job_bp.get("/by-member-role")
+@require_permission(["job:read", "job:read_basics"])
+@handle_exceptions()
+def get_jobs_by_member_and_role():
+
+    member_id = request.args.get("member_id")
+    rol = request.args.get("rol")
+
+    if not member_id:
+        raise AppException("member_id es requerido", "missing_params", 400)
+    if not rol:
+        raise AppException("rol es requerido", "missing_params", 400)
+
+    job_type = request.args.get("type", "").strip().upper() or None
+    year_raw = request.args.get("year", "").strip()
+    month_raw = request.args.get("month", "").strip().upper()
+    page = max(1, int(request.args.get("page",  1)))
+    limit = min(200, max(1, int(request.args.get("limit", 50))))
+
+    # Validar y convertir año
+    year_int = None
+    if year_raw:
+        try:
+            year_int = int(year_raw)
+        except ValueError:
+            raise AppException(
+                "El parámetro 'year' debe ser un número entero.", "invalid_year", 400)
+
+    # Validar y convertir mes
+    month_int = None
+    if month_raw:
+        month_int = MONTH_NUMBER.get(month_raw)
+        if month_int is None:
+            raise AppException(
+                f"Mes inválido: '{month_raw}'. Usa el nombre en inglés (e.g. JANUARY).",
+                "invalid_month", 400
+            )
+
+    with get_session() as session:
+
+        # ── Base: join con la tabla link filtrando por miembro y rol ─────────
+        statement = (
+            select(Job)
+            .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
+            .where(
+                JobMemberLink.member_id == member_id,
+                JobMemberLink.rol == rol,
+            )
+        )
+
+        # ── Filtro por tipo de trabajo ────────────────────────────────────────
+        if job_type:
+            statement = statement.where(Job.Job_type == job_type)
+
+        # ── Filtros por año / mes ─────────────────────────────────────────────
+        # Para PTL usamos Estimated_start_date; para el resto, Date_assigned.
+        # Si no se sabe el tipo, aplicamos la lógica combinada con OR.
+
+        def _date_col(jtype):
+            """Devuelve la columna de fecha correcta según el tipo."""
+            return Job.Estimated_start_date if jtype == "PTL" else Job.Date_assigned
+
+        if year_int is not None or month_int is not None:
+            if job_type:
+                # Tipo conocido → filtro simple sobre la columna correspondiente
+                date_col = _date_col(job_type)
+                statement = statement.where(date_col.is_not(None))
+                if year_int is not None:
+                    statement = statement.where(
+                        extract("year",  date_col) == year_int)
+                if month_int is not None:
+                    statement = statement.where(
+                        extract("month", date_col) == month_int)
+            else:
+                # Tipo desconocido → OR entre PTL y no-PTL
+                from sqlalchemy import and_, or_ as sa_or
+                conditions = []
+                for jt, col in [("PTL", Job.Estimated_start_date),
+                                ("QID", Job.Date_assigned),
+                                ("PAR", Job.Date_assigned)]:
+                    cond = [Job.Job_type == jt, col.is_not(None)]
+                    if year_int is not None:
+                        cond.append(extract("year",  col) == year_int)
+                    if month_int is not None:
+                        cond.append(extract("month", col) == month_int)
+                    conditions.append(and_(*cond))
+                statement = statement.where(sa_or(*conditions))
+
+        # ── Paginación ────────────────────────────────────────────────────────
+        count_stmt = (
+            select(func.count())
+            .select_from(
+                select(Job.ID_Jobs)
+                .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
+                .where(
+                    JobMemberLink.member_id == member_id,
+                    JobMemberLink.rol == rol,
+                )
+                .subquery()
+            )
+        )
+        # (El total sin filtros de fecha/tipo es suficiente para la UI,
+        #  pero si quieres el total exacto con todos los filtros, construye
+        #  count_stmt con las mismas condiciones que statement arriba.)
+
+        offset = (page - 1) * limit
+        statement = statement.offset(offset).limit(limit)
+
+        results = session.exec(statement).all()
+
+        if not results:
+            return jsonify({
+                "page": page, "limit": limit,
+                "total": 0,  "results": []
+            }), 200
+
+        jobs_data = [
+            {
+                "ID_Jobs":              j.ID_Jobs,
+                "Job_type":             j.Job_type,
+                "Project_name":         j.Project_name,
+                "Project_location":     j.Project_location,
+                "Job_status":           j.Job_status,
+                "Date_assigned":        j.Date_assigned.isoformat() if j.Date_assigned else None,
+                "Estimated_start_date": j.Estimated_start_date.isoformat() if j.Estimated_start_date else None,
+                "Gqm_premium_in_money": j.Gqm_premium_in_money,
+                "Gqm_target_return":    j.Gqm_target_return,
+                "ID_Client":            j.ID_Client,
+            }
+            for j in results
+        ]
+
+        return jsonify({
+            "page":    page,
+            "limit":   limit,
+            # reemplaza con count real si lo necesitas
+            "total":   len(jobs_data),
+            "results": jobs_data,
+        }), 200
+
+
 @job_bp.get("/subcontractor/<id_subcontractor>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def get_job_by_subcontrID(id_subcontractor):
@@ -413,6 +613,7 @@ def get_job_by_subcontrID(id_subcontractor):
 
 
 @job_bp.get("/type/<type>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def list_jobs_by_type(type):
@@ -433,6 +634,7 @@ def list_jobs_by_type(type):
 
 
 @job_bp.get("/date_assigned/<date>")
+@require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
 @paginate()
 def list_jobs_by_date(date):
@@ -452,13 +654,11 @@ def list_jobs_by_date(date):
                 "attachments", "subcontractors.technicians"]) for job in results], 200
 
 
-# ---------------------------------------------------------------------------
-# WRITE ROUTES
-# ---------------------------------------------------------------------------
-
+# --------------- RUTAS POST, PATCH AND DELETE----------#
 @job_bp.post("/")
+@require_permission("job:create")
 @handle_exceptions()
-@audit("Job created", job_id_from="response")
+@audit("Job created", entity_type="Job", id_from="response")
 def create_job():
 
     data = request.get_json()
@@ -526,8 +726,9 @@ def create_job():
 
 
 @job_bp.patch("/<id_job>")
+@require_permission("job:update")
 @handle_exceptions()
-@audit("Job updated", id_param="id_job")
+@audit("Job updated", entity_type="Job", id_param="id_job")
 def update_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     dry_run = request.args.get("dry_run", "false").lower() == "true"
@@ -539,6 +740,9 @@ def update_job(id_job):
         if not obj:
             raise AppException("Job no encontrado.", "job_not_found", 404)
 
+        # Guardar el estado anterior para saber si REALMENTE cambió a PAID ahora
+        previous_status = obj.Job_status
+
         update_data = JobUpdate.model_validate(
             data).model_dump(exclude_unset=True)
 
@@ -549,10 +753,20 @@ def update_job(id_job):
             save_with_retry(session, obj)
             logger.info("🔄 Job actualizado | job_id=%s", id_job)
 
+            # --- 🎯 TRIGGER DE COMISIONES (LOCAL) ---
+            # Normalizamos ambos para la comparación (Case-Insensitive)
+            current_status_upper = (obj.Job_status or "").upper()
+            previous_status_upper = (previous_status or "").upper()
+
+            if current_status_upper == "PAID" and previous_status_upper != "PAID":
+                logger.info(
+                    "💰 Detectado cambio a PAID. Procesando comisiones locales...")
+                process_job_to_commissions(obj, session)
+            # ---------------------------------------------------------------------------------
+
         # ── Recálculo automático de campos derivados ──────────────────────
         recalculate_and_apply(id_job, session)
         session.commit()
-        # Refrescar obj para que model_dump() devuelva los valores recalculados
         session.refresh(obj)
         # ─────────────────────────────────────────────────────────────────
 
@@ -587,8 +801,8 @@ def update_job(id_job):
 
 
 @job_bp.delete("/<id_job>")
+@require_permission("job:delete")
 @handle_exceptions()
-@audit("Job deleted", id_param="id_job")
 def delete_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)

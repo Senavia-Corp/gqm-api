@@ -35,6 +35,26 @@ def login():
             user_data = member.model_dump()
             user_data.pop("Password", None)
             user_id = member.ID_Member
+            
+            # Retrieve role details and associated permission policies
+            policies = []
+            role_detail = None
+            if member.role:
+                role_detail = {
+                    "ID_Role": member.role.ID_Role,
+                    "Name": member.role.Name
+                }
+                for perm in member.role.permissions:
+                    if perm.Active and perm.Document:
+                        policies.append(perm.Document)
+            
+            # Retrieve directly assigned permissions
+            for perm in member.permissions:
+                if perm.Active and perm.Document:
+                    policies.append(perm.Document)
+                    
+            user_data["role_detail"] = role_detail
+            user_data["policies"] = policies
 
         else:
             # Buscar en Technician
@@ -46,6 +66,15 @@ def login():
                 user_data = technician.model_dump()
                 user_data.pop("Password", None)
                 user_id = technician.ID_Technician
+                
+                # Technicians don't typically have roles, retrieve direct policies
+                policies = []
+                for perm in technician.permissions:
+                    if perm.Active and perm.Document:
+                        policies.append(perm.Document)
+                        
+                user_data["role_detail"] = None
+                user_data["policies"] = policies
             else:
                 return jsonify({"error": "Invalid email or password"}), 401
 

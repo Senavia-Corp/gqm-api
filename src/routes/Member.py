@@ -7,12 +7,15 @@ from ..models.MemberModel import Member, MemberCreate, MemberUpdate
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from pydantic import ValidationError
 from sqlalchemy.orm import joinedload, load_only
 from sqlalchemy import func, or_
 from ..utils.middleware.auth.password_hashing import hash_password
-from sqlalchemy import func
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
+from ..utils.middleware.logs.logs import logger
+from ..utils.audit import audit
+from src.utils.middleware.auth.routes_protection import require_permission
 
 # Blueprint de Member:
 member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
@@ -23,344 +26,243 @@ member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los miembros GQM
 @member_bp.get("/")
+@require_permission("member:read")
+@handle_exceptions()
 @paginate()  # decorador de paginación
 def list_members():
-    try:
-        with get_session() as session:
-            # Trae los miembros GQM con sus trabajos en una sola consulta
-            statement = (
-                select(Member)
-                .options(
-                    joinedload(Member.jobs),
-                    joinedload(Member.permissions),
-                    joinedload(Member.role),
-                    joinedload(Member.tlactivity),
-                )
+
+    with get_session() as session:
+        # Trae los miembros GQM con sus trabajos en una sola consulta
+        statement = (
+            select(Member)
+            .options(
+                joinedload(Member.jobs),
+                joinedload(Member.permissions),
+                joinedload(Member.role),
+                joinedload(Member.tlactivity),
+                joinedload(Member.commissions),
             )
-            results = session.exec(statement).unique().all()
+        )
+        results = session.exec(statement).unique().all()
 
-            if not results:
-                return [], 404   # El decorador se encarga del formato final
+        if not results:
+            return [], 200
 
-            member_data = []
+        member_data = []
 
-            for member in results:
-                data = add_relationships(
-                    member, ["jobs", "permissions", "role", "tlactivity"])
-                member_data.append(data)
+        for member in results:
+            data = add_relationships(
+                member, ["jobs", "permissions", "role", "tlactivity", "commissions"])
+            member_data.append(data)
 
-            return member_data, 200
-
-    except SQLAlchemyError as db_error:  # Para un fallo de db
-        print(f"Error de base de datos al listar miembros GQM: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al consultar la base de datos.",
-            "code": "db_error"
-        }), 500
-
-    except Exception as e:  # Para un fallo general inesperado
-        print(f"Error inesperado al listar miembros GQM: {e}")
-        return jsonify({
-            "detail": "Error interno inesperado del servidor.",
-            "code": "internal_error"
-        }), 500
+        return member_data, 200
 
 
 # Ruta para conseguir un miembro GQM por ID_Member
 @member_bp.get("/<id_member>")
+@require_permission("member:read")
+@handle_exceptions()
 def get_member_by_id(id_member):
-    try:
-        with get_session() as session:
-            statement = (
-                select(Member)
-                .options(
-                    joinedload(Member.jobs),
-                    joinedload(Member.permissions),
-                    joinedload(Member.role),
-                    joinedload(Member.tlactivity),
-                )
-                .where(Member.ID_Member == id_member)
+
+    with get_session() as session:
+        statement = (
+            select(Member)
+            .options(
+                joinedload(Member.jobs),
+                joinedload(Member.permissions),
+                joinedload(Member.role),
+                joinedload(Member.tlactivity),
+                joinedload(Member.tlactivity),
             )
+            .where(Member.ID_Member == id_member)
+        )
 
-            obj = session.exec(statement).unique().first()
+        obj = session.exec(statement).unique().first()
 
-            if not obj:
-                return jsonify({"error": "Member not found"}), 404
+        if not obj:
+            raise AppException("Member no encontrado.",
+                               "member_not_found", 404)
 
-            # Construir JSON limpio con la info de los jobs
-            member_data = add_relationships(
-                obj, ["jobs", "permissions", "role", "tlactivity"])
+        # Construir JSON limpio con la info de los jobs
+        member_data = add_relationships(
+            obj, ["jobs", "permissions", "role", "tlactivity", "commissions"])
 
-            return jsonify(member_data), 200
-
-    except SQLAlchemyError as db_error:
-        print(
-            f"Error de base de datos al buscar miembro GQM {id_member}: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al consultar la base de datos.",
-            "code": "db_error"
-        }), 500
-
-    except Exception as e:
-        print(f"Error inesperado al listar miembros GQM: {e}")
-        return jsonify({
-            "detail": "Error interno inesperado del servidor.",
-            "code": "internal_error"
-        }), 500
+        return jsonify(member_data), 200
 
 
 @member_bp.get("/member_table")
+@require_permission("member:read")
+@handle_exceptions()
 def list_members_table():
-    try:
-        page = int(request.args.get("page",  1))
-        limit = int(request.args.get("limit", 20))
-        q = request.args.get("q", "").strip()
 
-        if page < 1:
-            page = 1
-        if limit < 1:
-            limit = 20
-        limit = min(limit, 200)
+    page = int(request.args.get("page",  1))
+    limit = int(request.args.get("limit", 20))
+    q = request.args.get("q", "").strip()
 
-        with get_session() as session:
-            base_stmt = (
-                select(Member)
-                .options(
-                    load_only(
-                        Member.ID_Member,
-                        Member.Member_Name,
-                        Member.Company_Role,
-                        Member.Email_Address,
-                        Member.Phone_Number,
-                    )
+    if page < 1:
+        page = 1
+    if limit < 1:
+        limit = 20
+    limit = min(limit, 200)
+
+    with get_session() as session:
+        base_stmt = (
+            select(Member)
+            .options(
+                load_only(
+                    Member.ID_Member,
+                    Member.Member_Name,
+                    Member.Company_Role,
+                    Member.Email_Address,
+                    Member.Phone_Number,
+                )
+            )
+        )
+
+        # ── Global search ──────────────────────────────────────────────
+        if q:
+            pattern = f"%{q}%"
+            base_stmt = base_stmt.where(
+                or_(
+                    func.lower(Member.ID_Member).like(func.lower(pattern)),
+                    func.lower(Member.Member_Name).like(
+                        func.lower(pattern)),
+                    func.lower(Member.Company_Role).like(
+                        func.lower(pattern)),
+                    func.lower(Member.Email_Address).like(
+                        func.lower(pattern)),
+                    func.lower(Member.Phone_Number).like(
+                        func.lower(pattern)),
                 )
             )
 
-            # ── Global search ──────────────────────────────────────────────
-            if q:
-                pattern = f"%{q}%"
-                base_stmt = base_stmt.where(
-                    or_(
-                        func.lower(Member.ID_Member).like(func.lower(pattern)),
-                        func.lower(Member.Member_Name).like(
-                            func.lower(pattern)),
-                        func.lower(Member.Company_Role).like(
-                            func.lower(pattern)),
-                        func.lower(Member.Email_Address).like(
-                            func.lower(pattern)),
-                        func.lower(Member.Phone_Number).like(
-                            func.lower(pattern)),
-                    )
-                )
+        # ── Total count (respects search filter) ───────────────────────
+        count_stmt = select(func.count()).select_from(base_stmt.subquery())
+        total = session.exec(count_stmt).one()
 
-            # ── Total count (respects search filter) ───────────────────────
-            count_stmt = select(func.count()).select_from(base_stmt.subquery())
-            total = session.exec(count_stmt).one()
+        # ── Paginated results ──────────────────────────────────────────
+        offset = (page - 1) * limit
+        paged_stmt = base_stmt.order_by(
+            Member.ID_Member.desc()).offset(offset).limit(limit)
+        results = session.exec(paged_stmt).unique().all()
 
-            # ── Paginated results ──────────────────────────────────────────
-            offset = (page - 1) * limit
-            paged_stmt = base_stmt.order_by(
-                Member.ID_Member.desc()).offset(offset).limit(limit)
-            results = session.exec(paged_stmt).unique().all()
+        out = [
+            {
+                "ID_Member":    m.ID_Member,
+                "Member_Name":  m.Member_Name,
+                "Company_Role": m.Company_Role,
+                "Email_Address": m.Email_Address,
+                "Phone_Number": m.Phone_Number,
+            }
+            for m in results
+        ]
 
-            out = [
-                {
-                    "ID_Member":    m.ID_Member,
-                    "Member_Name":  m.Member_Name,
-                    "Company_Role": m.Company_Role,
-                    "Email_Address": m.Email_Address,
-                    "Phone_Number": m.Phone_Number,
-                }
-                for m in results
-            ]
-
-            return jsonify({
-                "page":    page,
-                "limit":   limit,
-                "total":   total,
-                "results": out,
-            }), 200
-
-    except SQLAlchemyError as db_error:
-        print(f"Error de base de datos al listar members table: {db_error}")
-        return jsonify({"detail": "Error interno del servidor.", "code": "db_error"}), 500
-
-    except Exception as e:
-        print(f"Error inesperado al listar members table: {e}")
-        return jsonify({"detail": "Error interno inesperado.", "code": "internal_error"}), 500
+        return jsonify({
+            "page":    page,
+            "limit":   limit,
+            "total":   total,
+            "results": out,
+        }), 200
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un miembro GQM
 @member_bp.post("/")
+@require_permission("member:create")
+@handle_exceptions()
+@audit("Member created", entity_type="Member", id_from="response")
 def create_member():
-    try:
-        data = request.get_json()
-        create_member = MemberCreate.model_validate(data)
-        obj = Member.model_validate(create_member)
 
-    except ValidationError as e:
-        if 'JSON' in str(e):
-            return jsonify({"detail": "La solicitud debe contener un JSON válido."}), 400
-        print(f"Error inesperado en preparación de datos: {e}")
-        return jsonify({"detail": "Error inesperado del servidor."}), 500
+    data = request.get_json()
+    create_member = MemberCreate.model_validate(data)
+    obj = Member.model_validate(create_member)
 
-    try:
-        with get_session() as session:
+    with get_session() as session:
 
-            obj.Password = hash_password(obj.Password)  # Hash al password
+        obj.Password = hash_password(obj.Password)  # Hash al password
 
-            new_id = generate_custom_id(
-                session, Member, "ID_Member", "MEM")
-            obj.ID_Member = new_id
+        # ----------- 🔵 CREAR EN DB
+        new_id = generate_custom_id(
+            session, Member, "ID_Member", "MEM")
+        obj.ID_Member = new_id
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+        # ----------- 💾 GUARDAR EN DB
+        save_with_retry(session, obj)
 
-            response = obj.model_dump()
-            response.pop("Password", None)
+        logger.info(
+            "✅ Member creado | member_id=%s",
+            obj.ID_Member
+        )
 
-            return jsonify(response), 201
+        response = obj.model_dump()
+        response.pop("Password", None)
 
-    except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
-        session.rollback()  # Deshace los cambios realizados
-        error_message = str(e)
-        if "UNIQUE constraint failed" in error_message:
-            detail = "Ya existe un miembro GQM con este valor único."
-        else:
-            detail = "Error de integridad de datos (ej. dato requerido faltante o clave foránea inválida)."
-        print(f"Error de integridad: {e}")
-        return jsonify({"detail": detail}), 409
-
-    except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
-        session.rollback()
-        print(f"Error de base de datos al crear miembro GQM: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al interactuar con la base de datos.",
-            "code": "db_error"
-        }), 500
-
-    except Exception as e:
-        try:
-            session.rollback()
-        except Exception:
-            pass
-
-        print(f"Error inesperado durante la creación de miembro GQM: {e}")
-        return jsonify({
-            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
-            "code": "internal_error"
-        }), 500
+        return response, 201
 
 
 # Ruta para actualizar un miembro GQM
 @member_bp.patch("/<id_member>")
+@require_permission("member:update")
+@handle_exceptions()
+@audit("Member updated", entity_type="Member", id_param="id_member")
 def update_member(id_member):
-    session = None  # Para que funcione except
-    try:
-        data = request.get_json()
-        with get_session() as session:
-            obj = session.get(Member, id_member)
-            if not obj:
-                return jsonify({"error": "GQM Member not found"}), 404
 
-            update_member = MemberUpdate.model_validate(data)
-            update_data_dict = update_member.model_dump(
-                exclude_unset=True)  # Crea dict limpio
+    data = request.get_json()
 
-            # Hash al passsword si se actualiza
-            if "Password" in update_data_dict:
-                update_data_dict["Password"] = hash_password(
-                    update_data_dict["Password"]
-                )
+    with get_session() as session:
+        obj = session.get(Member, id_member)
+        if not obj:
+            raise AppException("Member no encontrado.",
+                               "member_not_found", 404)
 
-            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
-                setattr(obj, key, value)
+        update_member = MemberUpdate.model_validate(data)
+        update_data_dict = update_member.model_dump(exclude_unset=True)
 
-            session.add(obj)
-            session.commit()
-            session.refresh(obj)
+        # Hash al passsword si se actualiza
+        if "Password" in update_data_dict:
+            update_data_dict["Password"] = hash_password(
+                update_data_dict["Password"]
+            )
 
-            response = obj.model_dump()
-            response.pop("Password", None)
+        # ----------- 🔄 ACTUALIZAR EN DB
+        for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+            setattr(obj, key, value)
 
-            return jsonify(response), 200
+        # ----------- 💾 GUARDAR EN DB
+        save_with_retry(session, obj)
 
-    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
-    except ValidationError as e:
-        return jsonify({
-            "detail": "Error de validación: Datos de miembro GQM inválidos para la actualización.",
-            "errors": e.errors()
-        }), 400
+        logger.info(
+            "🔄 Member actualizado | member_id=%s",
+            obj.ID_Member
+        )
 
-    except IntegrityError as e:
-        if session:
-            session.rollback()
-        detail = "Error de integridad: Ya existe un miembro GQM con estos valores únicos o faltan datos requeridos."
-        print(f"Error de integridad (PATCH): {e}")
-        return jsonify({"detail": detail}), 409
+        response = obj.model_dump()
+        response.pop("Password", None)
 
-    except SQLAlchemyError as db_error:
-        if session:
-            session.rollback()
-        print(f"Error de base de datos al actualizar miembro GQM: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al interactuar con la base de datos.",
-            "code": "db_error"
-        }), 500
-
-    except Exception as e:
-        if session:
-            try:
-                session.rollback()
-            except Exception:
-                pass
-        print(f"Error inesperado al actualizar miembro GQM: {e}")
-        return jsonify({
-            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
-            "code": "internal_error"
-        }), 500
+        return response, 200
 
 
 # Ruta para eliminar un miembro GQM
 @member_bp.delete("/<id_member>")
+@require_permission("member:delete")
+@handle_exceptions()
+@audit("Member deleted", entity_type="Member", id_param="id_member")
 def delete_member(id_member):
-    session = None
-    try:
-        with get_session() as session:
-            obj = session.get(Member, id_member)
-            if not obj:
-                return jsonify({"error": "GQM Member not found"}), 404
-            session.delete(obj)
-            session.commit()
-            return jsonify({"message": f"Deleted GQM Member {id_member}"}), 200
 
-    # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar un miembro GQM que tiene productos asociados con Foreign Key
-        if session:
-            session.rollback()
-        detail = "Error de integridad: No se puede eliminar el miembro GQM porque tiene registros relacionados."
-        print(f"Error de integridad (DELETE): {e}")
-        return jsonify({"detail": detail}), 409
+    with get_session() as session:
+        obj = session.get(Member, id_member)
+        if not obj:
+            raise AppException("Member no encontrado.",
+                               "member_not_found", 404)
 
-    except SQLAlchemyError as db_error:
-        if session:
-            session.rollback()
-        print(f"Error de base de datos al eliminar miembro GQM: {db_error}")
+        # ----------- 🔴 BORRAR EN DB
+        delete_with_retry(session, obj)
+
+        logger.info(
+            "🗑️ Member eliminado | member_id=%s",
+            id_member
+        )
+
         return jsonify({
-            "detail": "Error interno del servidor al interactuar con la base de datos.",
-            "code": "db_error"
-        }), 500
-
-    except Exception as e:
-        if session:
-            try:
-                session.rollback()
-            except Exception:
-                pass
-        print(f"Error inesperado al eliminar miembro GQM: {e}")
-        return jsonify({
-            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
-            "code": "internal_error"
-        }), 500
+            "message": f"Member {id_member} eliminado correctamente"
+        }), 200

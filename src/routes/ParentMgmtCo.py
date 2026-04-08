@@ -14,6 +14,8 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from ..utils.audit import audit
+from src.utils.middleware.auth.routes_protection import require_permission
 
 
 # Blueprint de Parent Mgmt Co:
@@ -26,6 +28,7 @@ parent_mgmt_co_bp = Blueprint(
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos las parent mgmt communities
 @parent_mgmt_co_bp.get("/")
+@require_permission("parent_mgmt_co:read")
 @handle_exceptions()
 @paginate()
 def list_parent_co():
@@ -53,6 +56,7 @@ def list_parent_co():
 
 # Ruta para conseguir un parent mgmt co por ID
 @parent_mgmt_co_bp.get("/<pa_mgmt_co_id>")
+@require_permission("parent_mgmt_co:read")
 @handle_exceptions()
 def get_manager_co(pa_mgmt_co_id):
 
@@ -81,7 +85,9 @@ def get_manager_co(pa_mgmt_co_id):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un parent mgmt co
 @parent_mgmt_co_bp.post("/")
+@require_permission("parent_mgmt_co:create")
 @handle_exceptions()
+@audit("ParentMgmtCo created", entity_type="ParentMgmtCo", id_from="response")
 def create_parent_co():
 
     data = request.get_json()
@@ -142,7 +148,9 @@ def create_parent_co():
 
 # Ruta para actualizar un parent mgmt co
 @parent_mgmt_co_bp.patch("/<pa_mgmt_co_id>")
+@require_permission("parent_mgmt_co:update")
 @handle_exceptions()
+@audit("ParentMgmtCo updated", entity_type="ParentMgmtCo", id_param="pa_mgmt_co_id")
 def update_parent_co(pa_mgmt_co_id):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -203,7 +211,9 @@ def update_parent_co(pa_mgmt_co_id):
 
 # Ruta para eliminar un parent manager co
 @parent_mgmt_co_bp.delete("/<pa_mgmt_co_id>")
+@require_permission("parent_mgmt_co:delete")
 @handle_exceptions()
+@audit("ParentMgmtCo deleted", entity_type="ParentMgmtCo", id_param="pa_mgmt_co_id")
 def delete_parent_co(pa_mgmt_co_id):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"

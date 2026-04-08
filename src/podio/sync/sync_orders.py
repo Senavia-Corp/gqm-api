@@ -378,6 +378,10 @@ def sync_job_orders_and_change_orders(
                 adj_formula = data.get("adj_formula")
                 subcontractor_id = data.get("subcontractor_id")
                 tech_field = data.get("formula_field")
+                if not tech_field:
+                    possible_fields = formula_map.get(tech_index, [])
+                    tech_field = possible_fields[0] if possible_fields else None
+                
                 hd_materials = data.get("hd_materials")
                 notes = data.get("notes")
 

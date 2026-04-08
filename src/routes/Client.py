@@ -6,6 +6,7 @@ from ..models.ClientModel import Client, ClientCreate, ClientUpdate
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import load_only as _load_only
+from sqlalchemy import func, or_
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -15,7 +16,8 @@ from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.client_mapper import map_client_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
-from sqlalchemy import func, or_
+from ..utils.audit import audit
+from src.utils.middleware.auth.routes_protection import require_permission
 
 # Blueprint de Client:
 client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")
@@ -26,6 +28,7 @@ client_bp = Blueprint("client_blueprint", __name__, url_prefix="/clients")
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los clientes
 @client_bp.get("/")
+@require_permission("client:read")
 @handle_exceptions()
 @paginate()
 def list_clients():
@@ -56,6 +59,7 @@ def list_clients():
 
 
 @client_bp.get("/table")
+@require_permission("client:read")
 @handle_exceptions()
 def list_clients_table():
     """
@@ -144,6 +148,7 @@ def list_clients_table():
 
 # Ruta para conseguir un cliente por ID
 @client_bp.get("/<id_client>")
+@require_permission("client:read")
 @handle_exceptions()
 def get_client(id_client):
 
@@ -175,7 +180,9 @@ def get_client(id_client):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un cliente
 @client_bp.post("/")
+@require_permission("client:create")
 @handle_exceptions()
+@audit("Client created", entity_type="Client", id_from="response")
 def create_client():
 
     data = request.get_json()
@@ -223,16 +230,18 @@ def create_client():
 
 
 # Ruta para actualizar un cliente
-@client_bp.patch("/<client_id>")
+@client_bp.patch("/<id_client>")
+@require_permission("client:update")
 @handle_exceptions()
-def update_client(client_id):
+@audit("Client updated", entity_type="Client", id_param="id_client")
+def update_client(id_client):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     data = request.get_json()
 
     with get_session() as session:
         obj = session.exec(
-            select(Client).where(Client.ID_Client == client_id)
+            select(Client).where(Client.ID_Client == id_client)
         ).first()
         if not obj:
             raise AppException("Client no encontrado.",
@@ -247,7 +256,7 @@ def update_client(client_id):
 
         save_with_retry(session, obj)
 
-        logger.info("🔄 Client actualizado | client_id=%s", client_id)
+        logger.info("🔄 Client actualizado | client_id=%s", id_client)
 
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio and obj.podio_item_id:
@@ -263,14 +272,14 @@ def update_client(client_id):
 
                 logger.info(
                     "🔄 Client actualizado en Podio | client_id=%s | podio_item_id=%s",
-                    client_id,
+                    id_client,
                     obj.podio_item_id
                 )
 
             except Exception:
                 logger.exception(
                     "❌ Error actualizando Client en Podio | client_id=%s | podio_item_id=%s",
-                    client_id,
+                    id_client,
                     obj.podio_item_id
                 )
                 raise AppException(
@@ -283,15 +292,17 @@ def update_client(client_id):
 
 
 # Ruta para eliminar un cliente
-@client_bp.delete("/<client_id>")
+@client_bp.delete("/<id_client>")
+@require_permission("client:delete")
 @handle_exceptions()
-def delete_client(client_id):
+@audit("Client deleted", entity_type="Client", id_param="id_client")
+def delete_client(id_client):
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
 
     with get_session() as session:
         obj = session.exec(select(Client).where(
-            Client.ID_Client == client_id)).first()
+            Client.ID_Client == id_client)).first()
         if not obj:
             raise AppException("Client no encontrado.",
                                "client_not_found", 404)
@@ -308,14 +319,14 @@ def delete_client(client_id):
 
                 logger.info(
                     "🗑️ Client eliminado en Podio | client_id=%s | podio_item_id=%s",
-                    client_id,
+                    id_client,
                     obj.podio_item_id
                 )
 
             except Exception:
                 logger.exception(
                     "❌ Error eliminando Client en Podio | client_id=%s | podio_item_id=%s",
-                    client_id,
+                    id_client,
                     obj.podio_item_id
                 )
                 raise AppException(
@@ -329,9 +340,9 @@ def delete_client(client_id):
 
         logger.info(
             "🗑️ Client eliminado | client_id=%s",
-            client_id
+            id_client
         )
 
         return jsonify({
-            "message": f"Client {client_id} eliminado correctamente"
+            "message": f"Client {id_client} eliminado correctamente"
         }), 200
