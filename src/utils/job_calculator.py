@@ -297,3 +297,20 @@ def recalculate_and_apply_from_change_order(
     if not job_id:
         return None
     return recalculate_and_apply(job_id, session)
+
+
+def recalculate_order_formulas(order_id: str, session: Session):
+    order = session.exec(select(Order).where(Order.ID_Order == order_id)).first()
+    if not order: return
+    # 1. Sumar todos los Builder_Cost de los Estimate Costs asociados a esta order
+    costs = session.exec(select(EstimateCost).where(EstimateCost.ID_Order == order_id)).all()
+    total_formula = sum([float(c.Builder_cost or 0) for c in costs])
+    
+    # 2. Sumar todos los ChangeOrder previstos para esta order
+    change_orders = session.exec(select(ChangeOrder).where(ChangeOrder.ID_Order == order_id)).all()
+    co_sum = sum([float(co.ChangeOrderFormula or 0) for co in change_orders])
+    
+    # 3. Asignar correctamante
+    order.Formula = total_formula
+    order.Adj_formula = total_formula + co_sum
+    session.add(order)

@@ -10,7 +10,7 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from src.utils.audit import audit
-from src.utils.job_calculator import recalculate_and_apply
+from src.utils.job_calculator import recalculate_and_apply, recalculate_order_formulas
 
 estimate_bp = Blueprint("estimate_blueprint", __name__, url_prefix="/estimate")
 
@@ -90,6 +90,12 @@ def update_estimate(id_estimate):
         for key, value in update_data.items():
             setattr(obj, key, value)
         save_with_retry(session, obj)
+
+        # ── [NUEVO] Recálculo automático de la Order asociada ────────
+        if obj.ID_Order:
+            recalculate_order_formulas(obj.ID_Order, session)
+            session.commit()
+        # ─────────────────────────────────────────────────────────────
 
         # ── Recálculo automático del Job asociado ─────────────────────────
         if job_id_for_calc:
