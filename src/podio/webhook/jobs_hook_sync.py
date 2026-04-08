@@ -372,6 +372,11 @@ def add_job_orders_and_change_orders(
 
     for tech_index, data in tech_data.items():
 
+        formula_field = data.get("formula_field")
+        if not formula_field:
+            possible_fields = formula_map.get(tech_index, [])
+            formula_field = possible_fields[0] if possible_fields else None
+
         order, _ = upsert_order(
             session=session,
             job=job,
@@ -380,7 +385,7 @@ def add_job_orders_and_change_orders(
             tech_index=tech_index,
             formula=data.get("formula"),
             adj_formula=data.get("adj_formula"),
-            tech_field=data.get("formula_field"),
+            tech_field=formula_field,
             hd_materials=data.get("hd_materials"),
             notes=data.get("notes")
         )
