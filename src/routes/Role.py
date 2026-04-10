@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from src.utils.middleware.auth.routes_protection import require_permission
 
 
 # Blueprint de Role:
@@ -23,6 +24,7 @@ role_bp = Blueprint("role_blueprint", __name__, url_prefix="/role")
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los roles
 @role_bp.get("/")
+@require_permission("role:read")
 @paginate()
 def list_roles():
     try:
@@ -66,6 +68,7 @@ def list_roles():
 
 # Ruta para conseguir un role por ID
 @role_bp.get("/<id_role>")
+@require_permission("role:read")
 def get_role(id_role):
     try:
         with get_session() as session:
@@ -109,6 +112,7 @@ def get_role(id_role):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un role
 @role_bp.post("/")
+@require_permission("role:create")
 def create_role():
     try:
         data = request.get_json()
@@ -164,6 +168,7 @@ def create_role():
 
 # Ruta para actualizar un role
 @role_bp.patch("/<id_role>")
+@require_permission("role:update")
 def update_role(id_role):
     session = None  # Para que funcione except
     try:
@@ -223,6 +228,7 @@ def update_role(id_role):
 
 # Ruta para eliminar un role
 @role_bp.delete("/<id_role>")
+@require_permission("role:delete")
 def delete_role(id_role):
     session = None
     try:

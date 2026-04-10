@@ -5,7 +5,7 @@ import sys
 # Middleware de logs para todos los request:
 from src.utils.middleware.logs.request_logger import register_request_logger
 # Blueprints:
-from src.routes.Job import job_bp
+from src.routes.Job import job_bp, job_excel_bp
 from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp, job_subcontractor_bp, job_payment_unit_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
@@ -100,6 +100,7 @@ def create_app():
     app.register_blueprint(fdocument_ftransaction_bp)
     app.register_blueprint(inventory_bp)
     app.register_blueprint(job_bp)
+    app.register_blueprint(job_excel_bp)
     app.register_blueprint(job_multiplier_bp)
     app.register_blueprint(job_member_bp)
     app.register_blueprint(job_subcontractor_bp)

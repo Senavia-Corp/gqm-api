@@ -21,30 +21,11 @@ VALID_DOC_TYPES = ("invoices", "bills", "invoice_payments",
                    "bill_payments", "all")
 
 
+from .metrics_shared import _norm_job_type, _norm_year
+
 # ---------------------------------------------------------------------------
 # Normalizers
 # ---------------------------------------------------------------------------
-
-def _norm_job_type(value: str | None) -> str | None:
-    if not value:
-        return None
-    v = value.strip().upper()
-    if v in ("ALL", "QID", "PTL", "PAR"):
-        return v
-    return None
-
-
-def _norm_year(value: str | None) -> int | None:
-    if not value or str(value).upper() == "ALL":
-        return None
-    try:
-        y = int(value)
-    except (ValueError, TypeError):
-        return None
-    if y < 1900 or y > 2100:
-        return None
-    return y
-
 
 def _norm_month(value: str | None) -> int | None:
     if not value or str(value).upper() == "ALL":

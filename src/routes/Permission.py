@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from src.utils.middleware.auth.routes_protection import require_permission
 
 
 # Blueprint de Permission:
@@ -24,6 +25,7 @@ permission_bp = Blueprint("permission_blueprint",
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los permissions
 @permission_bp.get("/")
+@require_permission("permission:read")
 @paginate()
 def list_permissions():
     try:
@@ -67,6 +69,7 @@ def list_permissions():
 
 # Ruta para conseguir un permission por ID
 @permission_bp.get("/<id_permission>")
+@require_permission("permission:read")
 def get_permission(id_permission):
     try:
         with get_session() as session:
@@ -109,6 +112,7 @@ def get_permission(id_permission):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un permission
 @permission_bp.post("/")
+@require_permission("permission:create")
 def create_permission():
     try:
         data = request.get_json()
@@ -164,6 +168,7 @@ def create_permission():
 
 # Ruta para actualizar un permission
 @permission_bp.patch("/<id_permission>")
+@require_permission("permission:update")
 def update_permission(id_permission):
     session = None  # Para que funcione except
     try:
@@ -223,6 +228,7 @@ def update_permission(id_permission):
 
 # Ruta para eliminar un permission
 @permission_bp.delete("/<id_permission>")
+@require_permission("permission:delete")
 def delete_permission(id_permission):
     session = None
     try:

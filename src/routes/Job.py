@@ -3,6 +3,9 @@
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
+from flask import send_file, request
+from datetime import datetime
+import io
 from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..models.MemberModel import Member
 from ..models.ClientModel import Client
@@ -34,6 +37,10 @@ from src.models.ComDetailModel import CommissionDetail
 from src.models.ComGroupModel import CommissionGroup
 from src.models.CommissionModel import Commission
 from flask import g
+# Para exportar el excel
+from src.services.excel_report.export_schema import JobExportRequest
+from src.services.excel_report.export_service import generate_jobs_excel
+
 
 def serialize_job(job_dict, policies):
     if not isinstance(job_dict, dict):
@@ -177,7 +184,8 @@ def list_jobs_table():
                         Job.Job_status.ilike(pattern),
                         Job.Service_type.ilike(pattern),
                         Job.client.has(Client.Client_Community.ilike(pattern)),
-                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
+                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(
+                            pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
                         Job.members.any(Member.Member_Name.ilike(pattern))
                     )
                 )
@@ -216,7 +224,8 @@ def list_jobs_table():
                         Job.Job_status.ilike(pattern),
                         Job.Service_type.ilike(pattern),
                         Job.client.has(Client.Client_Community.ilike(pattern)),
-                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
+                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(
+                            pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
                         Job.members.any(Member.Member_Name.ilike(pattern))
                     )
                 )
@@ -829,3 +838,32 @@ def delete_job(id_job):
         delete_with_retry(session, obj)
         logger.info("🗑️ Job eliminado | job_id=%s", id_job)
         return jsonify({"message": f"Job {id_job} eliminado correctamente"}), 200
+
+
+# --------------- RUTA PARA EXPORTAR EXCEL ----------#
+# Blueprint de Jobs:
+job_excel_bp = Blueprint("job_excel_blueprint",
+                         __name__, url_prefix="/jobs_excel")
+
+
+@job_excel_bp.post("/export")
+# @require_permission(["job:read", "job:read_basics"])
+@handle_exceptions()
+def export_jobs_excel():
+    data = request.get_json(force=True) or {}
+    payload = JobExportRequest.model_validate(data)
+
+    with get_session() as session:
+        excel_bytes = generate_jobs_excel(session=session, request=payload)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"jobs_export_{timestamp}.xlsx"
+
+    return send_file(
+        io.BytesIO(excel_bytes),
+        mimetype=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        as_attachment=True,
+        download_name=filename,
+    )
