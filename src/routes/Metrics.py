@@ -11,143 +11,24 @@ from ..models.ClientModel import Client
 from ..models.ParentMgmtCoModel import ParentMgmtCo
 from ..services.metrics.jobs_metrics_service import get_jobs_status_metrics_data, get_jobs_dashboard_data
 from ..services.reports.jobs_report_pdf import build_jobs_report_pdf_bytes
+from ..services.metrics.metrics_shared import (
+    STATUS_CATALOG,
+    PENDING_BY_TYPE,
+    INPROGRESS_BY_TYPE,
+    COMPLETED_BY_TYPE,
+    CANCELLED_STATUS,
+    CLOSED_BY_TYPE,
+    STATUS_BREAKDOWN_LIST,
+    _norm_job_type,
+    _norm_year,
+    _apply_year_filter,
+)
 
 metrics_bp = Blueprint("metrics_blueprint", __name__, url_prefix="/metrics")
 
-# ---- Catálogos de status por tipo (tal cual los pasaste) ----
-STATUS_CATALOG = {
-    "QID": [
-        "Assigned/P. Quote",
-        "Waiting for Approval",
-        "Scheduled / Work in Progress",
-        "Cancelled",
-        "Completed P. INV / POs",
-        "Invoiced",
-        "HOLD",
-        "PAID",
-        "Warranty",
-    ],
-    "PTL": [
-        "Received-Stand By",
-        "Assigned-In progress",
-        "Completed PVI",
-        "Cancelled",
-        "Paid",
-    ],
-    "PAR": [
-        "In Progress",
-        "Completed PVI / POs",
-        "Invoiced",
-        "PAID",
-        "Cancelled",
-    ],
-}
-
 ACC_REP_ROLE = "Acc Rep Selling"
 
-# Buckets definidos por ti
-PENDING_BY_TYPE = {
-    "QID": {"Assigned/P. Quote", "Waiting for Approval", "HOLD"},
-    "PTL": {"Received-Stand By"},
-    "PAR": set(),  # siempre 0
-}
-
-INPROGRESS_BY_TYPE = {
-    "QID": {"Scheduled / Work in Progress"},
-    "PTL": {"Assigned-In progress"},
-    "PAR": {"In Progress"},
-}
-
-COMPLETED_BY_TYPE = {
-    "QID": {"Completed P. INV / POs", "Invoiced", "PAID", "Warranty"},
-    "PTL": {"Completed PVI", "Paid"},
-    "PAR": {"Completed P. INV / POs", "Invoiced", "PAID"},
-}
-
-CANCELLED_STATUS = "Cancelled"
-
-CLOSED_BY_TYPE = {
-    "QID": {"PAID"},
-    "PAR": {"PAID"},
-    "PTL": {"Paid"},
-}
-
-# Breakdown exacto que pediste
-STATUS_BREAKDOWN_LIST = [
-    "Assigned/P. Quote",
-    "Waiting for Approval",
-    "Scheduled / Work in Progress",
-    "Cancelled",
-    "Completed P. INV / POs",
-    "Invoiced",
-    "HOLD",
-    "PAID",
-    "Warranty",
-    "Received-Stand By",
-    "Assigned-In progress",
-    "Completed PVI",
-    "Paid",
-    "In Progress",
-    "Completed PVI / POs",
-]
-
-
-def _norm_job_type(value: str | None) -> str | None:
-    if not value:
-        return None
-    v = value.strip().upper()
-    if v == "ALL":
-        return "ALL"
-    if v in ("QID", "PTL", "PAR"):
-        return v
-    return None
-
-
-def _norm_year(value: str | None) -> int | None:
-    if not value:
-        return None
-    try:
-        y = int(value)
-    except ValueError:
-        return None
-    if y < 1900 or y > 2100:
-        return None
-    return y
-
-
-def _apply_year_filter(stmt, job_type: str, year: int):
-    """
-    Aplica el filtro de año según el tipo.
-    - PTL -> Estimated_start_date
-    - QID/PAR -> Date_assigned
-    - ALL -> OR combinando ambos criterios
-    """
-    if job_type == "PTL":
-        return stmt.where(
-            Job.Estimated_start_date.is_not(None),
-            extract("year", Job.Estimated_start_date) == year,
-        )
-
-    if job_type in ("QID", "PAR"):
-        return stmt.where(
-            Job.Date_assigned.is_not(None),
-            extract("year", Job.Date_assigned) == year,
-        )
-
-    return stmt.where(
-        or_(
-            and_(
-                Job.Job_type == "PTL",
-                Job.Estimated_start_date.is_not(None),
-                extract("year", Job.Estimated_start_date) == year,
-            ),
-            and_(
-                Job.Job_type != "PTL",
-                Job.Date_assigned.is_not(None),
-                extract("year", Job.Date_assigned) == year,
-            ),
-        )
-    )
+# (Status buckets and normalizers imported from metrics_shared)
 
 
 def _safe_int(value: str | None, default: int) -> int:
@@ -645,6 +526,23 @@ def clients_metrics():
         0.0
     ).label("revenue_par")
 
+    # ✅ NEW: dashboard summary metrics expressions
+    def is_in_bucket_expr(bucket_dict):
+        return or_(
+            and_(Job.Job_type == "QID", status_in(bucket_dict.get("QID", set()))),
+            and_(Job.Job_type == "PTL", status_in(bucket_dict.get("PTL", set()))),
+            and_(Job.Job_type == "PAR", status_in(bucket_dict.get("PAR", set()))),
+        )
+
+    is_inprog = is_in_bucket_expr(INPROGRESS_BY_TYPE)
+    is_closed = is_in_bucket_expr(CLOSED_BY_TYPE)
+
+    quotes_count = _sum_if(and_(base_cond, Job.Job_status == "Assigned/P. Quote")).label("quotes_count")
+    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue")
+    inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
+    paid_revenue = func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue")
+    ave_target_sold = func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
+
     # ✅ NEW: status breakdown columns (safe labels)
     status_label_map = [(s, f"st_{i:02d}")
                         for i, s in enumerate(STATUS_BREAKDOWN_LIST)]
@@ -657,6 +555,19 @@ def clients_metrics():
             )
 
     with get_session() as session:
+        # --- GLOBAL SUMMARY ---
+        summary_stmt = select(
+            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), 1), else_=0)), 0).label("quotes_count"),
+            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, is_inprog), 1), else_=0)), 0).label("inprog_count"),
+            func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
+            func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
+            func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
+        ).select_from(Job)
+        
+        glob_summary = session.exec(summary_stmt).first()
+
         total_clients_stmt = select(func.count()).select_from(Client)
         total_clients = session.exec(total_clients_stmt).one() or 0
 
@@ -676,6 +587,8 @@ def clients_metrics():
                 closed_qid, closed_ptl, closed_par,
 
                 revenue_all, revenue_qid, revenue_ptl, revenue_par,
+                
+                quotes_count, quotes_revenue, inprog_revenue, paid_revenue, ave_target_sold,
 
                 *status_cols,  # ✅ NEW
             )
@@ -731,6 +644,15 @@ def clients_metrics():
             "rank_closed": int(r.rank_closed),
             "rank_revenue": int(r.rank_revenue),
             "client": {"id": r.client_id, "name": r.client_name, "address": r.client_address},
+            "dashboard_stats": {
+                "total_amount_of_quotes": int(r.quotes_count or 0),
+                "dollars_quoted": float(r.quotes_revenue or 0.0),
+                "in_progress_jobs_count": int(r.inprog_all or 0),
+                "dollars_in_progress": float(r.inprog_revenue or 0.0),
+                "paid_jobs_count": int(r.closed_all or 0),
+                "dollars_paid": float(r.paid_revenue or 0.0),
+                "ave_target_sold_pct": round(float(r.ave_target_sold or 0.0), 2)
+            },
             "totals": {
                 "all": int(r.total_all or 0),
                 "qid": int(r.total_qid or 0),
@@ -795,19 +717,33 @@ def clients_metrics():
     total_pages = (int(total_clients) + limit -
                    1) // limit if total_clients else 1
 
+    # Format the global summary
+    global_s = glob_summary._mapping if glob_summary else {}
+    summary_data = {
+        "total_amount_of_quotes": int(global_s.get("quotes_count", 0)),
+        "dollars_quoted": float(global_s.get("quotes_revenue", 0.0)),
+        "in_progress_jobs_count": int(global_s.get("inprog_count", 0)),
+        "dollars_in_progress": float(global_s.get("inprog_revenue", 0.0)),
+        "paid_jobs_count": int(global_s.get("paid_count", 0)),
+        "dollars_paid": float(global_s.get("paid_revenue", 0.0)),
+        "ave_target_sold_pct": round(float(global_s.get("ave_target_sold", 0.0)), 2)
+    }
+
     return jsonify({
         "type": job_type,
         "year": year,
         "order_by": order_by,
-        # optional, helpful for debugging
         "include_status_breakdown": 1 if include_status_breakdown else 0,
-        "pagination": {
-            "page": page,
-            "limit": limit,
+        "summary": summary_data,
+        "individual_stats": {
             "total_clients": int(total_clients),
-            "total_pages": int(total_pages),
-        },
-        "clients": clients
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total_pages": int(total_pages),
+            },
+            "top_clients": clients
+        }
     }), 200
 
 # =============================================================================
@@ -943,6 +879,26 @@ def parent_mgmt_co_metrics():
         0.0
     ).label("revenue_par")
 
+    # ✅ NEW: dashboard summary metrics expressions
+    def is_in_bucket_expr(bucket_dict):
+        return or_(
+            and_(Job.Job_type == "QID", status_in(bucket_dict.get("QID", set()))),
+            and_(Job.Job_type == "PTL", status_in(bucket_dict.get("PTL", set()))),
+            and_(Job.Job_type == "PAR", status_in(bucket_dict.get("PAR", set()))),
+        )
+
+    is_inprog = is_in_bucket_expr(INPROGRESS_BY_TYPE)
+    is_closed = is_in_bucket_expr(CLOSED_BY_TYPE)
+
+    quotes_count = _sum_if(and_(base_cond, Job.Job_status == "Assigned/P. Quote")).label("quotes_count")
+    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue")
+    inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
+    paid_revenue = func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue")
+    ave_target_sold = func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
+    
+    # ✅ Count of distinct communities per parent co
+    communities_count = func.count(func.distinct(Client.ID_Client)).label("communities_count")
+
     # ✅ NEW: status breakdown columns (safe labels)
     status_label_map = [(s, f"st_{i:02d}")
                         for i, s in enumerate(STATUS_BREAKDOWN_LIST)]
@@ -955,6 +911,19 @@ def parent_mgmt_co_metrics():
             )
 
     with get_session() as session:
+        # --- GLOBAL SUMMARY ---
+        summary_stmt = select(
+            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), 1), else_=0)), 0).label("quotes_count"),
+            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, is_inprog), 1), else_=0)), 0).label("inprog_count"),
+            func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
+            func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
+            func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
+        ).select_from(Job).join(Client, Job.ID_Client == Client.ID_Client, isouter=True)
+        
+        glob_summary = session.exec(summary_stmt).first()
+
         total_pmc_stmt = select(func.count()).select_from(ParentMgmtCo)
         total_pmc = session.exec(total_pmc_stmt).one() or 0
 
@@ -975,6 +944,9 @@ def parent_mgmt_co_metrics():
                 closed_qid, closed_ptl, closed_par,
 
                 revenue_all, revenue_qid, revenue_ptl, revenue_par,
+                
+                quotes_count, quotes_revenue, inprog_revenue, paid_revenue, ave_target_sold,
+                communities_count,
 
                 *status_cols,  # ✅ NEW
             )
@@ -1027,8 +999,47 @@ def parent_mgmt_co_metrics():
 
     pmcs = []
     for r in rows:
+        pmc_id = r.pmc_id
         total_all_v = int(r.total_all or 0)
         completed_all_v = int(r.completed_all or 0)
+
+        # 1) Top Communities subquery
+        paid_jobs_col = func.sum(case((is_closed, 1), else_=0))
+        total_jobs_col = func.count(Job.ID_Jobs)
+        top_comm_stmt = select(
+            Client.ID_Client.label("client_id"),
+            Client.Client_Community.label("name"),
+            total_jobs_col.label("total_jobs"),
+            paid_jobs_col.label("paid_jobs")
+        ).select_from(Client)\
+         .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)\
+         .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)\
+         .group_by(Client.ID_Client, Client.Client_Community)\
+         .order_by(paid_jobs_col.desc(), total_jobs_col.desc(), Client.Client_Community.asc())\
+         .limit(5)
+         
+        with get_session() as ds_session:
+            tc_rows = ds_session.exec(top_comm_stmt).all()
+            top_communities = [{"id": tc.client_id, "name": tc.name, "total_jobs": tc.total_jobs or 0, "paid_jobs": tc.paid_jobs or 0} for tc in tc_rows]
+
+            # 2) Member Assignments subquery
+            rev_col = func.sum(revenue_expr)
+            member_assign_stmt = select(
+                Client.Client_Community.label("community_name"),
+                Member.Member_Name.label("member_name"),
+                rev_col.label("revenue")
+            ).select_from(Job)\
+             .join(Client, Job.ID_Client == Client.ID_Client)\
+             .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)\
+             .join(Member, JobMemberLink.member_id == Member.ID_Member)\
+             .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)\
+             .group_by(Client.Client_Community, Member.Member_Name)\
+             .order_by(rev_col.desc())\
+             .limit(10)
+             
+            ma_rows = ds_session.exec(member_assign_stmt).all()
+            member_assignments = [{"community_name": ma.community_name, "member_name": ma.member_name, "revenue": float(ma.revenue or 0.0)} for ma in ma_rows]
+
 
         item = {
             "rank_closed": int(r.rank_closed),
@@ -1039,6 +1050,18 @@ def parent_mgmt_co_metrics():
                 "name": r.pmc_name,
                 "hq": r.pmc_hq,
             },
+            "dashboard_stats": {
+                "total_amount_of_quotes": int(r.quotes_count or 0),
+                "dollars_quoted": float(r.quotes_revenue or 0.0),
+                "in_progress_jobs_count": int(r.inprog_all or 0),
+                "dollars_in_progress": float(r.inprog_revenue or 0.0),
+                "paid_jobs_count": int(r.closed_all or 0),
+                "dollars_paid": float(r.paid_revenue or 0.0),
+                "ave_target_sold_pct": round(float(r.ave_target_sold or 0.0), 2),
+                "communities_count": int(r.communities_count or 0)
+            },
+            "top_communities": top_communities,
+            "community_assignments": member_assignments,
             "totals": {
                 "all": int(r.total_all or 0),
                 "qid": int(r.total_qid or 0),
@@ -1102,19 +1125,34 @@ def parent_mgmt_co_metrics():
 
     total_pages = (int(total_pmc) + limit - 1) // limit if total_pmc else 1
 
+    # Format the global summary
+    global_s = glob_summary._mapping if glob_summary else {}
+    summary_data = {
+        "total_amount_of_quotes": int(global_s.get("quotes_count", 0)),
+        "dollars_quoted": float(global_s.get("quotes_revenue", 0.0)),
+        "in_progress_jobs_count": int(global_s.get("inprog_count", 0)),
+        "dollars_in_progress": float(global_s.get("inprog_revenue", 0.0)),
+        "paid_jobs_count": int(global_s.get("paid_count", 0)),
+        "dollars_paid": float(global_s.get("paid_revenue", 0.0)),
+        "ave_target_sold_pct": round(float(global_s.get("ave_target_sold", 0.0)), 2)
+    }
+
     return jsonify({
         "type": job_type,
         "year": year,
         "order_by": order_by,
         # opcional, útil para debug
         "include_status_breakdown": 1 if include_status_breakdown else 0,
-        "pagination": {
-            "page": page,
-            "limit": limit,
-            "total_parent_mgmt_cos": int(total_pmc),
-            "total_pages": int(total_pages),
-        },
-        "parent_mgmt_cos": pmcs
+        "summary": summary_data,
+        "individual_stats": {
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total_parent_mgmt_cos": int(total_pmc),
+                "total_pages": int(total_pages),
+            },
+            "parent_mgmt_cos": pmcs
+        }
     }), 200
 
 
