@@ -70,7 +70,6 @@ def is_recent_event(item_id):
     ts = recent_events.get(item_id_str)
     if ts and (time.time() - ts < ANTI_LOOP_WINDOW):
         print(f"⛔ Ignorando webhook (evento reciente): {item_id_str}")
-        del recent_events[item_id_str]
         return True
     return False
 
