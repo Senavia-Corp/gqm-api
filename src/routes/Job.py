@@ -51,7 +51,7 @@ def serialize_job(job_dict, policies):
     if PolicyEvaluator.evaluate(policies, "job:read"):
         return job_dict
     elif PolicyEvaluator.evaluate(policies, "job:read_basics"):
-        return JobReadBasic.model_validate(job_dict).model_dump(exclude_unset=True)
+        return JobReadBasic.model_validate(job_dict).model_dump(mode='json', exclude_unset=True)
     return job_dict
 
 
@@ -141,11 +141,27 @@ def list_jobs_table():
         status = request.args.get("status")
         year = request.args.get("year")
         search = request.args.get("search", "").strip()
+        client_id = request.args.get("client_id")
+        member_id = request.args.get("member_id")
+        parent_mgmt_co_id = request.args.get("parent_mgmt_co_id")
+        date_from_raw = request.args.get("date_from")
+        date_to_raw = request.args.get("date_to")
 
         if job_type:
             job_type = job_type.upper()
 
         year_int = None
+        date_from = None
+        date_to = None
+
+        try:
+            if date_from_raw:
+                date_from = datetime.fromisoformat(date_from_raw)
+            if date_to_raw:
+                date_to = datetime.fromisoformat(date_to_raw)
+        except ValueError:
+            return jsonify({"detail": "Invalid date format. Use ISO 8601 (YYYY-MM-DD)."}), 400
+
         if year:
             try:
                 year_int = int(year)
@@ -172,7 +188,7 @@ def list_jobs_table():
             if job_type:
                 statement = statement.where(Job.Job_type == job_type)
             if status:
-                statement = statement.where(Job.Job_status == status)
+                statement = statement.where(Job.Job_status.ilike(status))
 
             if search:
                 pattern = f"%{search}%"
@@ -189,6 +205,52 @@ def list_jobs_table():
                         Job.members.any(Member.Member_Name.ilike(pattern))
                     )
                 )
+
+            # --- Filtro por miembro ---
+            if member_id:
+                statement = statement.where(
+                    Job.members.any(Member.ID_Member == member_id)
+                )
+
+            # --- Filtro por cliente ---
+            if client_id:
+                statement = statement.where(Job.ID_Client == client_id)
+
+            # --- Filtro por compañía padre ---
+            if parent_mgmt_co_id:
+                statement = statement.where(
+                    Job.client.has(Client.ID_Community_Tracking == parent_mgmt_co_id)
+                )
+
+            # --- Filtro por rango de fechas ---
+            if date_from or date_to:
+                if job_type == "PTL":
+                    date_col = Job.Estimated_start_date
+                elif job_type:
+                    date_col = Job.Date_assigned
+                else:
+                    # Sin tipo conocido: OR entre PTL y no-PTL
+                    if date_from:
+                        statement = statement.where(or_(
+                            and_(Job.Job_type == "PTL",
+                                 Job.Estimated_start_date >= date_from),
+                            and_(Job.Job_type != "PTL",
+                                 Job.Date_assigned >= date_from),
+                        ))
+                    if date_to:
+                        statement = statement.where(or_(
+                            and_(Job.Job_type == "PTL",
+                                 Job.Estimated_start_date <= date_to),
+                            and_(Job.Job_type != "PTL",
+                                 Job.Date_assigned <= date_to),
+                        ))
+                    date_col = None
+
+                if date_col is not None:
+                    if date_from:
+                        statement = statement.where(date_col >= date_from)
+                    if date_to:
+                        statement = statement.where(date_col <= date_to)
 
             if year_int is not None:
                 if job_type == "PTL":
@@ -208,11 +270,12 @@ def list_jobs_table():
                              Job.Date_assigned.is_not(None),
                              extract("year", Job.Date_assigned) == year_int)))
 
+            # --- Preparar count_stmt con EXACTAMENTE los mismos filtros ---
             count_stmt = select(func.count()).select_from(Job)
             if job_type:
                 count_stmt = count_stmt.where(Job.Job_type == job_type)
             if status:
-                count_stmt = count_stmt.where(Job.Job_status == status)
+                count_stmt = count_stmt.where(Job.Job_status.ilike(status))
 
             if search:
                 pattern = f"%{search}%"
@@ -229,6 +292,47 @@ def list_jobs_table():
                         Job.members.any(Member.Member_Name.ilike(pattern))
                     )
                 )
+
+            if member_id:
+                count_stmt = count_stmt.where(
+                    Job.members.any(Member.ID_Member == member_id)
+                )
+
+            if client_id:
+                count_stmt = count_stmt.where(Job.ID_Client == client_id)
+
+            if parent_mgmt_co_id:
+                count_stmt = count_stmt.where(
+                    Job.client.has(Client.ID_Community_Tracking == parent_mgmt_co_id)
+                )
+
+            if date_from or date_to:
+                if job_type == "PTL":
+                    date_col = Job.Estimated_start_date
+                elif job_type:
+                    date_col = Job.Date_assigned
+                else:
+                    if date_from:
+                        count_stmt = count_stmt.where(or_(
+                            and_(Job.Job_type == "PTL",
+                                 Job.Estimated_start_date >= date_from),
+                            and_(Job.Job_type != "PTL",
+                                 Job.Date_assigned >= date_from),
+                        ))
+                    if date_to:
+                        count_stmt = count_stmt.where(or_(
+                            and_(Job.Job_type == "PTL",
+                                 Job.Estimated_start_date <= date_to),
+                            and_(Job.Job_type != "PTL",
+                                 Job.Date_assigned <= date_to),
+                        ))
+                    date_col = None
+
+                if date_col is not None:
+                    if date_from:
+                        count_stmt = count_stmt.where(date_col >= date_from)
+                    if date_to:
+                        count_stmt = count_stmt.where(date_col <= date_to)
 
             if year_int is not None:
                 if job_type == "PTL":
@@ -265,10 +369,13 @@ def list_jobs_table():
             out = []
             for j in results:
                 j_dict = {
-                    "ID_Jobs": j.ID_Jobs, "Job_type": j.Job_type,
-                    "Project_name": j.Project_name, "Project_location": j.Project_location,
-                    "Job_status": j.Job_status, "Date_assigned": j.Date_assigned,
-                    "Estimated_start_date": j.Estimated_start_date,
+                    "ID_Jobs": j.ID_Jobs, 
+                    "Job_type": j.Job_type,
+                    "Project_name": j.Project_name, 
+                    "Project_location": j.Project_location,
+                    "Job_status": j.Job_status, 
+                    "Date_assigned": j.Date_assigned.isoformat() if j.Date_assigned else None,
+                    "Estimated_start_date": j.Estimated_start_date.isoformat() if j.Estimated_start_date else None,
                     "Service_type": j.Service_type,
                     "Gqm_formula_pricing": j.Gqm_formula_pricing,
                     "Gqm_target_return": j.Gqm_target_return,
@@ -288,7 +395,13 @@ def list_jobs_table():
 
             policies = getattr(g, "user_policies", [])
             out = [serialize_job(j, policies) for j in out]
-            return jsonify({"page": page, "limit": limit, "total": total, "results": out}), 200
+            result_payload = {
+                "page": page, 
+                "limit": limit, 
+                "total": total, 
+                "results": out
+            }
+            return jsonify(result_payload), 200
 
     except Exception as e:
         print(f"Error jobs_table: {e}")

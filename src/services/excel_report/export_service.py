@@ -22,7 +22,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlmodel import Session, select
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, select as sa_select
+from sqlalchemy.orm import selectinload
 
 from .export_schema import JobExportColumns, JobExportFilters, JobExportRequest
 from src.models.JobModel import Job
@@ -95,9 +96,28 @@ def _apply_header(cell, fill: PatternFill) -> None:
 #  Consultas a BD
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _query_jobs(session: Session, filters: JobExportFilters) -> List[Job]:
+def _query_jobs(session: Session, filters: JobExportFilters, cols: JobExportColumns) -> List[Job]:
     query = select(Job)
 
+    # ── Optimizaciones (Eager Loading) ────────────────────────────────────────
+    if cols.include_client:
+        query = query.options(selectinload(Job.client))
+    if cols.include_members:
+        query = query.options(selectinload(Job.members))
+    if cols.include_subcontractors:
+        # Nota: aquí también cargamos la tabla intermedia si es necesario
+        query = query.options(selectinload(Job.subcontractors))
+    if cols.include_commissions:
+        # Cargamos comdetails y TAMBIÉN su comgroup relacionado para evitar N+1
+        query = query.options(
+            selectinload(Job.comdetails).selectinload(CommissionDetail.comgroup)
+        )
+    if cols.include_purchases:
+        query = query.options(selectinload(Job.purchases))
+    if cols.include_estimate_costs:
+        query = query.options(selectinload(Job.estimate_costs))
+
+    # ── Filtros ───────────────────────────────────────────────────────────────
     if filters.statuses:
         query = query.where(Job.Job_status.in_(filters.statuses))
 
@@ -105,15 +125,36 @@ def _query_jobs(session: Session, filters: JobExportFilters) -> List[Job]:
         query = query.where(Job.Job_type.in_(filters.job_types))
 
     if filters.member_ids:
-        query = (
-            query
-            .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
-            .where(JobMemberLink.member_id.in_(filters.member_ids))
-            .distinct()
-        )
+        # FIX: Evitamos .distinct() sobre toda la fila para no fallar con columnas JSON.
+        # Usamos IN subquery sobre el ID primario.
+        sub = sa_select(JobMemberLink.job_id).where(
+            JobMemberLink.member_id.in_(filters.member_ids))
+        query = query.where(Job.ID_Jobs.in_(sub))
+
+    if filters.client_id:
+        query = query.where(Job.ID_Client == filters.client_id)
+
+    if (filters.parent_mgmt_co_id):
+        query = query.where(Job.client.has(
+            Client.ID_Community_Tracking == filters.parent_mgmt_co_id))
+
+    if filters.search:
+        pattern = f"%{filters.search}%"
+        query = query.where(or_(
+            Job.Project_name.ilike(pattern),
+            Job.ID_Jobs.ilike(pattern),
+            Job.Project_location.ilike(pattern),
+            Job.Job_status.ilike(pattern),
+            Job.Service_type.ilike(pattern),
+            Job.client.has(Client.Client_Community.ilike(pattern)),
+            Job.client.has(Client.parent_mgmt_co.has(or_(
+                ParentMgmtCo.Property_mgmt_co.ilike(pattern),
+                ParentMgmtCo.Company_abbrev.ilike(pattern)
+            ))),
+            Job.members.any(Member.Member_Name.ilike(pattern))
+        ))
 
     # ── Filtro de fechas corregido ────────────────────────────────────────────
-    # Dentro de cada tipo el rango es AND; entre tipos distintos es OR.
     if filters.date_from or filters.date_to:
         active_types = [t.upper()
                         for t in (filters.job_types or ["QID", "PAR", "PTL"])]
@@ -273,14 +314,61 @@ def _collect_all_data(
 
     rows = []
 
+    # Pre-cargar miembros en lote
+    job_members_map = {}
+    if cols.include_members and jobs:
+        job_ids = [j.ID_Jobs for j in jobs]
+        member_rows = session.exec(
+            select(JobMemberLink, Member)
+            .join(Member, Member.ID_Member == JobMemberLink.member_id)
+            .where(JobMemberLink.job_id.in_(job_ids))
+            .order_by(JobMemberLink.job_id, JobMemberLink.rol)
+        ).all()
+        for link, member in member_rows:
+            if link.job_id not in job_members_map:
+                job_members_map[link.job_id] = []
+            job_members_map[link.job_id].append(
+                (link.rol, member.Member_Name or ""))
+
+    # Pre-cargar órdenes en lote
+    job_orders_map = {}
+    if cols.include_subcontractors and jobs:
+        podio_ids = [j.podio_item_id for j in jobs if j.podio_item_id]
+        order_rows = session.exec(
+            select(Order)
+            .where(Order.job_podio_id.in_(podio_ids))
+            .order_by(Order.ID_Order)
+        ).all()
+        for o in order_rows:
+            key = (o.job_podio_id, o.ID_Subcontractor)
+            if key not in job_orders_map:
+                job_orders_map[key] = []
+            job_orders_map[key].append(o)
+
+    # Pre-cargar Change Orders en lote
+    order_cos_map = {}
+    if cols.include_subcontractors and jobs:
+        job_ids = [j.ID_Jobs for j in jobs]
+        co_rows = session.exec(
+            select(ChangeOrder)
+            .where(ChangeOrder.ID_Jobs.in_(job_ids))
+            .order_by(ChangeOrder.ID_ChangeOrder)
+        ).all()
+        for co in co_rows:
+            key = (co.ID_Jobs, co.ID_Order)
+            if key not in order_cos_map:
+                order_cos_map[key] = []
+            order_cos_map[key].append(co)
+
     for job in jobs:
         row: Dict = {"_job": job}
 
         if cols.include_client:
-            row["_client_name"] = _get_client_name(session, job.ID_Client)
+            row["_client_name"] = (
+                job.client.Client_Community or "") if job.client else ""
 
         if cols.include_members:
-            members = _get_members_for_job(session, job.ID_Jobs)
+            members = job_members_map.get(job.ID_Jobs, [])
             row["_members"] = members
             from collections import Counter
             role_count = Counter(r for r, _ in members)
@@ -288,15 +376,18 @@ def _collect_all_data(
                 roles_seen[rol] = max(roles_seen.get(rol, 0), cnt)
 
         if cols.include_subcontractors:
-            subs = _get_subcontractors_for_job(session, job.ID_Jobs)
+            subs = job.subcontractors
             sub_data = []
             for i, sub in enumerate(subs):
-                orders = _get_orders_for_job_sub(
-                    session, job, sub.ID_Subcontractor)
+                if sub.Organization:
+                    sub.Organization = sub.Organization.replace(
+                        '"', '').replace('{', '').replace('}', '')
+
+                key = (job.podio_item_id, sub.ID_Subcontractor)
+                orders = job_orders_map.get(key, [])
                 orders_data = []
                 for j, order in enumerate(orders):
-                    cos = _get_change_orders_for_order(
-                        session, job.ID_Jobs, order.ID_Order)
+                    cos = order_cos_map.get((job.ID_Jobs, order.ID_Order), [])
                     orders_data.append({"order": order, "change_orders": cos})
 
                     if i >= len(max_co_per_order):
@@ -316,16 +407,29 @@ def _collect_all_data(
             row["_subs"] = sub_data
 
         if cols.include_commissions:
-            row["_commissions"] = _get_commissions_for_job(
-                session, job.ID_Jobs)
+            # Usar relación precargada 'comdetails'
+            # Necesitamos traer también el 'group' para el rol
+            commissions = {"Selling Commission": None, "Mgmt Commission": None}
+            for detail in job.comdetails:
+                # Usar comgroup (no group)
+                group = detail.comgroup
+                rol = (group.Rol or "").lower() if group else ""
+                val = detail.Sell_Mgmt
+                if val is None:
+                    continue
+                if "selling" in rol:
+                    commissions["Selling Commission"] = (commissions["Selling Commission"] or 0) + val
+                elif "mgmt" in rol:
+                    commissions["Mgmt Commission"] = (commissions["Mgmt Commission"] or 0) + val
+            row["_commissions"] = commissions
 
         if cols.include_purchases:
-            purchases = _get_purchases_for_job(session, job.ID_Jobs)
+            purchases = job.purchases
             row["_purchases"] = purchases
             max_purchases = max(max_purchases, len(purchases))
 
         if cols.include_estimate_costs:
-            ecs = _get_estimate_costs_for_job(session, job.ID_Jobs)
+            ecs = job.estimate_costs
             row["_estimate_costs"] = ecs
             max_estimate_costs = max(max_estimate_costs, len(ecs))
 
@@ -583,7 +687,7 @@ def _write_excel(rows: List[Dict], column_schema: List[Dict]) -> bytes:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_jobs_excel(session: Session, request: JobExportRequest) -> bytes:
-    jobs = _query_jobs(session, request.filters)
+    jobs = _query_jobs(session, request.filters, request.columns)
 
     if not jobs:
         wb = Workbook()

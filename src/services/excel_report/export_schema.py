@@ -41,11 +41,14 @@ class JobExportFilters(BaseModel):
       QID / PAR → Date_assigned         (AND dentro del rango)
     Si se mezclan tipos se aplica OR entre bloques de tipo.
     """
-    statuses:   Optional[List[str]] = None
-    member_ids: Optional[List[str]] = None
-    job_types:  Optional[List[str]] = None
-    date_from:  Optional[datetime] = None
-    date_to:    Optional[datetime] = None
+    statuses:           Optional[List[str]] = None
+    member_ids:         Optional[List[str]] = None
+    job_types:          Optional[List[str]] = None
+    date_from:          Optional[datetime] = None
+    date_to:            Optional[datetime] = None
+    search:             Optional[str] = None
+    client_id:          Optional[str] = None
+    parent_mgmt_co_id:  Optional[str] = None
 
 
 class JobExportColumns(BaseModel):

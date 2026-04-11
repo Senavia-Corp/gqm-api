@@ -60,7 +60,7 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 # Rutas de métricas
-from src.routes.MetricsJobs import metrics_bp
+from src.routes.Metrics import metrics_bp
 from src.routes.financial_routes.financial_metrics_bp import financial_metrics_bp
 from src.routes.timeline_metrics_bp import timeline_metrics_bp
 from src.routes.financial_routes.FinancialJobReports import financial_jobs_bp
