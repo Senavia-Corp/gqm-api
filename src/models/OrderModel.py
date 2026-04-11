@@ -41,6 +41,7 @@ class Order(OrderBase, table=True):
 class OrderCreate(OrderBase):
     ID_Subcontractor: Optional[str] = None
     job_podio_id: Optional[str] = None
+    estimate_cost_ids: Optional[List[str]] = None
 
 
 class OrderUpdate(OrderBase):

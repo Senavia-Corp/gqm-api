@@ -49,6 +49,10 @@ def upsert_order(
         )
     ).first()
 
+    if not existing_order and (formula is None or float(formula or 0) == 0):
+        # ⛔ No creamos órdenes nuevas si no tienen fórmula (slots vacíos en Podio)
+        return None, False
+
     if existing_order:
 
         changed = False

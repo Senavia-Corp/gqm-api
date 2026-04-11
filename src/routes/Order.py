@@ -24,7 +24,7 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
 from ..utils.mappers.mapper_aux_functions import register_event
 from sqlalchemy import or_
 from src.utils.audit import audit
-from src.utils.job_calculator import recalculate_and_apply  # ← NEW
+from src.utils.job_calculator import recalculate_and_apply, recalculate_order_formulas  # ← MODIFIED
 
 # Blueprint de Order:
 order_bp = Blueprint("order_blueprint", __name__, url_prefix="/order")
@@ -211,6 +211,12 @@ def create_order():
     create_order = OrderCreate.model_validate(data)
     obj = Order(
         **create_order.model_dump(exclude_unset=False, exclude_none=False))
+        
+    # 🔥 FIX RACE CONDITION TEMPRANO 🔥
+    # Registrar el evento apenas entra el request. Así interceptamos cualquier webhook
+    # que Podio ya haya despachado debido a acciones del frontend (ej: vincular subcontractor).
+    if obj.job_podio_id:
+        register_event(obj.job_podio_id)
 
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
@@ -222,10 +228,32 @@ def create_order():
             400)
 
     with get_session() as session:
-
-        # ----------- 🔵 CREAR EN DB
+        # ----------- 💾 GENERAR ID Y PRE-GUARDAR
         new_id = generate_custom_id(session, Order, "ID_Order", "ORD")
         obj.ID_Order = new_id
+        session.add(obj)
+
+        # ----------- 🔵 ASOCIAR ESTIMATE COSTS (SI VIENEN)
+        if create_order.estimate_cost_ids:
+            statement = select(EstimateCost).where(
+                EstimateCost.ID_EstimateCost.in_(create_order.estimate_cost_ids)
+            )
+            costs = session.exec(statement).all()
+            obj.estimate_costs = list(costs)
+            
+        session.flush()
+
+        # ── Recálculo inicial de fórmulas de la Order ──────────────────────
+        recalculate_order_formulas(obj.ID_Order, session)
+        session.refresh(obj) # Asegurar recargar los valores calculados en memoria
+
+        # VALIDACIÓN: No permitir órdenes con fórmula 0
+        if not obj.Formula or obj.Formula == 0:
+            raise AppException(
+                "No se puede crear una Order con fórmula 0 o sin estimate costs asociados.",
+                "invalid_formula_zero",
+                400
+            )
 
         # ----------- 🟢 SINCRONIZAR EN PODIO (SI APLICA)
         if sync_podio:
@@ -235,6 +263,8 @@ def create_order():
                     "missing_job_podio_id",
                     400
                 )
+
+            # Flush eliminado, se hará el commit completo más adelante
 
             job = session.exec(
                 select(Job).where(Job.podio_item_id == obj.job_podio_id)
@@ -270,19 +300,33 @@ def create_order():
                     400
                 )
 
+            # 🔥 FIX RACE CONDITION 🔥
+            # Guardamos la orden localmente (ya tiene tech_field) ANTES de avisar a Podio.
+            # Esto evita que si hay webhooks despachados previamente (como la vinculación 
+            # del subcontratista desde el frontend) que lleguen concurrentemente a este endpoint,
+            # puedan no encontrar la orden y dupliquen el slot.
+            try:
+                session.commit()
+            except Exception as db_err:
+                session.rollback()
+                raise AppException("Error guardando temporalmente la orden.", "db_tmp_save_error", 500)
+
             try:
                 podio_service.update_item(obj.job_podio_id, payload)
-                register_event(obj.job_podio_id)
 
             except Exception as podio_err:
+                # Rollback compensatorio
+                session.delete(obj)
+                session.commit()
                 raise AppException(
                     f"No se pudo sincronizar Order con Podio: {podio_err}",
                     "podio_sync_failed",
                     400
                 )
 
-        # ----------- 💾 GUARDAR EN DB
-        save_with_retry(session, obj)
+        else:
+            # Si sync_podio es falso, aplicamos el guardado normal aquí
+            save_with_retry(session, obj)
 
         logger.info(
             "✅ Order creado | order_id=%s | job_item_id=%s",
@@ -291,7 +335,6 @@ def create_order():
         )
 
         # ── Recálculo automático del Job asociado ─────────────────────────
-        # Resolver job_id: primero por podio_item_id, luego por estimate_costs
         job_id_for_calc = None
         if obj.job_podio_id:
             linked_job = session.exec(
@@ -330,6 +373,10 @@ def update_order(id_order):
 
         if not order:
             raise AppException("Order not found", "order_not_found", 404)
+            
+        # 🔥 FIX RACE CONDITION TEMPRANO 🔥
+        if order.job_podio_id:
+            register_event(order.job_podio_id)
 
         # Capturar job_id ANTES de modificar el objeto (por si job_podio_id cambiara)
         job_id_for_calc = None
@@ -374,7 +421,6 @@ def update_order(id_order):
             try:
                 if payload:
                     podio_service.update_item(order.job_podio_id, payload)
-                    register_event(order.job_podio_id)
 
             except Exception as podio_err:
                 raise AppException(
@@ -420,6 +466,10 @@ def delete_order(id_order):
 
         if not order:
             raise AppException("Order not found", "order_not_found", 404)
+            
+        # 🔥 FIX RACE CONDITION TEMPRANO 🔥
+        if order.job_podio_id:
+            register_event(order.job_podio_id)
 
         # Capturar job_id ANTES de borrar — después el objeto ya no tiene relaciones
         job_id_for_calc = None
@@ -462,7 +512,6 @@ def delete_order(id_order):
             try:
                 if payload:
                     podio_service.update_item(order.job_podio_id, payload)
-                    register_event(order.job_podio_id)
 
             except Exception as podio_err:
                 raise AppException(
@@ -470,6 +519,16 @@ def delete_order(id_order):
                     "podio_sync_failed",
                     400
                 )
+
+        # ----------- 🧹 DESVINCULAR ESTIMATE COSTS (Evitar fallos de Foreing Key)
+        costs = session.exec(
+            select(EstimateCost).where(EstimateCost.ID_Order == order.ID_Order)
+        ).all()
+        for c in costs:
+            c.ID_Order = None
+            session.add(c)
+        # Hacemos flush para asegurar que se removieron de la tabla antes del DELETE
+        session.flush()
 
         # ----------- 🔴 BORRAR EN DB
         delete_with_retry(session, order)
