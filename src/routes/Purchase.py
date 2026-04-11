@@ -15,6 +15,7 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from sqlalchemy import func, or_
 from src.utils.job_calculator import recalculate_and_apply
+from src.utils.middleware.auth.routes_protection import require_permission
 
 
 # Blueprint de Purchase:
@@ -27,6 +28,7 @@ purchase_bp = Blueprint("purchase_blueprint",
 # --------------------RUTAS GET-------------------#
 
 @purchase_bp.get("/")
+@require_permission("purchase:read")
 @paginate()
 def list_purchases():
     try:
@@ -71,6 +73,7 @@ def list_purchases():
 
 
 @purchase_bp.get("/table")
+@require_permission("purchase:read")
 def list_purchases_table():
     try:
         q_param = request.args.get("q",       "").strip()
@@ -182,6 +185,7 @@ def list_purchases_table():
 
 
 @purchase_bp.get("/<id_purchase>")
+@require_permission("purchase:read")
 def get_purchase(id_purchase):
     try:
         with get_session() as session:
@@ -227,6 +231,7 @@ def get_purchase(id_purchase):
 # --------------- RUTAS POST, PATCH AND DELETE ----------#
 
 @purchase_bp.post("/")
+@require_permission("purchase:create")
 def create_purchase():
     try:
         data = request.get_json()
@@ -285,6 +290,7 @@ def create_purchase():
 
 
 @purchase_bp.patch("/<id_purchase>")
+@require_permission("purchase:update")
 def update_purchase(id_purchase):
     session = None
     try:
@@ -349,6 +355,7 @@ def update_purchase(id_purchase):
 
 
 @purchase_bp.delete("/<id_purchase>")
+@require_permission("purchase:delete")
 def delete_purchase(id_purchase):
     session = None
     try:

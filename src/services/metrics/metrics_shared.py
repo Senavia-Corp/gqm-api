@@ -1,6 +1,10 @@
+# src/services/metrics/metrics_shared.py
 from sqlalchemy import func, extract, and_, or_, case, literal
 from ...models.JobModel import Job
 
+# ---------------------------------------------------------------------------
+# Status catalogs
+# ---------------------------------------------------------------------------
 STATUS_CATALOG = {
     "QID": [
         "Assigned/P. Quote",
@@ -29,6 +33,86 @@ STATUS_CATALOG = {
     ],
 }
 
+# ---------------------------------------------------------------------------
+# Status buckets
+# ---------------------------------------------------------------------------
+PENDING_BY_TYPE = {
+    "QID": {"Assigned/P. Quote", "Waiting for Approval", "HOLD"},
+    "PTL": {"Received-Stand By"},
+    "PAR": set(),
+}
+
+INPROGRESS_BY_TYPE = {
+    "QID": {"Scheduled / Work in Progress"},
+    "PTL": {"Assigned-In progress"},
+    "PAR": {"In Progress"},
+}
+
+INPROGRESS_ALL = (
+    INPROGRESS_BY_TYPE["QID"]
+    | INPROGRESS_BY_TYPE["PTL"]
+    | INPROGRESS_BY_TYPE["PAR"]
+)
+
+COMPLETED_BY_TYPE = {
+    "QID": {"Completed P. INV / POs", "Invoiced", "PAID", "Warranty"},
+    "PTL": {"Completed PVI", "Paid"},
+    "PAR": {"Completed P. INV / POs", "Invoiced", "PAID"},
+}
+
+CANCELLED_STATUS = "Cancelled"
+
+CLOSED_BY_TYPE = {
+    "QID": {"PAID"},
+    "PAR": {"PAID"},
+    "PTL": {"Paid"},
+}
+
+PAID_STATUSES = {"PAID", "Paid"}
+
+# Jobs que están listos para facturar (terminados pero no invoiced/paid aún)
+READY_TO_INVOICE_BY_TYPE = {
+    "QID": {"Completed P. INV / POs"},
+    "PTL": {"Completed PVI"},
+    "PAR": {"Completed PVI / POs"},
+}
+
+READY_TO_INVOICE_ALL = (
+    READY_TO_INVOICE_BY_TYPE["QID"]
+    | READY_TO_INVOICE_BY_TYPE["PTL"]
+    | READY_TO_INVOICE_BY_TYPE["PAR"]
+)
+
+# Active statuses for pipeline calculation (not paid/cancelled)
+ACTIVE_STATUSES = (
+    PENDING_BY_TYPE["QID"]
+    | PENDING_BY_TYPE["PTL"]
+    | INPROGRESS_ALL
+)
+
+# Full breakdown list (all statuses across all types)
+STATUS_BREAKDOWN_LIST = [
+    "Assigned/P. Quote",
+    "Waiting for Approval",
+    "Scheduled / Work in Progress",
+    "Cancelled",
+    "Completed P. INV / POs",
+    "Invoiced",
+    "HOLD",
+    "PAID",
+    "Warranty",
+    "Received-Stand By",
+    "Assigned-In progress",
+    "Completed PVI",
+    "Paid",
+    "In Progress",
+    "Completed PVI / POs",
+]
+
+# ---------------------------------------------------------------------------
+# Normalizers
+# ---------------------------------------------------------------------------
+
 def _norm_job_type(value: str | None) -> str | None:
     if not value:
         return None
@@ -51,12 +135,17 @@ def _norm_year(value: str | None) -> int | None:
         return None
     return y
 
+
+# ---------------------------------------------------------------------------
+# Year filter helper
+# ---------------------------------------------------------------------------
+
 def _apply_year_filter(stmt, job_type: str, year: int):
     """
-    Aplica el filtro de año según el tipo.
-    - PTL -> Estimated_start_date
+    Applies year filter based on job type:
+    - PTL  -> Estimated_start_date
     - QID/PAR -> Date_assigned
-    - ALL -> OR combinando ambos criterios
+    - ALL  -> OR combining both
     """
     if job_type == "PTL":
         return stmt.where(

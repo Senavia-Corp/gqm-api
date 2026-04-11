@@ -5,7 +5,7 @@ import sys
 # Middleware de logs para todos los request:
 from src.utils.middleware.logs.request_logger import register_request_logger
 # Blueprints:
-from src.routes.Job import job_bp
+from src.routes.Job import job_bp, job_excel_bp
 from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp, job_subcontractor_bp, job_payment_unit_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
@@ -60,7 +60,7 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 # Rutas de métricas
-from src.routes.MetricsJobs import metrics_bp
+from src.routes.Metrics import metrics_bp
 from src.routes.financial_routes.financial_metrics_bp import financial_metrics_bp
 from src.routes.timeline_metrics_bp import timeline_metrics_bp
 from src.routes.financial_routes.FinancialJobReports import financial_jobs_bp
@@ -100,6 +100,7 @@ def create_app():
     app.register_blueprint(fdocument_ftransaction_bp)
     app.register_blueprint(inventory_bp)
     app.register_blueprint(job_bp)
+    app.register_blueprint(job_excel_bp)
     app.register_blueprint(job_multiplier_bp)
     app.register_blueprint(job_member_bp)
     app.register_blueprint(job_subcontractor_bp)
