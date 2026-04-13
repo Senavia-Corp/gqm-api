@@ -54,10 +54,11 @@ INPROGRESS_ALL = (
     | INPROGRESS_BY_TYPE["PAR"]
 )
 
+# "Completed" = trabajo terminado, listo para facturar (antes READY_TO_INVOICE)
 COMPLETED_BY_TYPE = {
-    "QID": {"Completed P. INV / POs", "Invoiced", "PAID", "Warranty"},
-    "PTL": {"Completed PVI", "Paid"},
-    "PAR": {"Completed P. INV / POs", "Invoiced", "PAID"},
+    "QID": {"Completed P. INV / POs"},
+    "PTL": {"Completed PVI"},
+    "PAR": {"Completed PVI / POs"},
 }
 
 CANCELLED_STATUS = "Cancelled"
@@ -69,19 +70,6 @@ CLOSED_BY_TYPE = {
 }
 
 PAID_STATUSES = {"PAID", "Paid"}
-
-# Jobs que están listos para facturar (terminados pero no invoiced/paid aún)
-READY_TO_INVOICE_BY_TYPE = {
-    "QID": {"Completed P. INV / POs"},
-    "PTL": {"Completed PVI"},
-    "PAR": {"Completed PVI / POs"},
-}
-
-READY_TO_INVOICE_ALL = (
-    READY_TO_INVOICE_BY_TYPE["QID"]
-    | READY_TO_INVOICE_BY_TYPE["PTL"]
-    | READY_TO_INVOICE_BY_TYPE["PAR"]
-)
 
 # Active statuses for pipeline calculation (not paid/cancelled)
 ACTIVE_STATUSES = (

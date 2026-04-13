@@ -60,11 +60,12 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 # Rutas de métricas
-from src.routes.Metrics import metrics_bp
+from src.services.metrics.aux_func_metrics import metrics_bp
 from src.routes.financial_routes.financial_metrics_bp import financial_metrics_bp
 from src.routes.timeline_metrics_bp import timeline_metrics_bp
 from src.routes.financial_routes.FinancialJobReports import financial_jobs_bp
-
+from src.routes.Dashboard.CommunitiesM import communities_bp
+from src.routes.Dashboard.JobsM import job_metrics_bp
 
 # Test
 from src.tests.debug_podio import debug_bp
@@ -158,9 +159,10 @@ def create_app():
     app.register_blueprint(financial_metrics_bp)
     app.register_blueprint(timeline_metrics_bp)
     app.register_blueprint(financial_jobs_bp)
+    app.register_blueprint(communities_bp)
+    app.register_blueprint(job_metrics_bp)
 
     # Ruta simple
-
     @app.get("/")
     def root():
         return "API corriendo correctamente."

@@ -118,24 +118,24 @@ def sync_jobs(job_type: str, year: int, limit: int = 30, offset: int = 0, dry_ru
 
                 return mapped """
 
-            # ✅ VALIDACIÓN POST-MIGRACIÓN (mismo batch)
-            validation = validate_batch_jobs(
-                items=items,
-                session=session,
-                mapper_fn=map_podio_item_to_job,
-                job_type=job_type,
-                year=year,
-                offset=offset,
-                limit=limit,
-                report_dir="reports/jobs_validation",
-                write_report=True
-            )
+            # # ✅ VALIDACIÓN POST-MIGRACIÓN (mismo batch)
+            # validation = validate_batch_jobs(
+            #     items=items,
+            #     session=session,
+            #     mapper_fn=map_podio_item_to_job,
+            #     job_type=job_type,
+            #     year=year,
+            #     offset=offset,
+            #     limit=limit,
+            #     report_dir="reports/jobs_validation",
+            #     write_report=True
+            # )
 
-            print("🧪 VALIDATION SUMMARY:", validation["summary"])
-            if validation["reports"]:
-                print("📄 REPORT CSV:", validation["reports"].get("csv"))
-                print("📄 SUMMARY JSON:",
-                      validation["reports"].get("summary_json"))
+            # print("🧪 VALIDATION SUMMARY:", validation["summary"])
+            # if validation["reports"]:
+            #     print("📄 REPORT CSV:", validation["reports"].get("csv"))
+            #     print("📄 SUMMARY JSON:",
+            #           validation["reports"].get("summary_json"))
 
     return {
         "processed": len(items),

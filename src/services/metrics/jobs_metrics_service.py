@@ -1,4 +1,3 @@
-# src/services/metrics/jobs_metrics_service.py
 from __future__ import annotations
 
 from sqlmodel import select
@@ -16,8 +15,7 @@ from .metrics_shared import (
     STATUS_CATALOG,
     INPROGRESS_BY_TYPE,
     INPROGRESS_ALL,
-    READY_TO_INVOICE_BY_TYPE,
-    READY_TO_INVOICE_ALL,
+    COMPLETED_BY_TYPE,
     PAID_STATUSES,
     ACTIVE_STATUSES,
     _norm_job_type,
@@ -79,14 +77,14 @@ def _get_inprogress_statuses(job_type: str | None) -> set[str]:
     return INPROGRESS_ALL
 
 
-def _get_ready_to_invoice_statuses(job_type: str | None) -> set[str]:
+def _get_completed_statuses(job_type: str | None) -> set[str]:
     if job_type and job_type != "ALL":
-        return READY_TO_INVOICE_BY_TYPE.get(job_type, set())
-    return READY_TO_INVOICE_ALL
+        return COMPLETED_BY_TYPE.get(job_type, set())
+    return COMPLETED_BY_TYPE["QID"] | COMPLETED_BY_TYPE["PTL"] | COMPLETED_BY_TYPE["PAR"]
 
 
 # ---------------------------------------------------------------------------
-# Main dashboard service
+# Función Job dashboard
 # ---------------------------------------------------------------------------
 
 def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
@@ -113,7 +111,8 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
         return None, ({"detail": "Invalid year. Use a valid number like 2025."}, 400)
 
     pct_col = _pct_col_expr(job_type if job_type != "ALL" else None)
-    pct_label = "Target Return %" if job_type in ("PTL", "PAR") else "Avg Final %"
+    pct_label = "Target Return %" if job_type in (
+        "PTL", "PAR") else "Avg Final %"
     final_col = _final_col_expr(job_type if job_type != "ALL" else None)
 
     normed_type = job_type  # "ALL" | "QID" | "PTL" | "PAR"
@@ -130,7 +129,8 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.count(Job.ID_Jobs).label("job_count"),
                 func.sum(Job.Gqm_target_sold_pricing).label("total_quoted"),
                 func.sum(Job.Gqm_formula_pricing).label("total_formula"),
-                func.sum(Job.Gqm_adj_formula_pricing).label("total_adj_formula"),
+                func.sum(Job.Gqm_adj_formula_pricing).label(
+                    "total_adj_formula"),
                 func.sum(final_col).label("total_final"),
                 func.sum(Job.Gqm_premium_in_money).label("total_premium"),
                 func.avg(pct_col).label("avg_final_pct"),
@@ -162,7 +162,8 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             # ------------------------------------------------------------------
             # 2. MONTHLY SALES (Chart: Paid jobs by date)
             # ------------------------------------------------------------------
-            effective_date = func.coalesce(Job.Date_assigned, Job.Estimated_start_date)
+            effective_date = func.coalesce(
+                Job.Date_assigned, Job.Estimated_start_date)
             month_key = func.to_char(effective_date, "YYYY-MM")
             month_name = func.to_char(effective_date, "Month")
 
@@ -405,21 +406,21 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 })
 
             # ------------------------------------------------------------------
-            # 8. READY TO INVOICE JOBS
+            # 8. COMPLETED JOBS (Ready to Invoice)
             # ------------------------------------------------------------------
-            inv_statuses = list(_get_ready_to_invoice_statuses(normed_type))
+            completed_statuses = list(_get_completed_statuses(normed_type))
 
             stmt_inv = (
                 select(Job, Client)
                 .outerjoin(Client, Client.ID_Client == Job.ID_Client)
-                .where(Job.Job_status.in_(inv_statuses))
+                .where(Job.Job_status.in_(completed_statuses))
                 .order_by(func.coalesce(Job.Date_assigned, Job.Estimated_start_date).asc().nullslast())
             )
             stmt_inv = _apply_base_filters(stmt_inv, normed_type, year)
 
             raw_inv = session.exec(stmt_inv).all()
 
-            # Batch-load reps for ready-to-invoice jobs
+            # Batch-load reps for completed jobs
             inv_ids = [row.Job.ID_Jobs for row in raw_inv]
             inv_rep_map: dict[str, list[str]] = {}
             if inv_ids:
@@ -493,7 +494,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
 
 
 # ---------------------------------------------------------------------------
-# Legacy wrapper (kept for backward compatibility with /reports/jobs PDF)
+# Función para el endpoint del PDF
 # ---------------------------------------------------------------------------
 
 def get_jobs_status_metrics_data(job_type_raw: str | None, year_raw: str | None):
