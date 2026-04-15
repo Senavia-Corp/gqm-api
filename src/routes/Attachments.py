@@ -27,6 +27,8 @@ attachments_bp = Blueprint("attachments_blueprint",
 @attachments_bp.get("/")
 @handle_exceptions()
 def list_attachments():
+    # Filtro opcional: ?access_level=members | technicians
+    access_level = request.args.get("access_level", "").strip().lower() or None
 
     with get_session() as session:
         statement = (
@@ -37,6 +39,10 @@ def list_attachments():
                 joinedload(Attachments.technician)
             )
         )
+
+        if access_level:
+            statement = statement.where(Attachments.access_level == access_level)
+
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -250,6 +256,7 @@ def upload_attachment():
             Link=cloudinary_result["secure_url"],
             Document_type=cloudinary_result["format"].lower() or mimetype,
             podio_file_id=podio_file_id,
+            access_level=access_level or None,
             **fk_kwargs
         )
 
