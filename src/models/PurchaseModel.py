@@ -18,7 +18,6 @@ class PurchaseBase(SQLModel):
     Status: Optional[str] = Field(default=None)
     Return_request: Optional[str] = Field(default=None)
     Return_status: Optional[str] = Field(default=None)
-    Purchase_note: Optional[str] = Field(default=None)
     Total_spending: Optional[float] = Field(default=None)
 
 
