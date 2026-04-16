@@ -12,6 +12,9 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from ..utils.middleware.auth.routes_protection import require_permission
+from ..utils.policy_evaluator import PolicyEvaluator
+from flask import g
 from src.podio.podio_auth import get_podio_headers
 from src.cloudinary.service import upload_to_cloudinary, delete_from_cloudinary, get_resource_type
 
@@ -25,6 +28,7 @@ attachments_bp = Blueprint("attachments_blueprint",
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los attachments
 @attachments_bp.get("/")
+@require_permission(["attachment:read", "attachment:read_members", "attachment:read_technicians"])
 @handle_exceptions()
 def list_attachments():
     # Filtro opcional: ?access_level=members | technicians
@@ -45,6 +49,18 @@ def list_attachments():
 
         results = session.exec(statement).unique().all()
 
+        # Filter by folder-level read permission when the user lacks global read
+        user_policies = getattr(g, "user_policies", [])
+        has_global_read = PolicyEvaluator.evaluate(user_policies, "attachment:read")
+        if not has_global_read:
+            can_read_members     = PolicyEvaluator.evaluate(user_policies, "attachment:read_members")
+            can_read_technicians = PolicyEvaluator.evaluate(user_policies, "attachment:read_technicians")
+            results = [
+                att for att in results
+                if (att.access_level == "technicians" and can_read_technicians)
+                or (att.access_level != "technicians" and can_read_members)
+            ]
+
         if not results:
             return jsonify("No se han encontrado archivos adjuntos."), 404
 
@@ -58,6 +74,7 @@ def list_attachments():
 
 # Ruta para conseguir un attachment por ID
 @attachments_bp.get("/<id_attachment>")
+@require_permission(["attachment:read", "attachment:read_members", "attachment:read_technicians"])
 @handle_exceptions()
 def get_attachment_by_id(id_attachment):
 
@@ -77,6 +94,14 @@ def get_attachment_by_id(id_attachment):
             raise AppException("Attachment no encontrado.",
                                "attachment_not_found", 404)
 
+        # Check folder-specific read permission
+        user_policies = getattr(g, "user_policies", [])
+        if not PolicyEvaluator.evaluate(user_policies, "attachment:read"):
+            folder = obj.access_level or "members"
+            folder_action = f"attachment:read_{folder}"
+            if not PolicyEvaluator.evaluate(user_policies, folder_action):
+                return jsonify({"error": "Forbidden: You do not have permission to read this attachment"}), 403
+
         attachment_data = add_relationships(
             obj, ["job", "subcontractor", "technician"])
 
@@ -88,6 +113,7 @@ def get_attachment_by_id(id_attachment):
 # UPLOAD (Frontend → Backend)
 # --> Flujo: Cloudinary → Podio → DB
 @attachments_bp.post("/upload")
+@require_permission(["attachment:create", "attachment:create_members", "attachment:create_technicians"])
 @handle_exceptions()
 def upload_attachment():
     """
@@ -125,6 +151,14 @@ def upload_attachment():
         )
 
     year = int(year) if year else None
+
+    # ── 1b. Folder-specific create permission check ──────────────
+    user_policies = getattr(g, "user_policies", [])
+    if not PolicyEvaluator.evaluate(user_policies, "attachment:create"):
+        folder_for_check = access_level if access_level in ["members", "technicians"] else "members"
+        folder_action = f"attachment:create_{folder_for_check}"
+        if not PolicyEvaluator.evaluate(user_policies, folder_action):
+            return jsonify({"error": f"Forbidden: You do not have permission to upload to the {folder_for_check} folder"}), 403
 
     # ── 2. Derivar entity_type y app_type del entity_id ──────────
     JOB_PREFIXES = ["QID", "PTL", "PAR"]
@@ -274,6 +308,7 @@ def upload_attachment():
 
 # Ruta para actualizar la metadata en DB
 @attachments_bp.patch("/<id_attachment>")
+@require_permission(["attachment:update", "attachment:update_members", "attachment:update_technicians"])
 @handle_exceptions()
 def update_attachment(id_attachment):
     data = request.get_json()
@@ -283,6 +318,14 @@ def update_attachment(id_attachment):
         if not obj:
             raise AppException("Attachment no encontrado.",
                                "attachment_not_found", 404)
+
+        # Check folder-specific update permission
+        user_policies = getattr(g, "user_policies", [])
+        if not PolicyEvaluator.evaluate(user_policies, "attachment:update"):
+            folder = obj.access_level or "members"
+            folder_action = f"attachment:update_{folder}"
+            if not PolicyEvaluator.evaluate(user_policies, folder_action):
+                return jsonify({"error": "Forbidden: You do not have permission to edit this attachment"}), 403
 
         update_att = AttachmentsUpdate.model_validate(data)
         update_data_dict = update_att.model_dump(exclude_unset=True)
@@ -302,6 +345,7 @@ def update_attachment(id_attachment):
 # Ruta para eliminar un attachment
 # --> Flujo: Cloudinary → Podio → DB
 @attachments_bp.delete("/<id_attachment>")
+@require_permission(["attachment:delete", "attachment:delete_members", "attachment:delete_technicians"])
 @handle_exceptions()
 def delete_attachment(id_attachment):
 
@@ -315,6 +359,14 @@ def delete_attachment(id_attachment):
         if not obj:
             raise AppException("Attachment no encontrado.",
                                "attachment_not_found", 404)
+
+        # Check folder-specific delete permission
+        user_policies = getattr(g, "user_policies", [])
+        if not PolicyEvaluator.evaluate(user_policies, "attachment:delete"):
+            folder = obj.access_level or "members"
+            folder_action = f"attachment:delete_{folder}"
+            if not PolicyEvaluator.evaluate(user_policies, folder_action):
+                return jsonify({"error": "Forbidden: You do not have permission to delete this attachment"}), 403
 
         # ----------- 🔴 BORRAR EN CLOUDINARY
         if obj.Link:
