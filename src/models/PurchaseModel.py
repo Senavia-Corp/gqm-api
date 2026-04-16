@@ -1,6 +1,8 @@
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
+from sqlalchemy import Column, TIMESTAMP, func
+from datetime import datetime
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from .MemberModel import Member
@@ -45,6 +47,16 @@ class Purchase(PurchaseBase, table=True):
     suppliers: List["Supplier"] = Relationship(  # type: ignore
         back_populates="purchases",
         link_model=PurchaseSupplierLink
+    )
+
+    # Timestamps automáticos
+    created_at: datetime = Field(
+        sa_column=Column(TIMESTAMP(timezone=True),
+                         server_default=func.now(), nullable=False)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(
+        ), onupdate=func.now(), nullable=False)
     )
 
 

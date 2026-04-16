@@ -66,6 +66,8 @@ from src.routes.timeline_metrics_bp import timeline_metrics_bp
 from src.routes.financial_routes.FinancialJobReports import financial_jobs_bp
 from src.routes.Dashboard.CommunitiesM import communities_bp
 from src.routes.Dashboard.JobsM import job_metrics_bp
+from src.routes.Dashboard.MembersM import member_metrics_bp
+from src.routes.Dashboard.SubcontractorsM import subcontractor_metrics_bp
 
 # Test
 from src.tests.debug_podio import debug_bp
@@ -155,12 +157,14 @@ def create_app():
     app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
 
     # Rutas de métricas
-    app.register_blueprint(metrics_bp)
-    app.register_blueprint(financial_metrics_bp)
-    app.register_blueprint(timeline_metrics_bp)
-    app.register_blueprint(financial_jobs_bp)
-    app.register_blueprint(communities_bp)
-    app.register_blueprint(job_metrics_bp)
+    app.register_blueprint(metrics_bp) # Para generar el pdf de Jobs
+    app.register_blueprint(financial_metrics_bp) # Para generar el pdf de financials de QBO
+    app.register_blueprint(timeline_metrics_bp) 
+    app.register_blueprint(financial_jobs_bp) # Para generar el pdf de financials basadas en Jobs
+    app.register_blueprint(communities_bp) # Para el dashboard de Client y Parent Co.
+    app.register_blueprint(job_metrics_bp) # Para el dashboard
+    app.register_blueprint(member_metrics_bp)
+    app.register_blueprint(subcontractor_metrics_bp) # Para el dashboard de Subcontractors
 
     # Ruta simple
     @app.get("/")

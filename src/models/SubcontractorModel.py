@@ -59,6 +59,8 @@ class Subcontractor(SubcontractorBase, table=True):
     # Relaciones foráneas 1:M
     technicians: List["Technician"] = Relationship(  # type: ignore
         back_populates="subcontractor")
+    tasks: List["Tasks"] = Relationship(  # type: ignore
+        back_populates="subcontractor")
     orders: List["Order"] = Relationship(  # type: ignore
         back_populates="subcontractor")
     attachments: List["Attachments"] = Relationship(  # type: ignore

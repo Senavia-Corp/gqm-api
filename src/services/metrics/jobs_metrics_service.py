@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from sqlmodel import select
-from sqlalchemy import func, extract, cast, Integer, Date, and_, or_, case
+from sqlalchemy import func, cast, case, Integer
 from sqlalchemy.exc import SQLAlchemyError
-from datetime import datetime
 
 from ...database.db_sqlmodel import get_session
 from ...models.JobModel import Job
 from ...models.ClientModel import Client
 from ...models.MemberModel import Member
 from ...models.link_models.JobMember import JobMemberLink
+from ...models.PurchaseModel import Purchase
 
 from .metrics_shared import (
     STATUS_CATALOG,
@@ -172,11 +172,11 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.max(month_name).label("month_name"),
                 func.count(Job.ID_Jobs).label("jobs"),
                 func.sum(paid_flag).label("paid_jobs"),
-                func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
+                func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
                 func.sum(Job.Gqm_formula_pricing).label("formula"),
                 func.sum(Job.Gqm_adj_formula_pricing).label("adj_formula"),
                 func.sum(final_col).label("final_sold"),
-                func.sum(Job.Gqm_premium_in_money).label("premium"),
+                func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
                 func.avg(pct_col).label("avg_final_pct"),
             ).group_by(month_key).order_by(month_key)
 
@@ -184,18 +184,18 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
 
             monthly_sales = []
             for row in session.exec(stmt_mon).all():
-                q = _safe_float(row.quoted)
+                q = _safe_float(row.quoted_target_sold)
                 f = _safe_float(row.final_sold)
                 monthly_sales.append({
                     "month":         row.month or "—",
                     "month_name":    (row.month_name or "").strip(),
                     "jobs":          int(row.jobs or 0),
                     "paid_jobs":     int(row.paid_jobs or 0),
-                    "quoted":        q,
+                    "quoted_target_sold":        q,
                     "formula":       _safe_float(row.formula),
                     "adj_formula":   _safe_float(row.adj_formula),
                     "final_sold":    f,
-                    "premium":       _safe_float(row.premium),
+                    "premium_in_money":       _safe_float(row.premium_in_money),
                     "avg_final_pct": _safe_float(row.avg_final_pct),
                     "final_pct":     _pct(f, q),
                 })
@@ -212,10 +212,10 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 qtr_key.label("quarter"),
                 func.count(Job.ID_Jobs).label("jobs"),
                 func.sum(paid_flag).label("paid_jobs"),
-                func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
+                func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
                 func.sum(Job.Gqm_formula_pricing).label("formula"),
                 func.sum(final_col).label("final_sold"),
-                func.sum(Job.Gqm_premium_in_money).label("premium"),
+                func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
                 func.avg(pct_col).label("avg_final_pct"),
             ).group_by(qtr_key).order_by(qtr_key)
 
@@ -223,16 +223,16 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
 
             quarterly = []
             for row in session.exec(stmt_qtr).all():
-                q = _safe_float(row.quoted)
+                q = _safe_float(row.quoted_target_sold)
                 f = _safe_float(row.final_sold)
                 quarterly.append({
                     "quarter":       row.quarter or "—",
                     "jobs":          int(row.jobs or 0),
                     "paid_jobs":     int(row.paid_jobs or 0),
-                    "quoted":        q,
+                    "quoted_target_sold":        q,
                     "formula":       _safe_float(row.formula),
                     "final_sold":    f,
-                    "premium":       _safe_float(row.premium),
+                    "premium_in_money":       _safe_float(row.premium_in_money),
                     "avg_final_pct": _safe_float(row.avg_final_pct),
                     "final_pct":     _pct(f, q),
                 })
@@ -255,9 +255,9 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     Member.Member_Name.label("rep"),
                     func.count(Job.ID_Jobs).label("jobs"),
                     func.sum(paid_flag).label("paid"),
-                    func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
+                    func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
                     func.sum(final_col).label("final"),
-                    func.sum(Job.Gqm_premium_in_money).label("premium"),
+                    func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
                     func.avg(pct_col).label("avg_final_pct"),
                 )
                 .join(JobMemberLink, JobMemberLink.job_id == Job.ID_Jobs)
@@ -270,15 +270,15 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
 
             rep_performance = []
             for row in session.exec(stmt_rep).all():
-                q = _safe_float(row.quoted)
+                q = _safe_float(row.quoted_target_sold)
                 f = _safe_float(row.final)
                 rep_performance.append({
                     "rep":           row.rep or "—",
                     "jobs":          int(row.jobs or 0),
                     "paid":          int(row.paid or 0),
-                    "quoted":        q,
+                    "quoted_target_sold":        q,
                     "final":         f,
-                    "premium":       _safe_float(row.premium),
+                    "premium_in_money":       _safe_float(row.premium_in_money),
                     "avg_final_pct": _safe_float(row.avg_final_pct),
                     "final_pct":     _pct(f, q),
                 })
@@ -289,9 +289,9 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             stmt_status = select(
                 func.trim(Job.Job_status).label("status"),
                 func.count(Job.ID_Jobs).label("count"),
-                func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
+                func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
                 func.sum(final_col).label("final"),
-                func.sum(Job.Gqm_premium_in_money).label("premium"),
+                func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
             ).group_by(func.trim(Job.Job_status))
 
             stmt_status = _apply_base_filters(stmt_status, normed_type, year)
@@ -301,7 +301,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
 
             for row in session.exec(stmt_status).all():
                 status_name = (row.status or "UNKNOWN").strip()
-                quoted = _safe_float(row.quoted)
+                quoted = _safe_float(row.quoted_target_sold)
                 final = _safe_float(row.final)
                 count = int(row.count or 0)
 
@@ -309,9 +309,9 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     "status":  status_name,
                     "count":   count,
                     "pct":     _pct(count, job_count),
-                    "quoted":  quoted,
+                    "quoted_target_sold":  quoted,
                     "final":   final,
-                    "premium": _safe_float(row.premium),
+                    "premium_in_money": _safe_float(row.premium_in_money),
                 })
 
                 if status_name in ACTIVE_STATUSES:
@@ -328,7 +328,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     Job.Service_type.label("service"),
                     func.count(Job.ID_Jobs).label("count"),
                     func.sum(final_col).label("final"),
-                    func.sum(Job.Gqm_premium_in_money).label("premium"),
+                    func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
                     func.avg(pct_col).label("avg_final_pct"),
                     func.sum(paid_flag).label("paid_jobs"),
                 ).group_by(Job.Service_type)
@@ -340,7 +340,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                         "service":       row.service or "Unknown",
                         "count":         int(row.count or 0),
                         "final":         _safe_float(row.final),
-                        "premium":       _safe_float(row.premium),
+                        "premium_in_money":       _safe_float(row.premium_in_money),
                         "avg_final_pct": _safe_float(row.avg_final_pct),
                         "paid_jobs":     int(row.paid_jobs or 0),
                     })
@@ -396,9 +396,19 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     "service":  job.Service_type or "—",
                     "date":     display_date.strftime("%Y-%m-%d") if hasattr(display_date, "strftime") else "—",
                     "amount":   amount,
-                    "quoted":   _safe_float(job.Gqm_target_sold_pricing),
-                    "premium":  _safe_float(job.Gqm_premium_in_money),
-                    "pct":      (
+                    "quoted_target_sold":   _safe_float(job.Gqm_target_sold_pricing),
+                    "premium_in_money":  _safe_float(job.Gqm_premium_in_money),
+                    "final_adj_formula": (
+                        _safe_float(job.Gqm_final_adj_form_pricing)
+                        if job.Job_type in ("QID")
+                        else _safe_float(job.Gqm_adj_formula_pricing)
+                    ),
+                    "final_target_return": (
+                        _safe_float(job.Gqm_target_return)
+                        if job.Job_type in ("PTL", "PAR")
+                        else _safe_float(job.Gqm_final_target_return)
+                    ),
+                    "final_margin":      (
                         _safe_float(job.Gqm_target_return)
                         if job.Job_type in ("PTL", "PAR")
                         else _safe_float(job.Gqm_final_percentage)
@@ -454,15 +464,44 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     "service":  job.Service_type or "—",
                     "date":     display_date.strftime("%Y-%m-%d") if hasattr(display_date, "strftime") else "—",
                     "amount":   amount,
-                    "quoted":   _safe_float(job.Gqm_target_sold_pricing),
+                    "quoted_target_sold":   _safe_float(job.Gqm_target_sold_pricing),
                     "formula":  _safe_float(job.Gqm_formula_pricing),
                     "adj_formula": _safe_float(job.Gqm_adj_formula_pricing),
-                    "premium":  _safe_float(job.Gqm_premium_in_money),
+                    "premium_in_money":  _safe_float(job.Gqm_premium_in_money),
                     "pct":      (
                         _safe_float(job.Gqm_target_return)
                         if job.Job_type in ("PTL", "PAR")
                         else _safe_float(job.Gqm_final_percentage)
                     ),
+                })
+
+            # ------------------------------------------------------------------
+            # 9. RECENT PURCHASES (Top 5)
+            # ------------------------------------------------------------------
+            stmt_purch = (
+                select(Purchase, Job, Client)
+                .outerjoin(Job, Job.ID_Jobs == Purchase.ID_Jobs)
+                .outerjoin(Client, Client.ID_Client == Job.ID_Client)
+                .order_by(Purchase.created_at.desc())
+                .limit(5)
+            )
+            # (Note: not applying base filters to purchases as it's a global top 5 usually, 
+            # but if needed we could filter by year/type if they are linked to jobs of that type)
+
+            recent_purchases = []
+            for pur, j, cl in session.exec(stmt_purch).all():
+                recent_purchases.append({
+                    "purchase_id": pur.ID_Purchase,
+                    "description": pur.Description or "—",
+                    "status":      (pur.Status or "—").strip(),
+                    "amount":      _safe_float(pur.Total_spending),
+                    "rep":         pur.Selling_rep or "—",
+                    "date":        pur.created_at.strftime("%Y-%m-%d") if hasattr(pur.created_at, "strftime") else "—",
+                    "job": {
+                        "job_id": j.ID_Jobs if j else None,
+                        "type":   j.Job_type if j else "—",
+                        "client": cl.Client_Community if cl else "—",
+                    }
                 })
 
         # ------------------------------------------------------------------
@@ -483,6 +522,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             "service_type_sales": service_type_sales,
             "in_progress_jobs":   in_progress_jobs,
             "ready_to_invoice":   ready_to_invoice,
+            "recent_purchases":   recent_purchases,
         }, None
 
     except SQLAlchemyError as e:

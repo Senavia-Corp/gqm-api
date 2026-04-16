@@ -5,6 +5,7 @@ from enum import Enum
 from .FinancialTransModel import FinancialTransaction
 from .link_models.FinancialLink import FinancialLink
 from .JobModel import Job
+from .OrderModel import Order
 
 
 # ==================================== Modelos para PostgreSQL ====================================#
@@ -53,12 +54,17 @@ class FinancialDocument(FDocBase, table=True):
     ID_Jobs: Optional[str] = Field(
         default=None, foreign_key="jobs.ID_Jobs")
     job: Optional[Job] = Relationship(back_populates="financial_docs")
+    ID_Order: Optional[str] = Field(
+        default=None, foreign_key="order.ID_Order")
+    order: Optional[Order] = Relationship(back_populates="financial_docs")
 
 
 class FDocCreate(FDocBase):
     ID_Jobs: Optional[str] = None
+    ID_Order: Optional[str] = None
 
 
 class FDocUpdate(FDocBase):
     Type_of_document: Optional[str] = None
     ID_Jobs: Optional[str] = None
+    ID_Order: Optional[str] = None
