@@ -1,46 +1,33 @@
 from __future__ import annotations
 from flask import Blueprint, jsonify, request
-from src.services.metrics.jobs_metrics_service import get_jobs_dashboard_data
-from flask import Blueprint, jsonify, request
 from sqlmodel import select
-from sqlalchemy import func, and_, literal
+from sqlalchemy import func
+from src.models.ClientModel import Client
+from src.services.metrics.jobs_metrics_service import get_jobs_dashboard_data
 from src.database.db_sqlmodel import get_session
 from src.models.JobModel import Job
 from src.models.MemberModel import Member
 from src.models.link_models.JobMember import JobMemberLink
 from src.services.metrics.jobs_metrics_service import get_jobs_dashboard_data
 from src.services.metrics.metrics_shared import (
-    PENDING_BY_TYPE,
-    INPROGRESS_BY_TYPE,
-    COMPLETED_BY_TYPE,
-    CANCELLED_STATUS,
-    CLOSED_BY_TYPE,
-    STATUS_BREAKDOWN_LIST,
     _norm_job_type,
     _norm_year,
 )
-from src.services.metrics.aux_func_metrics import (
-    _safe_int, _type_expr, _year_expr,
-    _sum_if, _sum_money_if,
-    _year_expr_any_job, _norm_order_by
-)
-
-
-ACC_REP_ROLE = "Acc Rep Selling"
+from src.services.metrics.aux_func_metrics import _safe_int
 
 
 job_metrics_bp = Blueprint("job_metrics_blueprint",
-                           __name__, url_prefix="/jobs")
+                           __name__, url_prefix="/job_metrics")
 
 
 # =============================================================================
 # ENDPOINT: Jobs Dashboard
 # =============================================================================
 
-@job_metrics_bp.get("/jobs/status")
+@job_metrics_bp.get("/status")
 def jobs_status_metrics():
     """
-    GET /metrics/jobs/status?type=QID|PTL|PAR|ALL&year=2025
+    GET /job_metrics/status?type=QID|PTL|PAR|ALL&year=2025
     """
     data, err = get_jobs_dashboard_data(
         request.args.get("type"),
@@ -54,238 +41,152 @@ def jobs_status_metrics():
 
 
 # =============================================================================
-# ENDPOINT: Members metrics (Acc Rep Selling) + Pagination
+# ENDPOINT: Jobs Member Pipeline (Active jobs by Member)
 # =============================================================================
 
-@job_metrics_bp.get("/members/acc-rep-selling")
-def members_acc_rep_selling_metrics():
+@job_metrics_bp.get("/member-pipeline")
+def jobs_member_pipeline():
     """
-    GET /metrics/members/acc-rep-selling?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=25&include_status_breakdown=1
+    GET /job_metrics/member-pipeline?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=10
+    List members and their active jobs (P/Quote for QID, In Progress for PAR/PTL)
     """
     job_type = _norm_job_type(request.args.get("type")) or "ALL"
-    if job_type not in ("ALL", "QID", "PTL", "PAR"):
-        return jsonify({"detail": "Invalid type. Use QID, PTL, PAR or ALL."}), 400
-
     year = _norm_year(request.args.get("year"))
-    if request.args.get("year") is not None and year is None:
-        return jsonify({"detail": "Invalid year. Use a valid number like 2025."}), 400
 
     page = _safe_int(request.args.get("page"), 1)
-    limit = _safe_int(request.args.get("limit"), 25)
-    page = max(page, 1)
-    limit = min(max(limit, 1), 200)  # cap razonable
-    offset = (page - 1) * limit
+    limit = _safe_int(request.args.get("limit"), 10)
+    offset = (max(page, 1) - 1) * limit
 
-    include_status_breakdown = (request.args.get(
-        "include_status_breakdown", "1").strip() != "0")
+    # Define active statuses specifically for this "Pipeline" view
+    # QID: Assigned/P. Quote
+    # PAR: In Progress
+    # PTL: Assigned-In progress (User said schedule/work in progress (PTL))
+    pipe_map = {
+        "QID": ["Assigned/P. Quote"],
+        "PTL": ["Assigned-In progress"],
+        "PAR": ["In Progress"]
+    }
 
-    type_ok = _type_expr(job_type)
-    year_ok = _year_expr(job_type, year)
-
-    # Solo cuenta cuando exista el vínculo Acc Rep Selling + job válido + pasa filtros
-    base_cond = and_(
-        JobMemberLink.member_id.is_not(None),
-        Job.ID_Jobs.is_not(None),
-        type_ok,
-        year_ok,
-    )
-
-    def type_only(t: str):
-        return and_(base_cond, Job.Job_type == t)
-
-    def status_in(statuses: set[str]):
-        return Job.Job_status.in_(list(statuses))
-
-    # Totales
-    total_all = _sum_if(base_cond).label("total_all")
-    total_qid = _sum_if(type_only("QID")).label("total_qid")
-    total_ptl = _sum_if(type_only("PTL")).label("total_ptl")
-    total_par = _sum_if(type_only("PAR")).label("total_par")
-
-    # Pending
-    pending_qid = _sum_if(and_(type_only("QID"), status_in(
-        PENDING_BY_TYPE["QID"]))).label("pending_qid")
-    pending_ptl = _sum_if(and_(type_only("PTL"), status_in(
-        PENDING_BY_TYPE["PTL"]))).label("pending_ptl")
-    pending_par = literal(0).label("pending_par")
-    pending_all = (func.coalesce(pending_qid, 0) +
-                   func.coalesce(pending_ptl, 0)).label("pending_all")
-
-    # In progress
-    inprog_qid = _sum_if(and_(type_only("QID"), status_in(
-        INPROGRESS_BY_TYPE["QID"]))).label("inprog_qid")
-    inprog_ptl = _sum_if(and_(type_only("PTL"), status_in(
-        INPROGRESS_BY_TYPE["PTL"]))).label("inprog_ptl")
-    inprog_par = _sum_if(and_(type_only("PAR"), status_in(
-        INPROGRESS_BY_TYPE["PAR"]))).label("inprog_par")
-    inprog_all = (func.coalesce(inprog_qid, 0) + func.coalesce(inprog_ptl,
-                  0) + func.coalesce(inprog_par, 0)).label("inprog_all")
-
-    # Completed
-    completed_qid = _sum_if(and_(type_only("QID"), status_in(
-        COMPLETED_BY_TYPE["QID"]))).label("completed_qid")
-    completed_ptl = _sum_if(and_(type_only("PTL"), status_in(
-        COMPLETED_BY_TYPE["PTL"]))).label("completed_ptl")
-    completed_par = _sum_if(and_(type_only("PAR"), status_in(
-        COMPLETED_BY_TYPE["PAR"]))).label("completed_par")
-    completed_all = (func.coalesce(completed_qid, 0) + func.coalesce(
-        completed_ptl, 0) + func.coalesce(completed_par, 0)).label("completed_all")
-
-    # Cancelled
-    cancelled_all = _sum_if(
-        and_(base_cond, Job.Job_status == CANCELLED_STATUS)).label("cancelled_all")
-    cancelled_qid = _sum_if(and_(
-        type_only("QID"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_qid")
-    cancelled_ptl = _sum_if(and_(
-        type_only("PTL"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_ptl")
-    cancelled_par = _sum_if(and_(
-        type_only("PAR"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_par")
-
-    # Closed
-    closed_qid = _sum_if(and_(type_only("QID"), status_in(
-        CLOSED_BY_TYPE["QID"]))).label("closed_qid")
-    closed_ptl = _sum_if(and_(type_only("PTL"), status_in(
-        CLOSED_BY_TYPE["PTL"]))).label("closed_ptl")
-    closed_par = _sum_if(and_(type_only("PAR"), status_in(
-        CLOSED_BY_TYPE["PAR"]))).label("closed_par")
-    closed_all = (func.coalesce(closed_qid, 0) + func.coalesce(closed_ptl,
-                  0) + func.coalesce(closed_par, 0)).label("closed_all")
-
-    # Breakdown por status (opcional)
-    status_cols = []
-    if include_status_breakdown:
-        for s in STATUS_BREAKDOWN_LIST:
-            status_cols.append(
-                _sum_if(and_(base_cond, Job.Job_status == s)
-                        ).label(f"st__{s}")
-            )
+    if job_type == "ALL":
+        target_statuses = pipe_map["QID"] + pipe_map["PTL"] + pipe_map["PAR"]
+        roles_to_use = ["Acc Rep Selling", "Mgmt Member"]
+    else:
+        target_statuses = pipe_map.get(job_type, [])
+        roles_to_use = ["Mgmt Member"] if job_type == "PTL" else [
+            "Acc Rep Selling"]
 
     with get_session() as session:
-        # total members (para paginación)
-        total_members_stmt = select(func.count()).select_from(Member)
+        # 1. Count total members who have jobs in these statuses
+        # (Or just total members in general if we want a full list)
+        # The user said "Jobs de cada miembro que están en...", implying we should list members.
+
+        base_stmt = (
+            select(Member)
+            .join(JobMemberLink, JobMemberLink.member_id == Member.ID_Member)
+            .join(Job, Job.ID_Jobs == JobMemberLink.job_id)
+            .where(
+                JobMemberLink.rol.in_(roles_to_use),
+                Job.Job_status.in_(target_statuses)
+            )
+        )
+        if job_type != "ALL":
+            base_stmt = base_stmt.where(Job.Job_type == job_type)
+        if year:
+            from src.services.metrics.metrics_shared import _apply_year_filter
+            base_stmt = _apply_year_filter(base_stmt, job_type, year)
+
+        total_members_stmt = select(func.count(func.distinct(
+            Member.ID_Member))).select_from(base_stmt.subquery())
         total_members = session.exec(total_members_stmt).one() or 0
 
-        stmt = (
-            select(
-                Member.ID_Member,
-                Member.Member_Name,
-                Member.Company_Role,
-
-                total_all, total_qid, total_ptl, total_par,
-
-                pending_all, inprog_all, completed_all, cancelled_all, closed_all,
-
-                pending_qid, pending_ptl, pending_par,
-                inprog_qid, inprog_ptl, inprog_par,
-                completed_qid, completed_ptl, completed_par,
-                cancelled_qid, cancelled_ptl, cancelled_par,
-                closed_qid, closed_ptl, closed_par,
-
-                *status_cols
+        # 2. Get members for the current page
+        members_stmt = (
+            select(Member)
+            .distinct()
+            .join(JobMemberLink, JobMemberLink.member_id == Member.ID_Member)
+            .join(Job, Job.ID_Jobs == JobMemberLink.job_id)
+            .where(
+                JobMemberLink.rol.in_(roles_to_use),
+                Job.Job_status.in_(target_statuses)
             )
-            .select_from(Member)
-            # LEFT JOIN job_member con rol Acc Rep Selling (no rompe miembros sin jobs)
-            .join(
-                JobMemberLink,
-                and_(
-                    JobMemberLink.member_id == Member.ID_Member,
-                    JobMemberLink.rol == ACC_REP_ROLE
-                ),
-                isouter=True
-            )
-            .join(
-                Job,
-                Job.ID_Jobs == JobMemberLink.job_id,
-                isouter=True
-            )
-            .group_by(Member.ID_Member, Member.Member_Name, Member.Company_Role)
-            .order_by(
-                func.coalesce(closed_all, 0).desc(),
-                func.coalesce(total_all, 0).desc(),
-                func.coalesce(Member.Member_Name, "").asc(),
-            )
+            .order_by(Member.Member_Name)
             .offset(offset)
             .limit(limit)
         )
+        if job_type != "ALL":
+            members_stmt = members_stmt.where(Job.Job_type == job_type)
+        if year:
+            members_stmt = _apply_year_filter(members_stmt, job_type, year)
 
-        rows = session.exec(stmt).all()
+        members_list = session.exec(members_stmt).all()
+        member_ids = [m.ID_Member for m in members_list]
 
-    # rank global aproximado: rank = offset + index
-    # (si quieres rank EXACTO global con millones de filas, se hace con window function)
-    members = []
-    for idx, r in enumerate(rows, start=1):
-        total_all_v = int(r.total_all or 0)
-        completed_all_v = int(r.completed_all or 0)
+        # 3. Get all jobs for these members in a single query
+        jobs_data = []
+        if member_ids:
+            jobs_stmt = (
+                select(Job, JobMemberLink.member_id, Client)
+                .outerjoin(Client, Client.ID_Client == Job.ID_Client)
+                .join(JobMemberLink, JobMemberLink.job_id == Job.ID_Jobs)
+                .where(
+                    JobMemberLink.member_id.in_(member_ids),
+                    JobMemberLink.rol.in_(roles_to_use),
+                    Job.Job_status.in_(target_statuses)
+                )
+            )
+            if job_type != "ALL":
+                jobs_stmt = jobs_stmt.where(Job.Job_type == job_type)
+            if year:
+                jobs_stmt = _apply_year_filter(jobs_stmt, job_type, year)
 
-        member_obj = {
-            "rank": offset + idx,
-            "member": {
-                "id": r.ID_Member,
-                "name": r.Member_Name,
-                "company_role": r.Company_Role,
-            },
-            "totals": {
-                "all": int(r.total_all or 0),
-                "qid": int(r.total_qid or 0),
-                "ptl": int(r.total_ptl or 0),
-                "par": int(r.total_par or 0),
-            },
-            "buckets": {
-                "pending": int(r.pending_all or 0),
-                "in_progress": int(r.inprog_all or 0),
-                "completed": int(r.completed_all or 0),
-                "cancelled": int(r.cancelled_all or 0),
-                "closed": int(r.closed_all or 0),
-                "completed_pct": round((completed_all_v / total_all_v * 100.0), 2) if total_all_v else 0.0,
-            },
-            "bucket_by_type": {
-                "qid": {
-                    "pending": int(r.pending_qid or 0),
-                    "in_progress": int(r.inprog_qid or 0),
-                    "completed": int(r.completed_qid or 0),
-                    "cancelled": int(r.cancelled_qid or 0),
-                    "closed": int(r.closed_qid or 0),
-                    "completed_pct": round((float(r.completed_qid or 0) / float(r.total_qid or 0) * 100.0), 2) if (r.total_qid or 0) else 0.0,
-                },
-                "ptl": {
-                    "pending": int(r.pending_ptl or 0),
-                    "in_progress": int(r.inprog_ptl or 0),
-                    "completed": int(r.completed_ptl or 0),
-                    "cancelled": int(r.cancelled_ptl or 0),
-                    "closed": int(r.closed_ptl or 0),
-                    "completed_pct": round((float(r.completed_ptl or 0) / float(r.total_ptl or 0) * 100.0), 2) if (r.total_ptl or 0) else 0.0,
-                },
-                "par": {
-                    "pending": 0,
-                    "in_progress": int(r.inprog_par or 0),
-                    "completed": int(r.completed_par or 0),
-                    "cancelled": int(r.cancelled_par or 0),
-                    "closed": int(r.closed_par or 0),
-                    "completed_pct": round((float(r.completed_par or 0) / float(r.total_par or 0) * 100.0), 2) if (r.total_par or 0) else 0.0,
-                },
-            }
-        }
+            raw_jobs = session.exec(jobs_stmt).all()
 
-        if include_status_breakdown:
-            breakdown = {}
-            for s in STATUS_BREAKDOWN_LIST:
-                breakdown[s] = int(getattr(r, f"st__{s}") or 0)
-            member_obj["status_breakdown"] = breakdown
+            # Group jobs by member
+            mem_jobs_map = {}
+            for j, m_id, cl in raw_jobs:
+                amount = (
+                    float(j.Gqm_target_sold_pricing or 0)
+                    if j.Job_type == "PAR"
+                    else float(j.Gqm_final_sold_pricing or 0)
+                )
+                job_dict = {
+                    "job_id": j.ID_Jobs,
+                    "type": j.Job_type,
+                    "client": cl.Client_Community if cl else "—",
+                    "status": (j.Job_status or "—").strip(),
+                    "service": j.Service_type or "—",
+                    "date": (j.Date_assigned or j.Estimated_start_date).strftime("%Y-%m-%d") if (j.Date_assigned or j.Estimated_start_date) else "—",
+                    "quoted_target_sold": float(j.Gqm_target_sold_pricing or 0),
+                    "amount": amount,
+                    "adj_formula": float(j.Gqm_adj_formula_pricing or 0),
+                    "pct": float(j.Gqm_target_return if j.Job_type in ("PTL", "PAR") else j.Gqm_final_percentage or 0)
+                }
+                mem_jobs_map.setdefault(m_id, []).append(job_dict)
 
-        members.append(member_obj)
+            for m in members_list:
+                m_jobs = mem_jobs_map.get(m.ID_Member, [])
+                jobs_data.append({
+                    "member": {
+                        "id": m.ID_Member,
+                        "name": m.Member_Name,
+                        "company_role": m.Company_Role
+                    },
+                    "job_count": len(m_jobs),
+                    "total_quoted": sum(j["quoted"] for j in m_jobs),
+                    "jobs": m_jobs
+                })
 
-    total_pages = (int(total_members) + limit -
-                   1) // limit if total_members else 1
+    total_pages = (total_members + limit - 1) // limit if total_members else 1
 
     return jsonify({
         "type": job_type,
         "year": year,
-        "role_filter": ACC_REP_ROLE,
+        "pipeline_statuses": target_statuses,
         "pagination": {
             "page": page,
             "limit": limit,
             "total_members": int(total_members),
             "total_pages": int(total_pages),
         },
-        "members": members
+        "members": jobs_data
     }), 200
