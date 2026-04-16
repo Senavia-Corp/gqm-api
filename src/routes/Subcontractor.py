@@ -169,6 +169,7 @@ def get_subcontractor(id_subcontractor):
                 joinedload(Subcontractor.tlactivity),
                 joinedload(Subcontractor.skills),
                 joinedload(Subcontractor.opportunities),
+                joinedload(Subcontractor.certificates)
             )
             .where(Subcontractor.ID_Subcontractor == id_subcontractor)
         )
@@ -181,7 +182,7 @@ def get_subcontractor(id_subcontractor):
 
         subcontr_data = add_relationships(
             obj, ["technicians.tasks", "orders", "jobs", "attachments",
-                  "role", "tlactivity", "skills", "opportunities"])
+                  "role", "tlactivity", "skills", "opportunities", "certificates"])
 
         return subcontr_data, 200
 
