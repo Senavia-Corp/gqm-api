@@ -45,6 +45,7 @@ from src.routes.CommissionGroup import commission_group_bp
 from src.routes.CommissionDetail import commission_detail_bp
 from src.routes.GQMInventory import inventory_bp
 from src.routes.Reimbursement import reimbursement_bp
+from src.routes.Certificate import certificate_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion de Podio a Postgre (datos antiguos):
@@ -88,6 +89,7 @@ def create_app():
     # Registrar blueprints
     app.register_blueprint(attachments_bp)
     app.register_blueprint(bldg_dept_bp)
+    app.register_blueprint(certificate_bp)
     app.register_blueprint(change_order_bp)
     app.register_blueprint(chat_bp)
     app.register_blueprint(client_bp)
@@ -157,14 +159,18 @@ def create_app():
     app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
 
     # Rutas de métricas
-    app.register_blueprint(metrics_bp) # Para generar el pdf de Jobs
-    app.register_blueprint(financial_metrics_bp) # Para generar el pdf de financials de QBO
-    app.register_blueprint(timeline_metrics_bp) 
-    app.register_blueprint(financial_jobs_bp) # Para generar el pdf de financials basadas en Jobs
-    app.register_blueprint(communities_bp) # Para el dashboard de Client y Parent Co.
-    app.register_blueprint(job_metrics_bp) # Para el dashboard
+    app.register_blueprint(metrics_bp)  # Para generar el pdf de Jobs
+    # Para generar el pdf de financials de QBO
+    app.register_blueprint(financial_metrics_bp)
+    app.register_blueprint(timeline_metrics_bp)
+    # Para generar el pdf de financials basadas en Jobs
+    app.register_blueprint(financial_jobs_bp)
+    # Para el dashboard de Client y Parent Co.
+    app.register_blueprint(communities_bp)
+    app.register_blueprint(job_metrics_bp)  # Para el dashboard
     app.register_blueprint(member_metrics_bp)
-    app.register_blueprint(subcontractor_metrics_bp) # Para el dashboard de Subcontractors
+    # Para el dashboard de Subcontractors
+    app.register_blueprint(subcontractor_metrics_bp)
 
     # Ruta simple
     @app.get("/")
