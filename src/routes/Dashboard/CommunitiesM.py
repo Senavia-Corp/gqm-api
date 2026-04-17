@@ -362,15 +362,13 @@ def clients_metrics():
         "order_by": order_by,
         "include_status_breakdown": 1 if include_status_breakdown else 0,
         "summary": summary_data,
-        "individual_stats": {
+        "pagination": {
+            "page": page,
+            "limit": limit,
             "total_clients": int(total_clients),
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total_pages": int(total_pages),
-            },
-            "top_clients": clients
-        }
+            "total_pages": int(total_pages),
+        },
+        "clients": clients,
     }), 200
 
 
@@ -630,28 +628,39 @@ def parent_mgmt_co_metrics():
         # 1) Top Communities subquery
         paid_jobs_col = func.sum(case((is_closed, 1), else_=0))
         total_jobs_col = func.count(Job.ID_Jobs)
+        rev_comm_col = func.coalesce(func.sum(case((is_closed, revenue_expr), else_=0.0)), 0.0)
         top_comm_stmt = select(
-            Client.ID_Client.label("client_id"),
             Client.Client_Community.label("name"),
             total_jobs_col.label("total_jobs"),
-            paid_jobs_col.label("paid_jobs")
+            paid_jobs_col.label("paid_jobs"),
+            rev_comm_col.label("revenue"),
         ).select_from(Client)\
          .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)\
          .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)\
          .group_by(Client.ID_Client, Client.Client_Community)\
          .order_by(paid_jobs_col.desc(), total_jobs_col.desc(), Client.Client_Community.asc())\
          .limit(5)
-         
+
         with get_session() as ds_session:
             tc_rows = ds_session.exec(top_comm_stmt).all()
-            top_communities = [{"id": tc.client_id, "name": tc.name, "total_jobs": tc.total_jobs or 0, "paid_jobs": tc.paid_jobs or 0} for tc in tc_rows]
+            top_communities = [
+                {
+                    "name":       tc.name,
+                    "total_jobs": int(tc.total_jobs or 0),
+                    "paid_jobs":  int(tc.paid_jobs  or 0),
+                    "revenue":    float(tc.revenue   or 0.0),
+                }
+                for tc in tc_rows
+            ]
 
             # 2) Member Assignments subquery
-            rev_col = func.sum(revenue_expr)
+            rev_col     = func.coalesce(func.sum(revenue_expr), 0.0)
+            job_cnt_col = func.count(Job.ID_Jobs)
             member_assign_stmt = select(
-                Client.Client_Community.label("community_name"),
+                Client.Client_Community.label("community"),
                 Member.Member_Name.label("member_name"),
-                rev_col.label("revenue")
+                rev_col.label("revenue"),
+                job_cnt_col.label("job_count"),
             ).select_from(Job)\
              .join(Client, Job.ID_Client == Client.ID_Client)\
              .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)\
@@ -660,32 +669,40 @@ def parent_mgmt_co_metrics():
              .group_by(Client.Client_Community, Member.Member_Name)\
              .order_by(rev_col.desc())\
              .limit(10)
-             
+
             ma_rows = ds_session.exec(member_assign_stmt).all()
-            member_assignments = [{"community_name": ma.community_name, "member_name": ma.member_name, "revenue": float(ma.revenue or 0.0)} for ma in ma_rows]
+            community_assignments = [
+                {
+                    "community":   ma.community,
+                    "member_name": ma.member_name,
+                    "revenue":     float(ma.revenue  or 0.0),
+                    "job_count":   int(ma.job_count  or 0),
+                }
+                for ma in ma_rows
+            ]
 
 
         item = {
-            "rank_closed": int(r.rank_closed),
+            "rank_closed":  int(r.rank_closed),
             "rank_revenue": int(r.rank_revenue),
 
-            "parent_mgmt_co": {
-                "id": r.pmc_id,
-                "name": r.pmc_name,
-                "hq": r.pmc_hq,
+            "client": {
+                "id":      r.pmc_id,
+                "name":    r.pmc_name,
+                "address": r.pmc_hq or "",
             },
+            "communities_count": int(r.communities_count or 0),
             "dashboard_stats": {
-                "total_amount_of_quotes": int(r.quotes_count or 0),
-                "dollars_quoted": float(r.quotes_revenue or 0.0),
-                "in_progress_jobs_count": int(r.inprog_all or 0),
-                "dollars_in_progress": float(r.inprog_revenue or 0.0),
-                "paid_jobs_count": int(r.closed_all or 0),
-                "dollars_paid": float(r.paid_revenue or 0.0),
-                "ave_target_sold_pct": round(float(r.ave_target_sold or 0.0), 2),
-                "communities_count": int(r.communities_count or 0)
+                "total_amount_of_quotes": int(r.quotes_count    or 0),
+                "dollars_quoted":         float(r.quotes_revenue or 0.0),
+                "in_progress_jobs_count": int(r.inprog_all      or 0),
+                "dollars_in_progress":    float(r.inprog_revenue or 0.0),
+                "paid_jobs_count":        int(r.closed_all      or 0),
+                "dollars_paid":           float(r.paid_revenue   or 0.0),
+                "ave_target_sold_pct":    round(float(r.ave_target_sold or 0.0), 2),
             },
-            "top_communities": top_communities,
-            "community_assignments": member_assignments,
+            "top_communities":      top_communities,
+            "community_assignments": community_assignments,
             "totals": {
                 "all": int(r.total_all or 0),
                 "qid": int(r.total_qid or 0),
@@ -762,21 +779,18 @@ def parent_mgmt_co_metrics():
     }
 
     return jsonify({
-        "type": job_type,
-        "year": year,
+        "type":     job_type,
+        "year":     year,
         "order_by": order_by,
-        # opcional, útil para debug
-        "include_status_breakdown": 1 if include_status_breakdown else 0,
-        "summary": summary_data,
-        "individual_stats": {
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total_parent_mgmt_cos": int(total_pmc),
-                "total_pages": int(total_pages),
-            },
-            "parent_mgmt_cos": pmcs
-        }
+        "summary":  summary_data,
+        # Top-level shape expected by the frontend
+        "pagination": {
+            "page":                 page,
+            "limit":                limit,
+            "total_parent_mgmt_cos": int(total_pmc),
+            "total_pages":          int(total_pages),
+        },
+        "parent_mgmt_cos": pmcs,
     }), 200
 
     

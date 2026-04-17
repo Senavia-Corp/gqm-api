@@ -290,7 +290,50 @@ def member_individual_stats(member_id: str):
                 "status":      row.Job_status or "—",
             })
 
-        # ── 3. QIDs created per month / year ──────────────────────────────
+        # ── 3. Financial summary (mirrors list endpoint per-member KPIs) ────
+        type_ok_all = _type_expr("ALL")
+        year_ok_all = _year_expr("ALL", year)
+        sum_base = and_(
+            JobMemberLink.member_id == member_id,
+            JobMemberLink.rol == ACC_REP_ROLE,
+            Job.ID_Jobs.is_not(None),
+            type_ok_all,
+            year_ok_all,
+        )
+        inprog_cond_d = and_(sum_base, Job.Job_status.in_(INPROG_STATUSES))
+        paid_cond_d   = and_(sum_base, Job.Job_status.in_(PAID_STATUSES_LIST))
+
+        summary_stmt = (
+            select(
+                _sum_if(sum_base).label("total_quotes"),
+                func.coalesce(func.sum(case((sum_base, _money_expr()), else_=0.0)), 0.0).label("total_quoted_usd"),
+                _sum_if(inprog_cond_d).label("inprogress_count"),
+                func.coalesce(func.sum(case((inprog_cond_d, _money_expr()), else_=0.0)), 0.0).label("inprogress_usd"),
+                _sum_if(paid_cond_d).label("paid_count"),
+                func.coalesce(func.sum(case((paid_cond_d, _money_expr()), else_=0.0)), 0.0).label("paid_usd"),
+                func.avg(case((sum_base, case(
+                    (Job.Job_type.in_(["PTL", "PAR"]), Job.Gqm_target_return),
+                    else_=Job.Gqm_final_percentage,
+                )), else_=None)).label("avg_target_sold_pct"),
+            )
+            .select_from(JobMemberLink)
+            .join(Job, Job.ID_Jobs == JobMemberLink.job_id, isouter=True)
+        )
+        s = session.exec(summary_stmt).first()
+        paid_c = int(s.paid_count or 0) if s else 0
+        paid_u = _safe_float(s.paid_usd) if s else 0.0
+        summary = {
+            "total_quotes":        int(s.total_quotes or 0) if s else 0,
+            "total_quoted_usd":    round(_safe_float(s.total_quoted_usd) if s else 0.0, 2),
+            "inprogress_count":    int(s.inprogress_count or 0) if s else 0,
+            "inprogress_usd":      round(_safe_float(s.inprogress_usd) if s else 0.0, 2),
+            "paid_count":          paid_c,
+            "paid_usd":            round(paid_u, 2),
+            "avg_sale_per_job":    round(paid_u / paid_c, 2) if paid_c else 0.0,
+            "avg_target_sold_pct": round(_safe_float(s.avg_target_sold_pct) if s else 0.0, 4),
+        }
+
+        # ── 4. QIDs created per month / year ──────────────────────────────
         year_expr  = extract("year",  Job.Date_assigned)
         month_expr = extract("month", Job.Date_assigned)
         month_key  = func.to_char(Job.Date_assigned, "YYYY-MM")
@@ -346,6 +389,7 @@ def member_individual_stats(member_id: str):
         },
         "year_filter":           year,
         "communities_assigned":  int(communities_count),
+        "summary":               summary,
         "pending_vendor_quotes": pending_vendor_quotes,
         "qids_by_month":         qids_by_month,
     }), 200
