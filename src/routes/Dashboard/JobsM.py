@@ -142,9 +142,16 @@ def jobs_member_pipeline():
 
             raw_jobs = session.exec(jobs_stmt).all()
 
-            # Group jobs by member
-            mem_jobs_map = {}
+            # Group jobs by member — deduplicate by (member_id, job_id) to
+            # prevent the same job appearing twice when a member holds multiple
+            # roles (e.g. "Acc Rep Selling" + "Mgmt Member") on the same job.
+            mem_jobs_map: dict[str, list] = {}
+            seen_job_keys: set[tuple] = set()
             for j, m_id, cl in raw_jobs:
+                key = (m_id, j.ID_Jobs)
+                if key in seen_job_keys:
+                    continue
+                seen_job_keys.add(key)
                 amount = (
                     float(j.Gqm_target_sold_pricing or 0)
                     if j.Job_type == "PAR"
