@@ -34,7 +34,7 @@ communities_bp = Blueprint("communities_blueprint", __name__, url_prefix="/commu
 @communities_bp.get("/clients")
 def clients_metrics():
     """
-    GET /communities/clients?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=25&order_by=closed|revenue&include_status_breakdown=1
+    GET /communities/clients?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=25&order_by=closed|revenue&include_status_breakdown=1&search=
     """
     job_type = _norm_job_type(request.args.get("type")) or "ALL"
     if job_type not in ("ALL", "QID", "PTL", "PAR"):
@@ -45,6 +45,7 @@ def clients_metrics():
         return jsonify({"detail": "Invalid year. Use a valid number like 2025."}), 400
 
     order_by = _norm_order_by(request.args.get("order_by"))
+    search_q = (request.args.get("search") or "").strip() or None
 
     page = _safe_int(request.args.get("page"), 1)
     limit = _safe_int(request.args.get("limit"), 25)
@@ -196,9 +197,13 @@ def clients_metrics():
         glob_summary = session.exec(summary_stmt).first()
 
         total_clients_stmt = select(func.count()).select_from(Client)
+        if search_q:
+            total_clients_stmt = total_clients_stmt.where(
+                Client.Client_Community.ilike(f"%{search_q}%")
+            )
         total_clients = session.exec(total_clients_stmt).one() or 0
 
-        agg = (
+        agg_base = (
             select(
                 Client.ID_Client.label("client_id"),
                 Client.Client_Community.label("client_name"),
@@ -214,15 +219,20 @@ def clients_metrics():
                 closed_qid, closed_ptl, closed_par,
 
                 revenue_all, revenue_qid, revenue_ptl, revenue_par,
-                
+
                 quotes_count, quotes_revenue, inprog_revenue, paid_revenue, ave_target_sold,
 
-                *status_cols,  # ✅ NEW
+                *status_cols,
             )
             .select_from(Client)
             .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)
             .group_by(Client.ID_Client, Client.Client_Community, Client.Address)
-        ).subquery("agg")
+        )
+        if search_q:
+            agg_base = agg_base.where(
+                Client.Client_Community.ilike(f"%{search_q}%")
+            )
+        agg = agg_base.subquery("agg")
 
         ranked = (
             select(
@@ -667,8 +677,7 @@ def parent_mgmt_co_metrics():
              .join(Member, JobMemberLink.member_id == Member.ID_Member)\
              .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)\
              .group_by(Client.Client_Community, Member.Member_Name)\
-             .order_by(rev_col.desc())\
-             .limit(10)
+             .order_by(Client.Client_Community.asc(), rev_col.desc())
 
             ma_rows = ds_session.exec(member_assign_stmt).all()
             community_assignments = [

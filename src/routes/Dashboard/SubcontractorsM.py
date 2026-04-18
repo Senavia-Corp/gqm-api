@@ -158,35 +158,37 @@ def subcontractors_summary():
     """
     page = max(_safe_int(request.args.get("page"),  1), 1)
     limit = min(max(_safe_int(request.args.get("limit"), 25), 1), 200)
-    offset = (page - 1) * limit
     status_filter = (request.args.get("status") or "").strip() or None
+    search_q = (request.args.get("search") or "").strip() or None
 
     with get_session() as session:
 
-        # ── Total count for pagination ──────────────────────────────────────
-        count_stmt = select(func.count()).select_from(Subcontractor)
-        if status_filter:
-            count_stmt = count_stmt.where(
-                Subcontractor.Status == status_filter)
-        total_subs = session.exec(count_stmt).one() or 0
-
-        # ── Fetch all subs (paginated) ──────────────────────────────────────
+        # ── Fetch ALL matching subs (no DB-level pagination) ────────────────
+        # Pagination is applied after global sort by total_paid_usd so that
+        # subs with payment data always appear before those without, across
+        # all pages and not just within each page.
         subs_stmt = select(Subcontractor).order_by(
             func.coalesce(Subcontractor.Name,
                           Subcontractor.Organization, "").asc()
         )
         if status_filter:
             subs_stmt = subs_stmt.where(Subcontractor.Status == status_filter)
-        subs_stmt = subs_stmt.offset(offset).limit(limit)
+        if search_q:
+            like = f"%{search_q}%"
+            subs_stmt = subs_stmt.where(
+                or_(
+                    Subcontractor.Name.ilike(like),
+                    Subcontractor.Organization.ilike(like),
+                    Subcontractor.Specialty.ilike(like),
+                )
+            )
         subs = session.exec(subs_stmt).all()
 
         if not subs:
-            total_pages = (int(total_subs) + limit -
-                           1) // limit if total_subs else 1
             return jsonify({
                 "pagination": {
                     "page": page, "limit": limit,
-                    "total_subs": 0, "total_pages": total_pages,
+                    "total_subs": 0, "total_pages": 1,
                 },
                 "subcontractors": [],
             }), 200
@@ -194,7 +196,6 @@ def subcontractors_summary():
         sub_ids = [s.ID_Subcontractor for s in subs]
 
         # ── Active tasks per sub ────────────────────────────────────────────
-        # Direct association: Tasks.ID_Subcontractor
         tasks_stmt = (
             select(
                 Tasks.ID_Subcontractor,
@@ -207,7 +208,6 @@ def subcontractors_summary():
                 Tasks.Designation_date.is_not(None),
             )
         )
-        # Map: sub_id → list of task date ranges
         tasks_by_sub: dict[str, list[dict]] = {}
         for row in session.exec(tasks_stmt).all():
             tasks_by_sub.setdefault(row.ID_Subcontractor, []).append({
@@ -229,12 +229,7 @@ def subcontractors_summary():
             r.subcon_id: int(r.cnt) for r in session.exec(skills_stmt).all()
         }
 
-        # ── Total paid (Bill Payments) per sub ─────────────────────────────
-        # FinancialDocument(Bill) matched by Vendor_Customer → FinancialLink
-        # → FinancialTransaction(Bill Payment)
-        # Strategy: fetch ALL vendors (no filter), match in Python using
-        # bidirectional containment (handles 'MPC Total' ↔ 'MPC Total Service Corp').
-        # cleaned_vendor_name → total paid
+        # ── Total paid (Bill Payments) per vendor ───────────────────────────
         paid_map: dict[str, float] = {}
         clean_vendor = _vendor_col_cleaned()
         paid_stmt = (
@@ -262,16 +257,16 @@ def subcontractors_summary():
             if row.vendor_clean:
                 paid_map[row.vendor_clean] = _safe_float(row.total_paid)
 
-    # ── Build response ──────────────────────────────────────────────────────
-    result = []
-    for idx, sub in enumerate(subs, start=1):
+    # ── Build full result list, then sort globally ──────────────────────────
+    all_results = []
+    for sub in subs:
         sub_tasks = tasks_by_sub.get(sub.ID_Subcontractor, [])
-        result.append({
-            "rank": offset + idx,
+        org_clean = _clean_org(sub.Organization) or None
+        all_results.append({
             "subcontractor": {
                 "id":           sub.ID_Subcontractor,
                 "name":         sub.Name,
-                "organization": sub.Organization,
+                "organization": org_clean,
                 "specialty":    sub.Specialty,
                 "score":        sub.Score,
                 "status":       sub.Status,
@@ -280,17 +275,30 @@ def subcontractors_summary():
             "active_tasks_count": len(sub_tasks),
             "has_overlap":        _tasks_overlap(sub_tasks),
             "skills_count":       skills_count_map.get(sub.ID_Subcontractor, 0),
-            "total_paid_usd":     round(_find_best_paid(_clean_org(sub.Organization), paid_map), 2),
+            "total_paid_usd":     round(_find_best_paid(org_clean or "", paid_map), 2),
         })
 
-    total_pages = (int(total_subs) + limit - 1) // limit if total_subs else 1
+    # Global sort: subs with payment data first, then alphabetically
+    all_results.sort(key=lambda x: (-x["total_paid_usd"],
+                                    x["subcontractor"]["name"] or ""))
+
+    # ── Apply pagination after sort ─────────────────────────────────────────
+    total_subs = len(all_results)
+    total_pages = (total_subs + limit - 1) // limit if total_subs else 1
+    offset = (page - 1) * limit
+    page = min(page, total_pages)
+    result = [
+        {**item, "rank": offset + i + 1}
+        for i, item in enumerate(all_results[offset: offset + limit])
+    ]
+
     return jsonify({
         "status_filter": status_filter,
         "pagination": {
-            "page":       page,
-            "limit":      limit,
-            "total_subs": int(total_subs),
-            "total_pages": int(total_pages),
+            "page":        page,
+            "limit":       limit,
+            "total_subs":  total_subs,
+            "total_pages": total_pages,
         },
         "subcontractors": result,
     }), 200
@@ -559,7 +567,7 @@ def subcontractor_detail(sub_id: str):
         "subcontractor": {
             "id":            sub.ID_Subcontractor,
             "name":          sub.Name,
-            "organization":  sub.Organization,
+            "organization":  _clean_org(sub.Organization) or None,
             "specialty":     sub.Specialty,
             "score":         sub.Score,
             "status":        sub.Status,

@@ -236,7 +236,7 @@ def create_purchase():
     try:
         data = request.get_json()
         create_purchase = PurchaseCreate.model_validate(data)
-        obj = Purchase.model_validate(create_purchase)
+        obj = Purchase(**create_purchase.model_dump())
 
     except ValidationError as e:
         if 'JSON' in str(e):
