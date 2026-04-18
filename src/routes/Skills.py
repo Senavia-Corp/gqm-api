@@ -23,27 +23,26 @@ skills_bp = Blueprint("skills_blueprint", __name__, url_prefix="/skills")
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todas las habilidades
 @skills_bp.get("/")
-@paginate()  # decorador de paginación
+@paginate(default_limit=200, max_limit=1000)  # Aumentar límite para filtros
 def list_skills():
     try:
         with get_session() as session:
-
-            statement = (
-                select(Skills)
-                .options(
-                    joinedload(Skills.subcontractors),
-                    joinedload(Skills.opportunities)
-                )
-            )
-            results = session.exec(statement).unique().all()
+            # Seleccionar solo lo necesario para el dropdown
+            statement = select(Skills)
+            results = session.exec(statement).all()
 
             if not results:
-                return [], 404
+                return [], 200
 
+            # Solo serializar campos base (ID y Nombre)
             skills_data = [
-                add_relationships(
-                    skills, ["subcontractors", "opportunities"])
-                for skills in results]
+                {
+                    "ID_Skill": skill.ID_Skill,
+                    "Skill_name": skill.Skill_name,
+                    "Division_trade": skill.Division_trade
+                }
+                for skill in results
+            ]
 
             return skills_data, 200
 

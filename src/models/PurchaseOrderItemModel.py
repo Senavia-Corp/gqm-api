@@ -11,9 +11,11 @@ class POrderItemBase(SQLModel):
     Quote_shop: Optional[str] = Field(default=None)
     Quote_link: Optional[str] = Field(default=None)
     Quote_value: Optional[float] = Field(default=None)
+    Quote_notes: Optional[str] = Field(default=None)
     Purchase_shop: Optional[str] = Field(default=None)
     Purchase_link: Optional[str] = Field(default=None)
     Purchase_value: Optional[float] = Field(default=None)
+    Purchase_notes: Optional[str] = Field(default=None)
 
 
 class PurchaseOrderItem(POrderItemBase, table=True):

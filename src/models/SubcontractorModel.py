@@ -59,12 +59,17 @@ class Subcontractor(SubcontractorBase, table=True):
     # Relaciones foráneas 1:M
     technicians: List["Technician"] = Relationship(  # type: ignore
         back_populates="subcontractor")
+    tasks: List["Tasks"] = Relationship(  # type: ignore
+        back_populates="subcontractor")
     orders: List["Order"] = Relationship(  # type: ignore
         back_populates="subcontractor")
     attachments: List["Attachments"] = Relationship(  # type: ignore
         back_populates="subcontractor",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
     tlactivity: List["TLActivity"] = Relationship(  # type: ignore
+        back_populates="subcontractor",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+    certificates: List["Certificate"] = Relationship(  # type: ignore
         back_populates="subcontractor",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 

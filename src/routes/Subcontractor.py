@@ -2,7 +2,9 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.SubcontractorModel import Subcontractor, SubcontractorCreate, SubcontractorUpdate
+from ..models.SkillsModel import Skills
 from ..models.TechnicianModel import Technician
+from ..models.link_models.JobSubcontractor import JobSubcontractorLink
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -82,6 +84,8 @@ def list_subcontractors_table():
     limit = min(200, max(1, int(request.args.get("limit", 10))))
     status = request.args.get("status", "").strip() or None
     q = request.args.get("q", "").strip()
+    skills_query = request.args.get("skills", "").strip()
+    exclude_job_id = request.args.get("exclude_job_id", "").strip()
 
     with get_session() as session:
 
@@ -89,15 +93,7 @@ def list_subcontractors_table():
         stmt = (
             select(Subcontractor)
             .options(
-                load_only(
-                    Subcontractor.ID_Subcontractor,
-                    Subcontractor.Name,
-                    Subcontractor.Organization,
-                    Subcontractor.Status,
-                    Subcontractor.Email_Address,
-                    Subcontractor.Score,
-                    Subcontractor.Specialty,
-                )
+                joinedload(Subcontractor.skills).load_only(Skills.ID_Skill)
             )
         )
 
@@ -118,15 +114,29 @@ def list_subcontractors_table():
                 )
             )
 
+        # ── Filtro por Skills ──────────────────────────────────────────────
+        if skills_query:
+            skill_ids = [s.strip() for s in skills_query.split(",") if s.strip()]
+            if skill_ids:
+                stmt = stmt.where(Subcontractor.skills.any(Skills.ID_Skill.in_(skill_ids)))
+
+        # ── Excluir vinculados a un Job ──────────────────────────────────
+        if exclude_job_id:
+            linked_subquery = (
+                select(JobSubcontractorLink.subcontr_id)
+                .where(JobSubcontractorLink.job_id == exclude_job_id)
+            )
+            stmt = stmt.where(Subcontractor.ID_Subcontractor.not_in(linked_subquery))
+
         # ── Total ──────────────────────────────────────────────────────────
-        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_stmt = select(func.count(Subcontractor.ID_Subcontractor.distinct())).select_from(stmt.subquery())
         total = session.exec(count_stmt).one()
 
         # ── Paginación SQL ─────────────────────────────────────────────────
         offset = (page - 1) * limit
         stmt = stmt.order_by(Subcontractor.ID_Subcontractor.desc()).offset(
             offset).limit(limit)
-        results = session.exec(stmt).all()
+        results = session.exec(stmt).unique().all()
 
         # ── Serializar ─────────────────────────────────────────────────────
         rows = [
@@ -138,6 +148,7 @@ def list_subcontractors_table():
                 "Email_Address":    s.Email_Address,
                 "Score":            s.Score,
                 "Specialty":        s.Specialty,
+                "skill_ids":        [sk.ID_Skill for sk in s.skills]
             }
             for s in results
         ]
@@ -169,6 +180,7 @@ def get_subcontractor(id_subcontractor):
                 joinedload(Subcontractor.tlactivity),
                 joinedload(Subcontractor.skills),
                 joinedload(Subcontractor.opportunities),
+                joinedload(Subcontractor.certificates)
             )
             .where(Subcontractor.ID_Subcontractor == id_subcontractor)
         )
@@ -181,7 +193,7 @@ def get_subcontractor(id_subcontractor):
 
         subcontr_data = add_relationships(
             obj, ["technicians.tasks", "orders", "jobs", "attachments",
-                  "role", "tlactivity", "skills", "opportunities"])
+                  "role", "tlactivity", "skills", "opportunities", "certificates"])
 
         return subcontr_data, 200
 

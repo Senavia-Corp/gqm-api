@@ -1,18 +1,17 @@
 from flask import Blueprint, jsonify, request, Response
 from sqlmodel import select
 from sqlalchemy import func, extract, and_, or_, case, literal
-from sqlalchemy.exc import SQLAlchemyError
 
-from ..database.db_sqlmodel import get_session
-from ..models.JobModel import Job
-from ..models.MemberModel import Member
-from ..models.link_models.JobMember import JobMemberLink
-from ..models.ClientModel import Client
-from ..models.ParentMgmtCoModel import ParentMgmtCo
-from ..services.metrics.jobs_metrics_service import get_jobs_status_metrics_data, get_jobs_dashboard_data
-from ..services.reports.jobs_report_pdf import build_jobs_report_pdf_bytes
-from ..services.metrics.metrics_shared import (
-    STATUS_CATALOG,
+from src.database.db_sqlmodel import get_session
+from src.models.ClientModel import Client
+from src.models.ParentMgmtCoModel import ParentMgmtCo
+from src.models.JobModel import Job
+from src.models.link_models.JobMember import JobMemberLink
+from src.models.MemberModel import Member
+from src.services.metrics.aux_func_metrics import (
+    _safe_int, _type_expr, _year_expr, 
+    _sum_if, _norm_order_by)
+from src.services.metrics.metrics_shared import (
     PENDING_BY_TYPE,
     INPROGRESS_BY_TYPE,
     COMPLETED_BY_TYPE,
@@ -20,390 +19,22 @@ from ..services.metrics.metrics_shared import (
     CLOSED_BY_TYPE,
     STATUS_BREAKDOWN_LIST,
     _norm_job_type,
-    _norm_year,
-    _apply_year_filter,
+    _norm_year
 )
-
-metrics_bp = Blueprint("metrics_blueprint", __name__, url_prefix="/metrics")
-
-ACC_REP_ROLE = "Acc Rep Selling"
-
-# (Status buckets and normalizers imported from metrics_shared)
+from src.services.metrics.jobs_metrics_service import _money_expr
 
 
-def _safe_int(value: str | None, default: int) -> int:
-    try:
-        v = int(value) if value is not None else default
-    except ValueError:
-        return default
-    return v
-
-
-def _type_expr(selected_type: str):
-    # condición de tipo para usar dentro de CASE en agregaciones
-    if selected_type == "ALL":
-        return literal(True)
-    return Job.Job_type == selected_type
-
-
-def _year_expr(selected_type: str, year: int | None):
-    # condición de año para usar dentro de CASE en agregaciones
-    if year is None:
-        return literal(True)
-
-    if selected_type == "PTL":
-        return and_(
-            Job.Estimated_start_date.is_not(None),
-            extract("year", Job.Estimated_start_date) == year,
-        )
-
-    if selected_type in ("QID", "PAR"):
-        return and_(
-            Job.Date_assigned.is_not(None),
-            extract("year", Job.Date_assigned) == year,
-        )
-
-    # ALL -> depende del tipo del job
-    return or_(
-        and_(
-            Job.Job_type == "PTL",
-            Job.Estimated_start_date.is_not(None),
-            extract("year", Job.Estimated_start_date) == year,
-        ),
-        and_(
-            Job.Job_type != "PTL",
-            Job.Date_assigned.is_not(None),
-            extract("year", Job.Date_assigned) == year,
-        ),
-    )
-
-
-def _sum_if(cond):
-    # SUM(CASE WHEN cond THEN 1 ELSE 0 END)
-    return func.coalesce(func.sum(case((cond, 1), else_=0)), 0)
-
-
-def _money_expr():
-    """
-    Revenue:
-    - QID/PTL => Gqm_final_sold_pricing
-    - PAR     => Gqm_target_sold_pricing
-    """
-    return case(
-        (Job.Job_type == "PAR", func.coalesce(Job.Gqm_target_sold_pricing, 0.0)),
-        else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
-    )
-
-
-def _sum_money_if(cond):
-    return func.coalesce(func.sum(case((cond, _money_expr()), else_=0.0)), 0.0)
-
-
-def _year_expr_any_job(year: int):
-    """
-    Year predicate independiente del filtro type (depende del Job.Job_type):
-    - PTL -> Estimated_start_date
-    - QID/PAR -> Date_assigned
-    """
-    return or_(
-        and_(
-            Job.Job_type == "PTL",
-            Job.Estimated_start_date.is_not(None),
-            extract("year", Job.Estimated_start_date) == year,
-        ),
-        and_(
-            Job.Job_type != "PTL",
-            Job.Date_assigned.is_not(None),
-            extract("year", Job.Date_assigned) == year,
-        ),
-    )
-
-
-def _norm_order_by(value: str | None) -> str:
-    v = (value or "").strip().lower()
-    if v in ("revenue", "rev", "money"):
-        return "revenue"
-    return "closed"
+communities_bp = Blueprint("communities_blueprint", __name__, url_prefix="/communities")
 
 
 # =============================================================================
-# NEW ENDPOINT: Members Jobs
+# ENDPOINT: Dashboard de Clients 
 # =============================================================================
 
-
-@metrics_bp.get("/jobs/status")
-def jobs_status_metrics():
-    """
-    GET /metrics/jobs/status?type=QID|PTL|PAR|ALL&year=2025
-
-    Returns the full Jobs Metrics Dashboard:
-      - kpi_summary        : 8 KPI cards (total quoted, final sold, premium, avg %, # jobs, # paid, etc.)
-      - monthly_sales      : Month-by-month breakdown (chart: paid jobs by date)
-      - quarterly          : Quarter-by-quarter breakdown
-      - rep_performance    : Sales performance by Acc Rep Selling / Mgmt Member
-      - status_breakdown   : Distribution by job status + pipeline indicator
-      - service_type_sales : Yearly sales grouped by service type (stacked bar data)
-      - in_progress_jobs   : Listing of jobs currently In Progress with $ amount
-      - ready_to_invoice   : Listing of jobs ready to be invoiced
-      - pipeline           : Total $ in active (non-paid, non-cancelled) jobs
-    """
-    data, err = get_jobs_dashboard_data(
-        request.args.get("type"),
-        request.args.get("year"),
-    )
-    if err:
-        payload, status_code = err
-        return jsonify(payload), status_code
-
-    return jsonify(data), 200
-
-
-# =============================================================================
-# NEW ENDPOINT: Members metrics (Acc Rep Selling) + Pagination
-# =============================================================================
-
-@metrics_bp.get("/members/acc-rep-selling")
-def members_acc_rep_selling_metrics():
-    """
-    GET /metrics/members/acc-rep-selling?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=25&include_status_breakdown=1
-    """
-    job_type = _norm_job_type(request.args.get("type")) or "ALL"
-    if job_type not in ("ALL", "QID", "PTL", "PAR"):
-        return jsonify({"detail": "Invalid type. Use QID, PTL, PAR or ALL."}), 400
-
-    year = _norm_year(request.args.get("year"))
-    if request.args.get("year") is not None and year is None:
-        return jsonify({"detail": "Invalid year. Use a valid number like 2025."}), 400
-
-    page = _safe_int(request.args.get("page"), 1)
-    limit = _safe_int(request.args.get("limit"), 25)
-    page = max(page, 1)
-    limit = min(max(limit, 1), 200)  # cap razonable
-    offset = (page - 1) * limit
-
-    include_status_breakdown = (request.args.get(
-        "include_status_breakdown", "1").strip() != "0")
-
-    type_ok = _type_expr(job_type)
-    year_ok = _year_expr(job_type, year)
-
-    # Solo cuenta cuando exista el vínculo Acc Rep Selling + job válido + pasa filtros
-    base_cond = and_(
-        JobMemberLink.member_id.is_not(None),
-        Job.ID_Jobs.is_not(None),
-        type_ok,
-        year_ok,
-    )
-
-    def type_only(t: str):
-        return and_(base_cond, Job.Job_type == t)
-
-    def status_in(statuses: set[str]):
-        return Job.Job_status.in_(list(statuses))
-
-    # Totales
-    total_all = _sum_if(base_cond).label("total_all")
-    total_qid = _sum_if(type_only("QID")).label("total_qid")
-    total_ptl = _sum_if(type_only("PTL")).label("total_ptl")
-    total_par = _sum_if(type_only("PAR")).label("total_par")
-
-    # Pending
-    pending_qid = _sum_if(and_(type_only("QID"), status_in(
-        PENDING_BY_TYPE["QID"]))).label("pending_qid")
-    pending_ptl = _sum_if(and_(type_only("PTL"), status_in(
-        PENDING_BY_TYPE["PTL"]))).label("pending_ptl")
-    pending_par = literal(0).label("pending_par")
-    pending_all = (func.coalesce(pending_qid, 0) +
-                   func.coalesce(pending_ptl, 0)).label("pending_all")
-
-    # In progress
-    inprog_qid = _sum_if(and_(type_only("QID"), status_in(
-        INPROGRESS_BY_TYPE["QID"]))).label("inprog_qid")
-    inprog_ptl = _sum_if(and_(type_only("PTL"), status_in(
-        INPROGRESS_BY_TYPE["PTL"]))).label("inprog_ptl")
-    inprog_par = _sum_if(and_(type_only("PAR"), status_in(
-        INPROGRESS_BY_TYPE["PAR"]))).label("inprog_par")
-    inprog_all = (func.coalesce(inprog_qid, 0) + func.coalesce(inprog_ptl,
-                  0) + func.coalesce(inprog_par, 0)).label("inprog_all")
-
-    # Completed
-    completed_qid = _sum_if(and_(type_only("QID"), status_in(
-        COMPLETED_BY_TYPE["QID"]))).label("completed_qid")
-    completed_ptl = _sum_if(and_(type_only("PTL"), status_in(
-        COMPLETED_BY_TYPE["PTL"]))).label("completed_ptl")
-    completed_par = _sum_if(and_(type_only("PAR"), status_in(
-        COMPLETED_BY_TYPE["PAR"]))).label("completed_par")
-    completed_all = (func.coalesce(completed_qid, 0) + func.coalesce(
-        completed_ptl, 0) + func.coalesce(completed_par, 0)).label("completed_all")
-
-    # Cancelled
-    cancelled_all = _sum_if(
-        and_(base_cond, Job.Job_status == CANCELLED_STATUS)).label("cancelled_all")
-    cancelled_qid = _sum_if(and_(
-        type_only("QID"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_qid")
-    cancelled_ptl = _sum_if(and_(
-        type_only("PTL"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_ptl")
-    cancelled_par = _sum_if(and_(
-        type_only("PAR"), Job.Job_status == CANCELLED_STATUS)).label("cancelled_par")
-
-    # Closed
-    closed_qid = _sum_if(and_(type_only("QID"), status_in(
-        CLOSED_BY_TYPE["QID"]))).label("closed_qid")
-    closed_ptl = _sum_if(and_(type_only("PTL"), status_in(
-        CLOSED_BY_TYPE["PTL"]))).label("closed_ptl")
-    closed_par = _sum_if(and_(type_only("PAR"), status_in(
-        CLOSED_BY_TYPE["PAR"]))).label("closed_par")
-    closed_all = (func.coalesce(closed_qid, 0) + func.coalesce(closed_ptl,
-                  0) + func.coalesce(closed_par, 0)).label("closed_all")
-
-    # Breakdown por status (opcional)
-    status_cols = []
-    if include_status_breakdown:
-        for s in STATUS_BREAKDOWN_LIST:
-            status_cols.append(
-                _sum_if(and_(base_cond, Job.Job_status == s)
-                        ).label(f"st__{s}")
-            )
-
-    with get_session() as session:
-        # total members (para paginación)
-        total_members_stmt = select(func.count()).select_from(Member)
-        total_members = session.exec(total_members_stmt).one() or 0
-
-        stmt = (
-            select(
-                Member.ID_Member,
-                Member.Member_Name,
-                Member.Company_Role,
-
-                total_all, total_qid, total_ptl, total_par,
-
-                pending_all, inprog_all, completed_all, cancelled_all, closed_all,
-
-                pending_qid, pending_ptl, pending_par,
-                inprog_qid, inprog_ptl, inprog_par,
-                completed_qid, completed_ptl, completed_par,
-                cancelled_qid, cancelled_ptl, cancelled_par,
-                closed_qid, closed_ptl, closed_par,
-
-                *status_cols
-            )
-            .select_from(Member)
-            # LEFT JOIN job_member con rol Acc Rep Selling (no rompe miembros sin jobs)
-            .join(
-                JobMemberLink,
-                and_(
-                    JobMemberLink.member_id == Member.ID_Member,
-                    JobMemberLink.rol == ACC_REP_ROLE
-                ),
-                isouter=True
-            )
-            .join(
-                Job,
-                Job.ID_Jobs == JobMemberLink.job_id,
-                isouter=True
-            )
-            .group_by(Member.ID_Member, Member.Member_Name, Member.Company_Role)
-            .order_by(
-                func.coalesce(closed_all, 0).desc(),
-                func.coalesce(total_all, 0).desc(),
-                func.coalesce(Member.Member_Name, "").asc(),
-            )
-            .offset(offset)
-            .limit(limit)
-        )
-
-        rows = session.exec(stmt).all()
-
-    # rank global aproximado: rank = offset + index
-    # (si quieres rank EXACTO global con millones de filas, se hace con window function)
-    members = []
-    for idx, r in enumerate(rows, start=1):
-        total_all_v = int(r.total_all or 0)
-        completed_all_v = int(r.completed_all or 0)
-
-        member_obj = {
-            "rank": offset + idx,
-            "member": {
-                "id": r.ID_Member,
-                "name": r.Member_Name,
-                "company_role": r.Company_Role,
-            },
-            "totals": {
-                "all": int(r.total_all or 0),
-                "qid": int(r.total_qid or 0),
-                "ptl": int(r.total_ptl or 0),
-                "par": int(r.total_par or 0),
-            },
-            "buckets": {
-                "pending": int(r.pending_all or 0),
-                "in_progress": int(r.inprog_all or 0),
-                "completed": int(r.completed_all or 0),
-                "cancelled": int(r.cancelled_all or 0),
-                "closed": int(r.closed_all or 0),
-                "completed_pct": round((completed_all_v / total_all_v * 100.0), 2) if total_all_v else 0.0,
-            },
-            "bucket_by_type": {
-                "qid": {
-                    "pending": int(r.pending_qid or 0),
-                    "in_progress": int(r.inprog_qid or 0),
-                    "completed": int(r.completed_qid or 0),
-                    "cancelled": int(r.cancelled_qid or 0),
-                    "closed": int(r.closed_qid or 0),
-                    "completed_pct": round((float(r.completed_qid or 0) / float(r.total_qid or 0) * 100.0), 2) if (r.total_qid or 0) else 0.0,
-                },
-                "ptl": {
-                    "pending": int(r.pending_ptl or 0),
-                    "in_progress": int(r.inprog_ptl or 0),
-                    "completed": int(r.completed_ptl or 0),
-                    "cancelled": int(r.cancelled_ptl or 0),
-                    "closed": int(r.closed_ptl or 0),
-                    "completed_pct": round((float(r.completed_ptl or 0) / float(r.total_ptl or 0) * 100.0), 2) if (r.total_ptl or 0) else 0.0,
-                },
-                "par": {
-                    "pending": 0,
-                    "in_progress": int(r.inprog_par or 0),
-                    "completed": int(r.completed_par or 0),
-                    "cancelled": int(r.cancelled_par or 0),
-                    "closed": int(r.closed_par or 0),
-                    "completed_pct": round((float(r.completed_par or 0) / float(r.total_par or 0) * 100.0), 2) if (r.total_par or 0) else 0.0,
-                },
-            }
-        }
-
-        if include_status_breakdown:
-            breakdown = {}
-            for s in STATUS_BREAKDOWN_LIST:
-                breakdown[s] = int(getattr(r, f"st__{s}") or 0)
-            member_obj["status_breakdown"] = breakdown
-
-        members.append(member_obj)
-
-    total_pages = (int(total_members) + limit -
-                   1) // limit if total_members else 1
-
-    return jsonify({
-        "type": job_type,
-        "year": year,
-        "role_filter": ACC_REP_ROLE,
-        "pagination": {
-            "page": page,
-            "limit": limit,
-            "total_members": int(total_members),
-            "total_pages": int(total_pages),
-        },
-        "members": members
-    }), 200
-
-
-# =============================================================================
-# NEW ENDPOINT: Clients metrics
-# =============================================================================
-
-@metrics_bp.get("/clients")
+@communities_bp.get("/clients")
 def clients_metrics():
     """
-    GET /metrics/clients?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=25&order_by=closed|revenue&include_status_breakdown=1
+    GET /communities/clients?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=25&order_by=closed|revenue&include_status_breakdown=1&search=
     """
     job_type = _norm_job_type(request.args.get("type")) or "ALL"
     if job_type not in ("ALL", "QID", "PTL", "PAR"):
@@ -414,6 +45,7 @@ def clients_metrics():
         return jsonify({"detail": "Invalid year. Use a valid number like 2025."}), 400
 
     order_by = _norm_order_by(request.args.get("order_by"))
+    search_q = (request.args.get("search") or "").strip() or None
 
     page = _safe_int(request.args.get("page"), 1)
     limit = _safe_int(request.args.get("limit"), 25)
@@ -497,11 +129,7 @@ def clients_metrics():
                   0) + func.coalesce(closed_par, 0)).label("closed_all")
 
     # Revenue
-    revenue_expr = case(
-        (Job.Job_type == "PAR", func.coalesce(
-            Job.Gqm_target_sold_pricing, 0.0)),
-        else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
-    )
+    revenue_expr = _money_expr()
 
     revenue_all = func.coalesce(
         func.sum(case((base_cond, revenue_expr), else_=0.0)),
@@ -569,9 +197,13 @@ def clients_metrics():
         glob_summary = session.exec(summary_stmt).first()
 
         total_clients_stmt = select(func.count()).select_from(Client)
+        if search_q:
+            total_clients_stmt = total_clients_stmt.where(
+                Client.Client_Community.ilike(f"%{search_q}%")
+            )
         total_clients = session.exec(total_clients_stmt).one() or 0
 
-        agg = (
+        agg_base = (
             select(
                 Client.ID_Client.label("client_id"),
                 Client.Client_Community.label("client_name"),
@@ -587,15 +219,20 @@ def clients_metrics():
                 closed_qid, closed_ptl, closed_par,
 
                 revenue_all, revenue_qid, revenue_ptl, revenue_par,
-                
+
                 quotes_count, quotes_revenue, inprog_revenue, paid_revenue, ave_target_sold,
 
-                *status_cols,  # ✅ NEW
+                *status_cols,
             )
             .select_from(Client)
             .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)
             .group_by(Client.ID_Client, Client.Client_Community, Client.Address)
-        ).subquery("agg")
+        )
+        if search_q:
+            agg_base = agg_base.where(
+                Client.Client_Community.ilike(f"%{search_q}%")
+            )
+        agg = agg_base.subquery("agg")
 
         ranked = (
             select(
@@ -735,26 +372,25 @@ def clients_metrics():
         "order_by": order_by,
         "include_status_breakdown": 1 if include_status_breakdown else 0,
         "summary": summary_data,
-        "individual_stats": {
+        "pagination": {
+            "page": page,
+            "limit": limit,
             "total_clients": int(total_clients),
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total_pages": int(total_pages),
-            },
-            "top_clients": clients
-        }
+            "total_pages": int(total_pages),
+        },
+        "clients": clients,
     }), 200
 
-# =============================================================================
-# NEW ENDPOINT: Parent Management Co
-# =============================================================================
 
 
-@metrics_bp.get("/parent-mgmt-co")
+# =============================================================================
+# ENDPOINT: Dashboard de Parent Mgm Co 
+# =============================================================================
+
+@communities_bp.get("/parent-mgmt-co")
 def parent_mgmt_co_metrics():
     """
-    GET /metrics/parent-mgmt-co?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=25&order_by=closed|revenue&include_status_breakdown=1
+    GET /communities/parent-mgmt-co?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=25&order_by=closed|revenue&include_status_breakdown=1
     """
     job_type = _norm_job_type(request.args.get("type")) or "ALL"
     if job_type not in ("ALL", "QID", "PTL", "PAR"):
@@ -850,11 +486,7 @@ def parent_mgmt_co_metrics():
                   0) + func.coalesce(closed_par, 0)).label("closed_all")
 
     # Revenue (QID/PTL -> final, PAR -> target)
-    revenue_expr = case(
-        (Job.Job_type == "PAR", func.coalesce(
-            Job.Gqm_target_sold_pricing, 0.0)),
-        else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
-    )
+    revenue_expr = _money_expr()
 
     revenue_all = func.coalesce(
         func.sum(case((base_cond, revenue_expr), else_=0.0)),
@@ -1006,62 +638,80 @@ def parent_mgmt_co_metrics():
         # 1) Top Communities subquery
         paid_jobs_col = func.sum(case((is_closed, 1), else_=0))
         total_jobs_col = func.count(Job.ID_Jobs)
+        rev_comm_col = func.coalesce(func.sum(case((is_closed, revenue_expr), else_=0.0)), 0.0)
         top_comm_stmt = select(
-            Client.ID_Client.label("client_id"),
             Client.Client_Community.label("name"),
             total_jobs_col.label("total_jobs"),
-            paid_jobs_col.label("paid_jobs")
+            paid_jobs_col.label("paid_jobs"),
+            rev_comm_col.label("revenue"),
         ).select_from(Client)\
          .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)\
          .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)\
          .group_by(Client.ID_Client, Client.Client_Community)\
          .order_by(paid_jobs_col.desc(), total_jobs_col.desc(), Client.Client_Community.asc())\
          .limit(5)
-         
+
         with get_session() as ds_session:
             tc_rows = ds_session.exec(top_comm_stmt).all()
-            top_communities = [{"id": tc.client_id, "name": tc.name, "total_jobs": tc.total_jobs or 0, "paid_jobs": tc.paid_jobs or 0} for tc in tc_rows]
+            top_communities = [
+                {
+                    "name":       tc.name,
+                    "total_jobs": int(tc.total_jobs or 0),
+                    "paid_jobs":  int(tc.paid_jobs  or 0),
+                    "revenue":    float(tc.revenue   or 0.0),
+                }
+                for tc in tc_rows
+            ]
 
             # 2) Member Assignments subquery
-            rev_col = func.sum(revenue_expr)
+            rev_col     = func.coalesce(func.sum(revenue_expr), 0.0)
+            job_cnt_col = func.count(Job.ID_Jobs)
             member_assign_stmt = select(
-                Client.Client_Community.label("community_name"),
+                Client.Client_Community.label("community"),
                 Member.Member_Name.label("member_name"),
-                rev_col.label("revenue")
+                rev_col.label("revenue"),
+                job_cnt_col.label("job_count"),
             ).select_from(Job)\
              .join(Client, Job.ID_Client == Client.ID_Client)\
              .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)\
              .join(Member, JobMemberLink.member_id == Member.ID_Member)\
              .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)\
              .group_by(Client.Client_Community, Member.Member_Name)\
-             .order_by(rev_col.desc())\
-             .limit(10)
-             
+             .order_by(Client.Client_Community.asc(), rev_col.desc())
+
             ma_rows = ds_session.exec(member_assign_stmt).all()
-            member_assignments = [{"community_name": ma.community_name, "member_name": ma.member_name, "revenue": float(ma.revenue or 0.0)} for ma in ma_rows]
+            community_assignments = [
+                {
+                    "community":   ma.community,
+                    "member_name": ma.member_name,
+                    "revenue":     float(ma.revenue  or 0.0),
+                    "job_count":   int(ma.job_count  or 0),
+                }
+                for ma in ma_rows
+            ]
 
 
         item = {
-            "rank_closed": int(r.rank_closed),
+            "rank_closed":  int(r.rank_closed),
             "rank_revenue": int(r.rank_revenue),
 
-            "parent_mgmt_co": {
-                "id": r.pmc_id,
-                "name": r.pmc_name,
-                "hq": r.pmc_hq,
+            "client": {
+                "id":      r.pmc_id,
+                "name":    r.pmc_name,
+                "address": r.pmc_hq or "",
             },
+            "communities_count": int(r.communities_count or 0),
             "dashboard_stats": {
-                "total_amount_of_quotes": int(r.quotes_count or 0),
-                "dollars_quoted": float(r.quotes_revenue or 0.0),
-                "in_progress_jobs_count": int(r.inprog_all or 0),
-                "dollars_in_progress": float(r.inprog_revenue or 0.0),
-                "paid_jobs_count": int(r.closed_all or 0),
-                "dollars_paid": float(r.paid_revenue or 0.0),
-                "ave_target_sold_pct": round(float(r.ave_target_sold or 0.0), 2),
-                "communities_count": int(r.communities_count or 0)
+                "total_amount_of_quotes": int(r.quotes_count    or 0),
+                "dollars_quoted":         float(r.quotes_revenue or 0.0),
+                "in_progress_jobs_count": int(r.inprog_all      or 0),
+                "dollars_in_progress":    float(r.inprog_revenue or 0.0),
+                "paid_jobs_count":        int(r.closed_all      or 0),
+                "dollars_paid":           float(r.paid_revenue   or 0.0),
+                "ave_target_sold_pct":    round(float(r.ave_target_sold or 0.0), 2),
             },
-            "top_communities": top_communities,
-            "community_assignments": member_assignments,
+            "top_communities":      top_communities,
+            "community_assignments": community_assignments,
             "totals": {
                 "all": int(r.total_all or 0),
                 "qid": int(r.total_qid or 0),
@@ -1138,61 +788,18 @@ def parent_mgmt_co_metrics():
     }
 
     return jsonify({
-        "type": job_type,
-        "year": year,
+        "type":     job_type,
+        "year":     year,
         "order_by": order_by,
-        # opcional, útil para debug
-        "include_status_breakdown": 1 if include_status_breakdown else 0,
-        "summary": summary_data,
-        "individual_stats": {
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total_parent_mgmt_cos": int(total_pmc),
-                "total_pages": int(total_pages),
-            },
-            "parent_mgmt_cos": pmcs
-        }
+        "summary":  summary_data,
+        # Top-level shape expected by the frontend
+        "pagination": {
+            "page":                 page,
+            "limit":                limit,
+            "total_parent_mgmt_cos": int(total_pmc),
+            "total_pages":          int(total_pages),
+        },
+        "parent_mgmt_cos": pmcs,
     }), 200
 
-
-# =============================================================================
-# NEW ENDPOINT: Reportes de Jobs
-# =============================================================================
-@metrics_bp.get("/reports/jobs")
-def jobs_report_pdf():
-    """
-    GET /metrics/reports/jobs?type=ALL|QID|PTL|PAR&year=2025
-    Retorna PDF descargable.
-    """
-    data, err = get_jobs_status_metrics_data(
-        request.args.get("type"),
-        request.args.get("year"),
-    )
-    if err:
-        payload, status = err
-        return jsonify(payload), status
-
-    # Logo (opcional):
-    # - recomendado: guardar en repo tipo: src/assets/logo.png
-    # - o usar env var REPORT_LOGO_PATH
-    logo_path = "src/assets/gqm-logo.png"  # ajusta a tu repo (o None)
-
-    pdf_bytes = build_jobs_report_pdf_bytes(
-        data,
-        company_name="Senavia Corp",  # o lo que corresponda
-        logo_path=logo_path,
-    )
-
-    job_type = data.get("type") or "ALL"
-    year = data.get("year") or "ALL"
-    filename = f"jobs_report_{job_type}_{year}.pdf"
-
-    return Response(
-        pdf_bytes,
-        mimetype="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Cache-Control": "no-store",
-        },
-    )
+    

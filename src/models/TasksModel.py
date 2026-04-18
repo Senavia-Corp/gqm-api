@@ -5,6 +5,7 @@ from typing import Optional
 from .JobModel import Job
 from .TechnicianModel import Technician
 from .MemberModel import Member
+from .SubcontractorModel import Subcontractor
 from datetime import date
 
 
@@ -36,15 +37,20 @@ class Tasks(TasksBase, table=True):
     ID_Member: Optional[str] = Field(
         default=None, foreign_key="member.ID_Member")
     member: Optional[Member] = Relationship(back_populates="tasks")
+    ID_Subcontractor: Optional[str] = Field(
+        default=None, foreign_key="subcontractor.ID_Subcontractor")
+    subcontractor: Optional[Subcontractor] = Relationship(back_populates="tasks")
 
 
 class TasksCreate(TasksBase):
     ID_Jobs: Optional[str] = None
     ID_Technician: Optional[str] = None
     ID_Member: Optional[str] = None
+    ID_Subcontractor: Optional[str] = None
 
 
 class TasksUpdate(TasksBase):
     ID_Jobs: Optional[str] = None
     ID_Technician: Optional[str] = None
     ID_Member: Optional[str] = None
+    ID_Subcontractor: Optional[str] = None

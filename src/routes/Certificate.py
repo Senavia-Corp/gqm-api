@@ -1,0 +1,186 @@
+# ============ Lógica de rutas =================
+
+from flask import Blueprint, jsonify, request
+from sqlmodel import select
+from ..database.db_sqlmodel import get_session
+from ..models.CertificateModel import Certificate, CertificateCreate, CertificateUpdate
+from ..utils.id_generator import generate_custom_id
+from ..utils.pagination import paginate
+from ..utils.relationships import add_relationships
+from sqlalchemy.orm import joinedload
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
+from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
+from ..utils.middleware.logs.logs import logger
+
+# Blueprint de Certificate:
+certificate_bp = Blueprint("certificate_blueprint", __name__,
+                           url_prefix="/certificate")
+
+# -------------------RUTAS CRUD-------------------#
+
+
+# --------------------RUTAS GET-------------------#
+# Ruta para conseguir la lista de todos los certificates
+@certificate_bp.get("/")
+@handle_exceptions()
+@paginate()
+def list_certificates():
+
+    with get_session() as session:
+        statement = (
+            select(Certificate)
+            .options(
+                joinedload(Certificate.attachments)
+            )
+        )
+        results = session.exec(statement).unique().all()
+
+        if not results:
+            return [], 200
+
+        certificates_data = []
+
+        for certificates in results:
+            data = add_relationships(
+                certificates, ["attachments"])
+            certificates_data.append(data)
+
+        return certificates_data, 200
+
+
+# Ruta para conseguir un certificate por ID
+@certificate_bp.get("/<id_certificate>")
+@handle_exceptions()
+def get_certificate(id_certificate):
+
+    with get_session() as session:
+        statement = (
+            select(Certificate)
+            .options(
+                joinedload(Certificate.attachments)
+            )
+            .where(Certificate.ID_Certificate == id_certificate)
+        )
+        obj = session.exec(statement).unique().first()
+
+        if not obj:
+            raise AppException("Certificate not found.",
+                               "certificate_not_found", 404)
+
+        certificates_data = add_relationships(
+            obj, ["attachments"])
+
+        return jsonify(certificates_data), 200
+
+
+# Ruta para conseguir certificates por subcontratista
+@certificate_bp.get("/subcontractor/<subc>")
+@handle_exceptions()
+@paginate()
+def list_cert_by_subcontractor(subc):
+
+    with get_session() as session:
+        statement = (
+            select(Certificate)
+            .options(
+                joinedload(Certificate.attachments)
+            )
+            .where(Certificate.ID_Subcontractor == subc)
+        )
+        results = session.exec(statement).unique().all()
+
+        if not results:
+            return [], 200
+
+        certificates_data = [
+            add_relationships(
+                certificate, ["attachments"])
+            for certificate in results
+        ]
+
+        return certificates_data, 200
+
+
+# --------------- RUTAS POST, PATCH AND DELETE----------#
+# Ruta para crear un certificate
+@certificate_bp.post("/")
+@handle_exceptions()
+def create_certificate():
+
+    data = request.get_json()
+    create_certificate = CertificateCreate.model_validate(data)
+    obj = Certificate.model_validate(create_certificate)
+
+    with get_session() as session:
+
+        # ----------- 🔵 CREAR EN DB
+        new_id = generate_custom_id(
+            session, Certificate, "ID_Certificate", "CER")
+        obj.ID_Certificate = new_id
+
+        # ----------- 💾 GUARDAR EN DB
+        save_with_retry(session, obj)
+
+        logger.info(
+            "✅ Certificate creado | certificate_id=%s",
+            obj.ID_Certificate
+        )
+
+        return jsonify(obj.model_dump()), 201
+
+
+# Ruta para actualizar un certificate
+@certificate_bp.patch("/<id_certificate>")
+@handle_exceptions()
+def update_certificate(id_certificate):
+
+    data = request.get_json()
+
+    with get_session() as session:
+
+        obj = session.get(Certificate, id_certificate)
+        if not obj:
+            raise AppException("Certificate not found.",
+                               "certificate_not_found", 404)
+
+        update_certificate = CertificateUpdate.model_validate(data)
+        update_data_dict = update_certificate.model_dump(exclude_unset=True)
+
+        # ----------- 🔄 ACTUALIZAR EN DB
+        for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
+            setattr(obj, key, value)
+
+        # ----------- 💾 GUARDAR EN DB
+        save_with_retry(session, obj)
+
+        logger.info(
+            "🔄 Certificate actualizado | certificate_id=%s",
+            obj.ID_Certificate
+        )
+
+        return jsonify(obj.model_dump()), 200
+
+
+# Ruta para eliminar un certificate
+@certificate_bp.delete("/<id_certificate>")
+@handle_exceptions()
+def delete_certificate(id_certificate):
+
+    with get_session() as session:
+        obj = session.get(Certificate, id_certificate)
+        if not obj:
+            raise AppException("Certificate not found.",
+                               "certificate_not_found", 404)
+
+        # ----------- 🔴 BORRAR EN DB
+        delete_with_retry(session, obj)
+
+        logger.info(
+            "🗑️ Certificate eliminado | certificate_id=%s",
+            id_certificate
+        )
+
+        return jsonify({
+            "message": f"Certificate {id_certificate} eliminado correctamente"
+        }), 200
