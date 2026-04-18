@@ -36,6 +36,8 @@ class Order(OrderBase, table=True):
     change_orders: List["ChangeOrder"] = Relationship(  # type: ignore
         back_populates="order",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
+    financial_docs: List["FinancialDocument"] = Relationship(  # type: ignore
+        back_populates="order")
 
 
 class OrderCreate(OrderBase):

@@ -87,15 +87,17 @@ def assign_member_to_job(job_id, member_id):
 def remove_member_from_job(job_id, member_id):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
+    rol = request.args.get("rol") or None
     member_id_header = request.headers.get("X-User-Id") or None
 
     with get_session() as session:
-        link = session.exec(
-            select(JobMemberLink).where(
-                JobMemberLink.job_id == job_id,
-                JobMemberLink.member_id == member_id,
-            )
-        ).first()
+        query = select(JobMemberLink).where(
+            JobMemberLink.job_id == job_id,
+            JobMemberLink.member_id == member_id,
+        )
+        if rol:
+            query = query.where(JobMemberLink.rol == rol)
+        link = session.exec(query).first()
 
         if not link:
             return jsonify({"error": "Relationship does not exist"}), 404

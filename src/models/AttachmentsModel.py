@@ -6,6 +6,7 @@ from .TechnicianModel import Technician
 from .SupplierModel import Supplier
 from .FinancialDocModel import FinancialDocument
 from .GQMInventoryModel import Inventory
+from .CertificateModel import Certificate
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -16,6 +17,8 @@ class AttachmentsBase(SQLModel):
     Link: Optional[str] = Field(default=None)
     Document_type: Optional[str] = Field(default=None)
     podio_file_id: Optional[str] = Field(default=None, index=True)
+    # "members" | "technicians" | None
+    access_level: Optional[str] = Field(default=None, index=True)
 
 
 class Attachments(AttachmentsBase, table=True):
@@ -46,6 +49,10 @@ class Attachments(AttachmentsBase, table=True):
     ID_Inventory: Optional[str] = Field(
         default=None, foreign_key="inventory.ID_Inventory")
     inventory: Optional[Inventory] = Relationship(
+        back_populates="attachments")
+    ID_Certificate: Optional[str] = Field(
+        default=None, foreign_key="certificate.ID_Certificate")
+    certificate: Optional[Certificate] = Relationship(
         back_populates="attachments")
 
 

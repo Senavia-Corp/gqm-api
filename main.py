@@ -45,6 +45,7 @@ from src.routes.CommissionGroup import commission_group_bp
 from src.routes.CommissionDetail import commission_detail_bp
 from src.routes.GQMInventory import inventory_bp
 from src.routes.Reimbursement import reimbursement_bp
+from src.routes.Certificate import certificate_bp
 # Rutas de login:
 from src.routes.Login_auth import auth_bp
 # Sincronizacion de Podio a Postgre (datos antiguos):
@@ -60,11 +61,14 @@ from src.routes.podio_routes.AdminHooks import admin_bp
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
 # Rutas de métricas
-from src.routes.Metrics import metrics_bp
+from src.services.metrics.aux_func_metrics import metrics_bp
 from src.routes.financial_routes.financial_metrics_bp import financial_metrics_bp
 from src.routes.timeline_metrics_bp import timeline_metrics_bp
 from src.routes.financial_routes.FinancialJobReports import financial_jobs_bp
-
+from src.routes.Dashboard.CommunitiesM import communities_bp
+from src.routes.Dashboard.JobsM import job_metrics_bp
+from src.routes.Dashboard.MembersM import member_metrics_bp
+from src.routes.Dashboard.SubcontractorsM import subcontractor_metrics_bp
 
 # Test
 from src.tests.debug_podio import debug_bp
@@ -85,6 +89,7 @@ def create_app():
     # Registrar blueprints
     app.register_blueprint(attachments_bp)
     app.register_blueprint(bldg_dept_bp)
+    app.register_blueprint(certificate_bp)
     app.register_blueprint(change_order_bp)
     app.register_blueprint(chat_bp)
     app.register_blueprint(client_bp)
@@ -154,13 +159,20 @@ def create_app():
     app.register_blueprint(qbo_oauth_bp)  # Solo para conseguir los tokens
 
     # Rutas de métricas
-    app.register_blueprint(metrics_bp)
+    app.register_blueprint(metrics_bp)  # Para generar el pdf de Jobs
+    # Para generar el pdf de financials de QBO
     app.register_blueprint(financial_metrics_bp)
     app.register_blueprint(timeline_metrics_bp)
+    # Para generar el pdf de financials basadas en Jobs
     app.register_blueprint(financial_jobs_bp)
+    # Para el dashboard de Client y Parent Co.
+    app.register_blueprint(communities_bp)
+    app.register_blueprint(job_metrics_bp)  # Para el dashboard
+    app.register_blueprint(member_metrics_bp)
+    # Para el dashboard de Subcontractors
+    app.register_blueprint(subcontractor_metrics_bp)
 
     # Ruta simple
-
     @app.get("/")
     def root():
         return "API corriendo correctamente."
