@@ -161,7 +161,8 @@ def create_po_item():
                 Description=obj.Quote_notes,
                 Quatity=1.0,
                 Cost_type="Material",
-                ID_Jobs=job_id
+                ID_Jobs=job_id,
+                Cost_code=obj.ID_PurchaseOrderItem  # Link back to the source item for later updates
             )
             save_with_retry(session, new_estimate)
             # ──────────────────────────────────────────────────────────────
