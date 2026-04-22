@@ -78,6 +78,66 @@ def get_bldg_dept(bldg_dept_id):
         return jsonify(bldg_dept_data), 200
 
 
+# Ruta ligera para la tabla del panel (sin jobs anidados)
+@bldg_dept_bp.get("/table")
+@handle_exceptions()
+def list_bldg_dept_table():
+    from sqlalchemy import func, text
+    from sqlmodel import or_
+    from ..models.JobModel import Job  # type: ignore
+
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        limit = max(1, min(100, int(request.args.get("limit", 10))))
+    except ValueError:
+        page, limit = 1, 10
+
+    q = request.args.get("q", "").strip()
+
+    with get_session() as session:
+        stmt = select(BuildingDept)
+
+        if q:
+            pattern = f"%{q}%"
+            stmt = stmt.where(
+                or_(
+                    BuildingDept.City_BldgDept.ilike(pattern),
+                    BuildingDept.Location.ilike(pattern),
+                    BuildingDept.Link.ilike(pattern),
+                    BuildingDept.ID_BldgDept.ilike(pattern),
+                )
+            )
+
+        all_results = session.exec(stmt).all()
+        total = len(all_results)
+
+        paginated = all_results[(page - 1) * limit: page * limit]
+
+        rows = []
+        for dept in paginated:
+            job_count_stmt = select(func.count()).select_from(Job).where(
+                Job.ID_BldgDept == dept.ID_BldgDept
+            )
+            job_count = session.exec(job_count_stmt).one()
+
+            rows.append({
+                "ID_BldgDept": dept.ID_BldgDept,
+                "City_BldgDept": dept.City_BldgDept,
+                "Location": dept.Location,
+                "Office_Email": dept.Office_Email,
+                "Phone": dept.Phone,
+                "Link": dept.Link,
+                "jobs_count": job_count,
+            })
+
+        return jsonify({
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "results": rows,
+        }), 200
+
+
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un Building Department
 @bldg_dept_bp.post("/")
