@@ -5,6 +5,8 @@ from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.PurchaseModel import Purchase, PurchaseCreate, PurchaseUpdate
 from ..models.PurchaseOrderModel import PurchaseOrder
+from ..models.PurchaseOrderItemModel import PurchaseOrderItem
+from ..models.EstimateCostModel import EstimateCost
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -311,10 +313,40 @@ def update_purchase(id_purchase):
 
             save_with_retry(session, obj)
 
+            # ── Si ID_Jobs se acaba de asignar, actualizar EstimateCosts huérfanos ──
+            # Los EstimateCosts se crean cuando se crean los items, pero en ese momento
+            # la Purchase puede no tener Job vinculado. Aquí los sincronizamos.
+            new_job_id = update_data_dict.get("ID_Jobs")
+            if new_job_id and new_job_id != job_id_for_calc:
+                # Recolectar todos los IDs de items de esta Purchase
+                orders_stmt = select(PurchaseOrder).where(
+                    PurchaseOrder.ID_Purchase == id_purchase
+                )
+                orders = session.exec(orders_stmt).all()
+                item_ids = []
+                for order in orders:
+                    items_stmt = select(PurchaseOrderItem).where(
+                        PurchaseOrderItem.ID_PurchaseOrder == order.ID_PurchaseOrder
+                    )
+                    items = session.exec(items_stmt).all()
+                    item_ids.extend([it.ID_PurchaseOrderItem for it in items])
+
+                if item_ids:
+                    estimates_stmt = select(EstimateCost).where(
+                        EstimateCost.Cost_code.in_(item_ids)
+                    )
+                    orphaned = session.exec(estimates_stmt).all()
+                    for est in orphaned:
+                        est.ID_Jobs = new_job_id
+                        save_with_retry(session, est)
+            # ─────────────────────────────────────────────────────────────────────
+
             # ── Recálculo automático del Job asociado ─────────────────────
             if job_id_for_calc:
                 recalculate_and_apply(job_id_for_calc, session)
-                session.commit()
+            if new_job_id and new_job_id != job_id_for_calc:
+                recalculate_and_apply(new_job_id, session)
+            session.commit()
             # ─────────────────────────────────────────────────────────────
 
             return jsonify(obj.model_dump()), 200

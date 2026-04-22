@@ -6,6 +6,7 @@ from ..database.db_sqlmodel import get_session
 from ..models.PurchaseOrderItemModel import PurchaseOrderItem, POrderItemCreate, POrderItemUpdate
 from ..models.PurchaseOrderModel import PurchaseOrder
 from ..models.PurchaseModel import Purchase
+from ..models.EstimateCostModel import EstimateCost
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -141,6 +142,30 @@ def create_po_item():
             obj.ID_PurchaseOrderItem = new_id
 
             save_with_retry(session, obj)
+
+            # ── Auto-crear EstimateCost relacionado al PurchaseOrderItem ──
+            job_id = None
+            if obj.ID_PurchaseOrder:
+                po = session.get(PurchaseOrder, obj.ID_PurchaseOrder)
+                if po and po.ID_Purchase:
+                    purchase_obj = session.get(Purchase, po.ID_Purchase)
+                    if purchase_obj:
+                        job_id = purchase_obj.ID_Jobs
+
+            est_id = generate_custom_id(session, EstimateCost, "ID_EstimateCost", "EST")
+            new_estimate = EstimateCost(
+                ID_EstimateCost=est_id,
+                Title=obj.Name,
+                Unit_cost=obj.Quote_value,
+                Builder_cost=obj.Quote_value,
+                Description=obj.Quote_notes,
+                Quatity=1.0,
+                Cost_type="Material",
+                ID_Jobs=job_id,
+                Cost_code=obj.ID_PurchaseOrderItem  # Link back to the source item for later updates
+            )
+            save_with_retry(session, new_estimate)
+            # ──────────────────────────────────────────────────────────────
 
             # ── Recalculate Purchase.Total_spending + Job.Gqm_total_materials_fees ──
             _recalculate_purchase_total(obj.ID_PurchaseOrder, session)

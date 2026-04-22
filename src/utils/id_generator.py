@@ -23,10 +23,15 @@ def generate_custom_id(session, model, id_field_name: str, prefix: str) -> str:
     # Calcular el siguiente número
     if last_entry:
         last_id = getattr(last_entry, id_field_name)
-        # Ejemplo: SUP50001 → extrae "0001"
-        # después del prefijo y del dígito del año
-        last_num = int(last_id[len(prefix) + 1:])
-        next_num = last_num + 1
+        # Ejemplo: SUP50001 → extrae "0001" (después del prefijo y del dígito del año)
+        # Si el sufijo está vacío o no es un entero válido (IDs en formato legacy
+        # sin dígito de año, e.g. "BLGDEP6") se arranca desde 1.
+        suffix = last_id[len(prefix) + 1:]
+        try:
+            last_num = int(suffix)
+            next_num = last_num + 1
+        except (ValueError, IndexError):
+            next_num = 1
     else:
         next_num = 1
 
