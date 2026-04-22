@@ -219,7 +219,8 @@ def list_jobs_table():
             # --- Filtro por compañía padre ---
             if parent_mgmt_co_id:
                 statement = statement.where(
-                    Job.client.has(Client.ID_Community_Tracking == parent_mgmt_co_id)
+                    Job.client.has(
+                        Client.ID_Community_Tracking == parent_mgmt_co_id)
                 )
 
             # --- Filtro por rango de fechas ---
@@ -303,7 +304,8 @@ def list_jobs_table():
 
             if parent_mgmt_co_id:
                 count_stmt = count_stmt.where(
-                    Job.client.has(Client.ID_Community_Tracking == parent_mgmt_co_id)
+                    Job.client.has(
+                        Client.ID_Community_Tracking == parent_mgmt_co_id)
                 )
 
             if date_from or date_to:
@@ -369,11 +371,11 @@ def list_jobs_table():
             out = []
             for j in results:
                 j_dict = {
-                    "ID_Jobs": j.ID_Jobs, 
+                    "ID_Jobs": j.ID_Jobs,
                     "Job_type": j.Job_type,
-                    "Project_name": j.Project_name, 
+                    "Project_name": j.Project_name,
                     "Project_location": j.Project_location,
-                    "Job_status": j.Job_status, 
+                    "Job_status": j.Job_status,
                     "Date_assigned": j.Date_assigned.isoformat() if j.Date_assigned else None,
                     "Estimated_start_date": j.Estimated_start_date.isoformat() if j.Estimated_start_date else None,
                     "Service_type": j.Service_type,
@@ -396,9 +398,9 @@ def list_jobs_table():
             policies = getattr(g, "user_policies", [])
             out = [serialize_job(j, policies) for j in out]
             result_payload = {
-                "page": page, 
-                "limit": limit, 
-                "total": total, 
+                "page": page,
+                "limit": limit,
+                "total": total,
                 "results": out
             }
             return jsonify(result_payload), 200

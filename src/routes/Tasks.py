@@ -5,6 +5,7 @@ from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.TasksModel import Tasks, TasksCreate, TasksUpdate
 from ..models.JobModel import Job, JobType
+from ..models.SubcontractorModel import Subcontractor
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
 from ..utils.relationships import add_relationships
@@ -51,7 +52,11 @@ def get_weekly_tasks():
     with get_session() as session:
         query = (
             select(Tasks)
-            .options(joinedload(Tasks.job), joinedload(Tasks.member))
+            .options(
+                joinedload(Tasks.job),
+                joinedload(Tasks.member),
+                joinedload(Tasks.subcontractor),
+            )
             .where(Tasks.Delivery_date >= monday)
             .where(Tasks.Delivery_date <= sunday)
         )
@@ -75,15 +80,21 @@ def get_weekly_tasks():
         payload = []
         for t in results:
             payload.append({
-                "ID_Tasks":         t.ID_Tasks,
-                "Name":             t.Name,
-                "Task_description": t.Task_description,
-                "Task_status":      t.Task_status,
-                "Priority":         t.Priority,
-                "Designation_date": t.Designation_date.isoformat() if t.Designation_date else None,
-                "Delivery_date":    t.Delivery_date.isoformat() if t.Delivery_date else None,
-                "job":              t.job.model_dump() if t.job else None,
-                "member":           t.member.model_dump() if t.member else None,
+                "ID_Tasks":          t.ID_Tasks,
+                "Name":              t.Name,
+                "Task_description":  t.Task_description,
+                "Task_status":       t.Task_status,
+                "Priority":          t.Priority,
+                "Designation_date":  t.Designation_date.isoformat() if t.Designation_date else None,
+                "Delivery_date":     t.Delivery_date.isoformat() if t.Delivery_date else None,
+                "ID_Subcontractor":  t.ID_Subcontractor,
+                "job":               t.job.model_dump() if t.job else None,
+                "member":            t.member.model_dump() if t.member else None,
+                "subcontractor":     {
+                    "ID_Subcontractor": t.subcontractor.ID_Subcontractor,
+                    "Name":             t.subcontractor.Name,
+                    "Organization":     t.subcontractor.Organization,
+                } if t.subcontractor else None,
             })
 
         return payload, 200

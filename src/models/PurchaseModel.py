@@ -2,7 +2,7 @@
 # ==================================== Modelos para PostgreSQL ====================================#
 
 from sqlalchemy import Column, TIMESTAMP, func
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from .MemberModel import Member
@@ -50,12 +50,22 @@ class Purchase(PurchaseBase, table=True):
 
     # Timestamps automáticos
     created_at: datetime = Field(
-        sa_column=Column(TIMESTAMP(timezone=True),
-                         server_default=func.now(), nullable=False)
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(
+            TIMESTAMP(timezone=True),
+            server_default=func.now(),
+            nullable=False
+        )
     )
+
     updated_at: datetime = Field(
-        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(
-        ), onupdate=func.now(), nullable=False)
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(
+            TIMESTAMP(timezone=True),
+            server_default=func.now(),
+            onupdate=func.now(),
+            nullable=False
+        )
     )
 
 

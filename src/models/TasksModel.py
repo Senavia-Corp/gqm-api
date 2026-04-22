@@ -29,7 +29,7 @@ class Tasks(TasksBase, table=True):
 
     # Relaciones foráneas M:1
     ID_Jobs: Optional[str] = Field(
-        default=None, foreign_key="jobs.ID_Jobs")
+        default=None, foreign_key="jobs.ID_Jobs", ondelete="CASCADE")
     job: Optional[Job] = Relationship(back_populates="tasks")
     ID_Technician: Optional[str] = Field(
         default=None, foreign_key="technician.ID_Technician")
