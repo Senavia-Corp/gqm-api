@@ -33,6 +33,7 @@ def list_opportunities():
             q = request.args.get("q", "").strip()
             state_filter = request.args.get("state", "").strip()
             priority_filter = request.args.get("priority", "").strip()
+            job_id = request.args.get("job_id", "").strip()
 
             statement = (
                 select(Opportunities)
@@ -62,17 +63,21 @@ def list_opportunities():
             if priority_filter:
                 statement = statement.where(
                     Opportunities.Priority.ilike(priority_filter))
+            
+            if job_id:
+                statement = statement.where(Opportunities.ID_Jobs == job_id)
 
             results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
-            opport_data = [
-                add_relationships(
+            opport_data = []
+            for opportunities in results:
+                data = add_relationships(
                     opportunities, ["job", "skills", "subcontractors"])
-                for opportunities in results
-            ]
+                data["applicants_count"] = len(opportunities.subcontractors) if opportunities.subcontractors else 0
+                opport_data.append(data)
 
             return opport_data, 200
 
