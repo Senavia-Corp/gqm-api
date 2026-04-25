@@ -1,10 +1,11 @@
 import json
 from datetime import date, timedelta
 from flask import Blueprint, jsonify, request
-from sqlmodel import select
+from sqlmodel import select, or_
 from ..database.db_sqlmodel import get_session
 from ..models.TasksModel import Tasks, TasksCreate, TasksUpdate
 from ..models.JobModel import Job, JobType
+from ..models.MemberModel import Member
 from ..models.SubcontractorModel import Subcontractor
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
@@ -48,6 +49,7 @@ def get_weekly_tasks():
     sunday = monday + timedelta(days=6)
 
     job_type_param = request.args.get("job_type", None)
+    member_id_param = request.args.get("member_id", None)
 
     with get_session() as session:
         query = (
@@ -60,6 +62,14 @@ def get_weekly_tasks():
             .where(Tasks.Delivery_date >= monday)
             .where(Tasks.Delivery_date <= sunday)
         )
+
+        if member_id_param:
+            query = query.where(
+                or_(
+                    Tasks.ID_Member == member_id_param,
+                    Tasks.job.has(Job.members.any(Member.ID_Member == member_id_param))
+                )
+            )
 
         if job_type_param:
             try:

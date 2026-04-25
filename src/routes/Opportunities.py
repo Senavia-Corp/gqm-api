@@ -1,7 +1,11 @@
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
+from sqlalchemy import or_
+from datetime import datetime
 from ..database.db_sqlmodel import get_session
-from ..models.OpportunitiesModel import Opportunities, OpportunitiesCreate, OpportunitiesUpdate
+from ..models.OpportunitiesModel import Opportunities, OpportunitiesCreate
+from ..models.SubcontractorModel import Subcontractor
+from ..models.link_models.OpportunitiesLinks import OpportSubcLink
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -26,6 +30,10 @@ opportunities_bp = Blueprint(
 def list_opportunities():
     try:
         with get_session() as session:
+            q = request.args.get("q", "").strip()
+            state_filter = request.args.get("state", "").strip()
+            priority_filter = request.args.get("priority", "").strip()
+            job_id = request.args.get("job_id", "").strip()
 
             statement = (
                 select(Opportunities)
@@ -35,27 +43,52 @@ def list_opportunities():
                     joinedload(Opportunities.subcontractors),
                 )
             )
+
+            if q:
+                pattern = f"%{q}%"
+                statement = statement.where(
+                    or_(
+                        Opportunities.Project_name.ilike(pattern),
+                        Opportunities.Description.ilike(pattern),
+                        Opportunities.ID_Opportunities.ilike(pattern),
+                        Opportunities.ID_Jobs.ilike(pattern),
+                    )
+                )
+
+            if state_filter == "active":
+                statement = statement.where(Opportunities.State == True)
+            elif state_filter == "inactive":
+                statement = statement.where(Opportunities.State == False)
+
+            if priority_filter:
+                statement = statement.where(
+                    Opportunities.Priority.ilike(priority_filter))
+            
+            if job_id:
+                statement = statement.where(Opportunities.ID_Jobs == job_id)
+
             results = session.exec(statement).unique().all()
 
             if not results:
                 return [], 404
 
-            opport_data = [
-                add_relationships(
+            opport_data = []
+            for opportunities in results:
+                data = add_relationships(
                     opportunities, ["job", "skills", "subcontractors"])
-                for opportunities in results
-            ]
+                data["applicants_count"] = len(opportunities.subcontractors) if opportunities.subcontractors else 0
+                opport_data.append(data)
 
             return opport_data, 200
 
-    except SQLAlchemyError as db_error:  # Para un fallo de db
+    except SQLAlchemyError as db_error:
         print(f"Error de base de datos al listar opportunities: {db_error}")
         return jsonify({
             "detail": "Error interno del servidor al consultar la base de datos.",
             "code": "db_error"
         }), 500
 
-    except Exception as e:  # Para un fallo general inesperado
+    except Exception as e:
         print(f"Error inesperado al listar opportunities: {e}")
         return jsonify({
             "detail": "Error interno inesperado del servidor.",
@@ -105,6 +138,80 @@ def get_opportunity(id_opportunities):
         }), 500
 
 
+# Ruta para conseguir los applicants (subcontratistas postulados) con su estado
+@opportunities_bp.get("/<id_opportunities>/applicants")
+def get_opportunity_applicants(id_opportunities):
+    try:
+        with get_session() as session:
+            opportunity = session.get(Opportunities, id_opportunities)
+            if not opportunity:
+                return jsonify({"error": "Opportunity not found"}), 404
+
+            links = session.exec(
+                select(OpportSubcLink).where(
+                    OpportSubcLink.opport_id == id_opportunities)
+            ).all()
+
+            result = []
+            for link in links:
+                subc = session.get(Subcontractor, link.subcon_id)
+                if subc:
+                    org = subc.Organization
+                    if isinstance(org, list):
+                        org = org[0] if org else None
+                    result.append({
+                        "ID_Subcontractor": subc.ID_Subcontractor,
+                        "Name": subc.Name,
+                        "Organization": str(org) if org else None,
+                        "Email_Address": subc.Email_Address,
+                        "Phone_Number": subc.Phone_Number,
+                        "Status": subc.Status,
+                        "Score": subc.Score,
+                        "application_state": link.State,
+                    })
+
+            return jsonify(result), 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al listar applicants: {db_error}")
+        return jsonify({"detail": "Error interno del servidor.", "code": "db_error"}), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar applicants: {e}")
+        return jsonify({"detail": "Error interno inesperado.", "code": "internal_error"}), 500
+
+
+# Ruta para actualizar el estado de postulación de un subcontratista
+@opportunities_bp.patch("/<id_opportunities>/applicants/<subcon_id>")
+def update_applicant_state(id_opportunities, subcon_id):
+    try:
+        data = request.get_json()
+        state = data.get("state") if data else None
+
+        with get_session() as session:
+            link = session.get(OpportSubcLink, (id_opportunities, subcon_id))
+            if not link:
+                return jsonify({"error": "Applicant not found"}), 404
+
+            link.State = state
+            session.add(link)
+            session.commit()
+
+            return jsonify({
+                "opport_id": id_opportunities,
+                "subcon_id": subcon_id,
+                "state": state,
+            }), 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al actualizar estado: {db_error}")
+        return jsonify({"detail": "Error interno del servidor.", "code": "db_error"}), 500
+
+    except Exception as e:
+        print(f"Error inesperado al actualizar estado: {e}")
+        return jsonify({"detail": "Error interno inesperado.", "code": "internal_error"}), 500
+
+
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear una opportunity
 @opportunities_bp.post("/")
@@ -130,8 +237,8 @@ def create_opportunity():
 
             return jsonify(obj.model_dump()), 201
 
-    except IntegrityError as e:  # Cuando violas una restricción UNIQUE o NOT NULL
-        session.rollback()  # Deshace los cambios realizados
+    except IntegrityError as e:
+        session.rollback()
         error_message = str(e)
         if "UNIQUE constraint failed" in error_message:
             detail = "Ya existe una opportunity con este valor único."
@@ -140,7 +247,7 @@ def create_opportunity():
         print(f"Error de integridad: {e}")
         return jsonify({"detail": detail}), 409
 
-    except SQLAlchemyError as db_error:  # Problemas de infraestructura de DB
+    except SQLAlchemyError as db_error:
         session.rollback()
         print(f"Error de base de datos al crear opportunity: {db_error}")
         return jsonify({
@@ -164,48 +271,68 @@ def create_opportunity():
 # Ruta para actualizar una opportunity
 @opportunities_bp.patch("/<id_opportunities>")
 def update_opportunity(id_opportunities):
-    session = None  # Para que funcione except
+    session = None
     try:
-        data = request.get_json()
+        # force=True ignores Content-Type header so JSON is always parsed
+        data = request.get_json(force=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "Request body must be a JSON object"}), 400
+
         with get_session() as session:
             obj = session.get(Opportunities, id_opportunities)
             if not obj:
                 return jsonify({"error": "Opportunity not found"}), 404
 
-            update_opportunity = OpportunitiesUpdate.model_validate(data)
-            update_data_dict = update_opportunity.model_dump(
-                exclude_unset=True)  # Crea dict limpio
+            # Update plain string fields directly — no Pydantic coercion needed
+            for field in ("Project_name", "Description", "Priority", "ID_Jobs"):
+                if field in data:
+                    v = data[field]
+                    setattr(obj, field, str(v).strip() if v is not None else None)
 
-            for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
-                setattr(obj, key, value)
+            # Boolean State
+            if "State" in data:
+                v = data["State"]
+                obj.State = bool(v) if v is not None else None
+
+            # Datetime Start_Date — accept both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SS"
+            if "Start_Date" in data:
+                sd = data["Start_Date"]
+                if sd is None:
+                    obj.Start_Date = None
+                else:
+                    try:
+                        s = str(sd)[:19]
+                        obj.Start_Date = (
+                            datetime.fromisoformat(s) if "T" in s
+                            else datetime.strptime(s[:10], "%Y-%m-%d")
+                        )
+                    except (ValueError, TypeError):
+                        pass  # leave existing value untouched
 
             save_with_retry(session, obj)
 
-            return jsonify(obj.model_dump()), 200
-
-    # Exceptions de errores de validacion, integridad, infraestructura o inesperado del servidor.
-    except ValidationError as e:
-        return jsonify({
-            "detail": "Error de validación: Datos de opportunity inválidos para la actualización.",
-            "errors": e.errors()
-        }), 400
+            # Return a plain dict to avoid SQLModel/Pydantic serialization quirks
+            return jsonify({
+                "ID_Opportunities": obj.ID_Opportunities,
+                "Project_name": obj.Project_name,
+                "Description": obj.Description,
+                "State": obj.State,
+                "Priority": obj.Priority,
+                "Start_Date": obj.Start_Date.isoformat() if obj.Start_Date else None,
+                "ID_Jobs": obj.ID_Jobs,
+            }), 200
 
     except IntegrityError as e:
         if session:
             session.rollback()
-        detail = "Error de integridad: Ya existe un opportunity con estos valores únicos o faltan datos requeridos."
-        print(f"Error de integridad (PATCH): {e}")
-        return jsonify({"detail": detail}), 409
+        print(f"Error de integridad (PATCH opportunity): {e}")
+        return jsonify({"detail": "Error de integridad al actualizar la opportunity."}), 409
 
     except SQLAlchemyError as db_error:
         if session:
             session.rollback()
-        print(
-            f"Error de base de datos al actualizar opportunity: {db_error}")
-        return jsonify({
-            "detail": "Error interno del servidor al interactuar con la base de datos.",
-            "code": "db_error"
-        }), 500
+        print(f"Error de base de datos al actualizar opportunity: {db_error}")
+        return jsonify({"detail": "Error interno del servidor.", "code": "db_error"}), 500
 
     except Exception as e:
         if session:
@@ -214,10 +341,7 @@ def update_opportunity(id_opportunities):
             except Exception:
                 pass
         print(f"Error inesperado al actualizar opportunity: {e}")
-        return jsonify({
-            "detail": "Ocurrió un error inesperado y no controlado en el servidor.",
-            "code": "internal_error"
-        }), 500
+        return jsonify({"detail": f"Error inesperado: {str(e)}", "code": "internal_error"}), 500
 
 
 # Ruta para eliminar una opportunity
@@ -234,8 +358,7 @@ def delete_opportunity(id_opportunities):
 
             return jsonify({"message": f"Deleted Opportunity {id_opportunities}"}), 200
 
-    # Exceptions de integridad, infraestructura e inesperado del servidor
-    except IntegrityError as e:  # En caso de borrar una opportunity que tiene productos asociados con Foreign Key
+    except IntegrityError as e:
         if session:
             session.rollback()
         detail = "Error de integridad: No se puede eliminar la opportunity porque tiene registros relacionados."

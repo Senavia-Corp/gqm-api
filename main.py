@@ -28,6 +28,7 @@ from src.routes.Permission import permission_bp
 from src.routes.Links.PermissionLinks import permission_role_bp, permission_member_bp, permission_tech_bp
 from src.routes.ChangeOrder import change_order_bp
 from src.routes.Opportunities import opportunities_bp
+from src.routes.Links.OpportunitiesLinks import opportunities_skills_bp, opportunities_subcontractors_bp
 from src.routes.TLActivity import tlactivity_bp
 from src.routes.FinancialDocItem import fdoc_item_bp
 from src.routes.FinancialDocument import fdocument_bp
@@ -114,6 +115,8 @@ def create_app():
     app.register_blueprint(member_bp)
     app.register_blueprint(multiplier_bp)
     app.register_blueprint(opportunities_bp)
+    app.register_blueprint(opportunities_skills_bp)
+    app.register_blueprint(opportunities_subcontractors_bp)
     app.register_blueprint(order_bp)
     app.register_blueprint(payment_unit_bp)
     app.register_blueprint(parent_mgmt_co_bp)

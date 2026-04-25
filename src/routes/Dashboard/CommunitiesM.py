@@ -7,6 +7,7 @@ from src.models.ClientModel import Client
 from src.models.ParentMgmtCoModel import ParentMgmtCo
 from src.models.JobModel import Job
 from src.models.link_models.JobMember import JobMemberLink
+from src.models.link_models.ClientLinks import ClientMemberLink
 from src.models.MemberModel import Member
 from src.services.metrics.aux_func_metrics import (
     _safe_int, _type_expr, _year_expr, 
@@ -46,6 +47,7 @@ def clients_metrics():
 
     order_by = _norm_order_by(request.args.get("order_by"))
     search_q = (request.args.get("search") or "").strip() or None
+    member_id = request.args.get("member_id")
 
     page = _safe_int(request.args.get("page"), 1)
     limit = _safe_int(request.args.get("limit"), 25)
@@ -194,9 +196,15 @@ def clients_metrics():
             func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
         ).select_from(Job)
         
+        if member_id:
+            summary_stmt = summary_stmt.join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id).where(JobMemberLink.member_id == member_id)
+        
         glob_summary = session.exec(summary_stmt).first()
 
-        total_clients_stmt = select(func.count()).select_from(Client)
+        total_clients_stmt = select(func.count(Client.ID_Client.distinct())).select_from(Client)
+        if member_id:
+            total_clients_stmt = total_clients_stmt.join(Job, Job.ID_Client == Client.ID_Client).join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id).where(JobMemberLink.member_id == member_id)
+
         if search_q:
             total_clients_stmt = total_clients_stmt.where(
                 Client.Client_Community.ilike(f"%{search_q}%")
@@ -208,6 +216,7 @@ def clients_metrics():
                 Client.ID_Client.label("client_id"),
                 Client.Client_Community.label("client_name"),
                 Client.Address.label("client_address"),
+                ParentMgmtCo.Property_mgmt_co.label("pmc_name"),
 
                 total_all, total_qid, total_ptl, total_par,
 
@@ -225,9 +234,13 @@ def clients_metrics():
                 *status_cols,
             )
             .select_from(Client)
+            .join(ParentMgmtCo, Client.ID_Community_Tracking == ParentMgmtCo.ID_Community_Tracking, isouter=True)
             .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)
-            .group_by(Client.ID_Client, Client.Client_Community, Client.Address)
         )
+        if member_id:
+            agg_base = agg_base.join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id).where(JobMemberLink.member_id == member_id)
+            
+        agg_base = agg_base.group_by(Client.ID_Client, Client.Client_Community, Client.Address, ParentMgmtCo.Property_mgmt_co)
         if search_q:
             agg_base = agg_base.where(
                 Client.Client_Community.ilike(f"%{search_q}%")
@@ -280,7 +293,7 @@ def clients_metrics():
         item = {
             "rank_closed": int(r.rank_closed),
             "rank_revenue": int(r.rank_revenue),
-            "client": {"id": r.client_id, "name": r.client_name, "address": r.client_address},
+            "client": {"id": r.client_id, "name": r.client_name, "address": r.client_address, "pmc_name": r.pmc_name},
             "dashboard_stats": {
                 "total_amount_of_quotes": int(r.quotes_count or 0),
                 "dollars_quoted": float(r.quotes_revenue or 0.0),
@@ -401,6 +414,7 @@ def parent_mgmt_co_metrics():
         return jsonify({"detail": "Invalid year. Use a valid number like 2025."}), 400
 
     order_by = _norm_order_by(request.args.get("order_by"))
+    member_id = request.args.get("member_id")
 
     page = _safe_int(request.args.get("page"), 1)
     limit = _safe_int(request.args.get("limit"), 25)
@@ -554,9 +568,15 @@ def parent_mgmt_co_metrics():
             func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
         ).select_from(Job).join(Client, Job.ID_Client == Client.ID_Client, isouter=True)
         
+        if member_id:
+            summary_stmt = summary_stmt.join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id).where(JobMemberLink.member_id == member_id)
+
         glob_summary = session.exec(summary_stmt).first()
 
-        total_pmc_stmt = select(func.count()).select_from(ParentMgmtCo)
+        total_pmc_stmt = select(func.count(func.distinct(ParentMgmtCo.ID_Community_Tracking))).select_from(ParentMgmtCo)
+        if member_id:
+            total_pmc_stmt = total_pmc_stmt.join(Client, Client.ID_Community_Tracking == ParentMgmtCo.ID_Community_Tracking).join(Job, Job.ID_Client == Client.ID_Client).join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id).where(JobMemberLink.member_id == member_id)
+        
         total_pmc = session.exec(total_pmc_stmt).one() or 0
 
         # 1) Aggregation per Parent Mgmt Co (via Client)
@@ -585,8 +605,11 @@ def parent_mgmt_co_metrics():
             .select_from(ParentMgmtCo)
             .join(Client, Client.ID_Community_Tracking == ParentMgmtCo.ID_Community_Tracking, isouter=True)
             .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)
-            .group_by(ParentMgmtCo.ID_Community_Tracking, ParentMgmtCo.Property_mgmt_co, ParentMgmtCo.Main_office_hq)
-        ).subquery("agg")
+        )
+        if member_id:
+            agg = agg.join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id).where(JobMemberLink.member_id == member_id)
+            
+        agg = agg.group_by(ParentMgmtCo.ID_Community_Tracking, ParentMgmtCo.Property_mgmt_co, ParentMgmtCo.Main_office_hq).subquery("agg")
 
         # 2) Add both ranks
         ranked = (
