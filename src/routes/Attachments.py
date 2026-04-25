@@ -45,16 +45,20 @@ def list_attachments():
         )
 
         if access_level:
-            statement = statement.where(Attachments.access_level == access_level)
+            statement = statement.where(
+                Attachments.access_level == access_level)
 
         results = session.exec(statement).unique().all()
 
         # Filter by folder-level read permission when the user lacks global read
         user_policies = getattr(g, "user_policies", [])
-        has_global_read = PolicyEvaluator.evaluate(user_policies, "attachment:read")
+        has_global_read = PolicyEvaluator.evaluate(
+            user_policies, "attachment:read")
         if not has_global_read:
-            can_read_members     = PolicyEvaluator.evaluate(user_policies, "attachment:read_members")
-            can_read_technicians = PolicyEvaluator.evaluate(user_policies, "attachment:read_technicians")
+            can_read_members = PolicyEvaluator.evaluate(
+                user_policies, "attachment:read_members")
+            can_read_technicians = PolicyEvaluator.evaluate(
+                user_policies, "attachment:read_technicians")
             results = [
                 att for att in results
                 if (att.access_level == "technicians" and can_read_technicians)
@@ -155,7 +159,8 @@ def upload_attachment():
     # ── 1b. Folder-specific create permission check ──────────────
     user_policies = getattr(g, "user_policies", [])
     if not PolicyEvaluator.evaluate(user_policies, "attachment:create"):
-        folder_for_check = access_level if access_level in ["members", "technicians"] else "members"
+        folder_for_check = access_level if access_level in [
+            "members", "technicians"] else "members"
         folder_action = f"attachment:create_{folder_for_check}"
         if not PolicyEvaluator.evaluate(user_policies, folder_action):
             return jsonify({"error": f"Forbidden: You do not have permission to upload to the {folder_for_check} folder"}), 403
@@ -174,6 +179,9 @@ def upload_attachment():
     elif entity_id_upper.startswith("SUBC"):
         entity_type = "subcontractor"
         app_type = "SUBC"
+    elif entity_id_upper.startswith("BLGDEP"):
+        entity_type = "building_dept"
+        app_type = "BLGDEP"
     else:
         raise AppException(
             f"No se pudo determinar el tipo de entidad para: {entity_id}",
@@ -281,6 +289,8 @@ def upload_attachment():
             fk_kwargs["ID_Subcontractor"] = entity_id
         elif entity_type == "client":
             fk_kwargs["ID_Client"] = entity_id
+        elif entity_type == "building_dept":
+            fk_kwargs["ID_BldgDept"] = entity_id
 
         # ----------- 💾 GUARDAR EN DB
         attachment = Attachments(
