@@ -6,7 +6,7 @@ from sqlalchemy.inspection import inspect
 def add_relationships(obj, relations: list[str]):
     SENSITIVE_FIELDS = {"Password", "password", "hashed_password", "pass"}
 
-    base = obj.model_dump()
+    base = obj.model_dump(mode="json")
     mapper = inspect(obj.__class__)
 
     top_level_rels = {r.split(".")[0] for r in relations}
@@ -38,7 +38,7 @@ def add_relationships(obj, relations: list[str]):
         if isinstance(rel_obj, list):
             items = []
             for item in rel_obj:
-                item_data = item.model_dump()
+                item_data = item.model_dump(mode="json")
                 # expandir niveles hijos
                 if len(rel_path) > 1:
                     child_key = rel_path[1]
@@ -49,7 +49,7 @@ def add_relationships(obj, relations: list[str]):
             return items
 
         # Objeto simple
-        item_data = rel_obj.model_dump()
+        item_data = rel_obj.model_dump(mode="json")
         if len(rel_path) > 1:
             child_key = rel_path[1]
             child = expand(rel_obj, rel_path[1:])

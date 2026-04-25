@@ -2,6 +2,7 @@
 
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
+from sqlalchemy import or_
 from ..database.db_sqlmodel import get_session
 from ..models.SupplierModel import Supplier, SupplierCreate, SupplierUpdate
 from ..utils.id_generator import generate_custom_id
@@ -28,6 +29,8 @@ supplier_bp = Blueprint("supplier_blueprint", __name__,
 def list_suppliers():
 
     with get_session() as session:
+        q = request.args.get("q", "").strip()
+
         statement = (
             select(Supplier)
             .options(
@@ -35,17 +38,28 @@ def list_suppliers():
                 joinedload(Supplier.purchases),
             )
         )
+
+        if q:
+            pattern = f"%{q}%"
+            statement = statement.where(
+                or_(
+                    Supplier.Company_Name.ilike(pattern),
+                    Supplier.Speciality.ilike(pattern),
+                    Supplier.Coverage_Area.ilike(pattern),
+                    Supplier.Email_Address.ilike(pattern),
+                    Supplier.ID_Supplier.ilike(pattern),
+                )
+            )
+
         results = session.exec(statement).unique().all()
 
         if not results:
             return [], 200
 
-        suppliers_data = []
-
-        for suppliers in results:
-            data = add_relationships(
-                suppliers, ["attachments", "purchases"])
-            suppliers_data.append(data)
+        suppliers_data = [
+            add_relationships(s, ["attachments", "purchases"])
+            for s in results
+        ]
 
         return suppliers_data, 200
 

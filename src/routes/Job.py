@@ -188,8 +188,10 @@ def list_jobs_table():
             if job_type:
                 statement = statement.where(Job.Job_type == job_type)
             if status:
-                statement = statement.where(Job.Job_status.ilike(status))
-
+                if "," in status:
+                    statement = statement.where(Job.Job_status.in_([s.strip() for s in status.split(",")]))
+                else:
+                    statement = statement.where(Job.Job_status.ilike(status))
             if search:
                 pattern = f"%{search}%"
                 statement = statement.where(
