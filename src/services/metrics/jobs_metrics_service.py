@@ -131,8 +131,8 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.sum(Job.Gqm_formula_pricing).label("total_formula"),
                 func.sum(Job.Gqm_adj_formula_pricing).label(
                     "total_adj_formula"),
-                func.sum(final_col).label("total_final"),
-                func.sum(Job.Gqm_premium_in_money).label("total_premium"),
+                func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("total_final"),
+                func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("total_premium"),
                 func.avg(pct_col).label("avg_final_pct"),
                 func.avg(Job.Gqm_target_return).label("avg_target_ret"),
                 func.sum(paid_flag).label("paid_count"),
@@ -175,8 +175,8 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
                 func.sum(Job.Gqm_formula_pricing).label("formula"),
                 func.sum(Job.Gqm_adj_formula_pricing).label("adj_formula"),
-                func.sum(final_col).label("final_sold"),
-                func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
+                func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("final_sold"),
+                func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("premium_in_money"),
                 func.avg(pct_col).label("avg_final_pct"),
             ).group_by(month_key).order_by(month_key)
 
@@ -214,8 +214,8 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.sum(paid_flag).label("paid_jobs"),
                 func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
                 func.sum(Job.Gqm_formula_pricing).label("formula"),
-                func.sum(final_col).label("final_sold"),
-                func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
+                func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("final_sold"),
+                func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("premium_in_money"),
                 func.avg(pct_col).label("avg_final_pct"),
             ).group_by(qtr_key).order_by(qtr_key)
 

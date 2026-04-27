@@ -2,7 +2,7 @@
 # ==================================== Modelos para PostgreSQL ====================================#
 
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import Column, TIMESTAMP, func
 from sqlalchemy.dialects.postgresql import JSON
@@ -30,6 +30,9 @@ class ChatMessage(ChatMessageBase, table=True):
         back_populates="chat_messages")
     member: Optional["Member"] = Relationship(  # type: ignore
         back_populates="chat_messages")
+    attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="chat_message",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
 
 class ChatMessageCreate(SQLModel):
@@ -43,3 +46,4 @@ class ChatMessageRead(SQLModel):
     ID_Member: str
     created_at: datetime
     member_name: Optional[str] = None
+    attachments: List[dict] = []

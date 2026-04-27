@@ -1,5 +1,7 @@
 # ============ Lógica de rutas =================
-from flask import Blueprint, request
+from datetime import datetime
+
+from flask import Blueprint, Response, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.CommissionModel import Commission, CommissionUpdate
@@ -14,6 +16,7 @@ from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
+from ..services.excel_report.commission_excel_service import generate_commission_excel
 
 # Blueprint de Commission:
 commission_bp = Blueprint("commission_blueprint",
@@ -210,3 +213,22 @@ def update_commission(commission_id):
                     commission_id)
 
         return obj.model_dump(), 200
+
+
+# --------------- RUTA GET Excel --------------- #
+@commission_bp.get("/excel")
+@handle_exceptions()
+def export_commissions_excel():
+    member_ids = request.args.getlist("member_id") or None
+    year = request.args.get("year", type=int)
+    month = request.args.get("month")
+
+    with get_session() as session:
+        data = generate_commission_excel(session, member_ids, year, month)
+
+    filename = f"commissions_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return Response(
+        data,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
