@@ -157,6 +157,141 @@ def get_tlactivities_by_job(id_job):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# GET /tlactivity/parent-mgmt-co/<id_parent_mgmt_co>
+@tlactivity_bp.get("/parent-mgmt-co/<id_parent_mgmt_co>")
+@paginate()
+def get_tlactivities_by_parent_mgmt_co(id_parent_mgmt_co):
+    try:
+        with get_session() as session:
+
+            statement = (
+                select(TLActivity)
+                .options(
+                    joinedload(TLActivity.member),
+                    joinedload(TLActivity.job),
+                )
+                .where(TLActivity.ID_Community_Tracking == id_parent_mgmt_co)
+                .order_by(TLActivity.Action_datetime.desc())
+            )
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 200
+
+            tla_data = [
+                add_relationships(tla, ["member", "job"])
+                for tla in results
+            ]
+
+            return tla_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al listar tlactivities del parent_mgmt_co {id_parent_mgmt_co}: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar tlactivities del parent_mgmt_co {id_parent_mgmt_co}: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# GET /tlactivity/client/<id_client>
+@tlactivity_bp.get("/client/<id_client>")
+@paginate()
+def get_tlactivities_by_client(id_client):
+    try:
+        with get_session() as session:
+
+            statement = (
+                select(TLActivity)
+                .options(
+                    joinedload(TLActivity.member),
+                    joinedload(TLActivity.job),
+                )
+                .where(TLActivity.ID_Client == id_client)
+                .order_by(TLActivity.Action_datetime.desc())
+            )
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 200
+
+            tla_data = [
+                add_relationships(tla, ["member", "job"])
+                for tla in results
+            ]
+
+            return tla_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al listar tlactivities del client {id_client}: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar tlactivities del client {id_client}: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# GET /tlactivity/subcontractor/<id_subcontractor>
+@tlactivity_bp.get("/subcontractor/<id_subcontractor>")
+@paginate()
+def get_tlactivities_by_subcontractor(id_subcontractor):
+    try:
+        with get_session() as session:
+
+            statement = (
+                select(TLActivity)
+                .options(
+                    joinedload(TLActivity.member),
+                    joinedload(TLActivity.job),
+                )
+                .where(TLActivity.ID_Subcontractor == id_subcontractor)
+                .order_by(TLActivity.Action_datetime.desc())
+            )
+
+            results = session.exec(statement).unique().all()
+
+            if not results:
+                return [], 200
+
+            tla_data = [
+                add_relationships(tla, ["member", "job"])
+                for tla in results
+            ]
+
+            return tla_data, 200
+
+    except SQLAlchemyError as db_error:
+        print(f"Error de base de datos al listar tlactivities del subcontractor {id_subcontractor}: {db_error}")
+        return jsonify({
+            "detail": "Error interno del servidor al consultar la base de datos.",
+            "code": "db_error"
+        }), 500
+
+    except Exception as e:
+        print(f"Error inesperado al listar tlactivities del subcontractor {id_subcontractor}: {e}")
+        return jsonify({
+            "detail": "Error interno inesperado del servidor.",
+            "code": "internal_error"
+        }), 500
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un tlactivity
 @tlactivity_bp.post("/")

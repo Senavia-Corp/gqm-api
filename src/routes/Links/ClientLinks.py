@@ -76,7 +76,7 @@ def assign_client_to_manager(clients_id, manager_id):
             entity_id=clients_id,
             entity_type="Client",
             member_id=member_id_header,
-            description=f"Client: {clients_id} | Manager: {manager_id} | Role: {rol}",
+            description=f"Manager: {manager.Manager_name or manager_id} | Role: {rol}",
             source=SOURCE_APP
         )
 
@@ -143,8 +143,9 @@ def remove_client_from_manager(clients_id, manager_id):
                 "error": "Relationship does not exist"
             }), 404
 
-        # Buscamos client y rol antes de borrar
+        # Buscamos client, manager y rol antes de borrar
         client = session.get(Client, clients_id)
+        manager = session.get(Manager, manager_id)
         rol_to_update = link.rol
 
         # ----------- 🟢 DELETE EN PODIO (🔄 Enviar PATCH)
@@ -176,7 +177,7 @@ def remove_client_from_manager(clients_id, manager_id):
             entity_id=clients_id,
             entity_type="Client",
             member_id=member_id_header,
-            description=f"Client: {clients_id} | Manager: {manager_id}",
+            description=f"Manager: {manager.Manager_name if manager else manager_id}",
             source=SOURCE_APP
         )
 
@@ -253,7 +254,7 @@ def assign_client_to_member(clients_id, members_id):
             entity_id=clients_id,
             entity_type="Client",
             member_id=member_id_header,
-            description=f"Client: {clients_id} | Member: {members_id} | Role: {rol}",
+            description=f"Member: {member.Member_Name or members_id} | Role: {rol}",
             source=SOURCE_APP
         )
 
@@ -320,8 +321,9 @@ def remove_client_from_member(clients_id, members_id):
                 "error": "Relationship does not exist"
             }), 404
 
-        # Buscamos client y rol antes de borrar
+        # Buscamos client, member y rol antes de borrar
         client = session.get(Client, clients_id)
+        member = session.get(Member, members_id)
         rol_to_update = link.rol
 
         # ----------- 🟢 DELETE EN PODIO (🔄 Enviar PATCH)
@@ -353,7 +355,7 @@ def remove_client_from_member(clients_id, members_id):
             entity_id=clients_id,
             entity_type="Client",
             member_id=member_id_header,
-            description=f"Client: {clients_id} | Member: {members_id}",
+            description=f"Member: {member.Member_Name if member else members_id}",
             source=SOURCE_APP
         )
 

@@ -283,7 +283,7 @@ def _chart_rep(rep_list: list[dict], rep_label: str, pct_label: str) -> bytes | 
     finals = [r["final"] for r in rep_list]
     pcts = [r["avg_final_pct"] for r in rep_list]
 
-    max_p = max(pcts) if pcts else 1
+    max_p = max(pcts) if pcts and max(pcts) > 0 else 1
     norm_pcts = [p / max_p for p in pcts]
     cmap = plt.get_cmap("YlGn")
     bar_colors = [cmap(0.35 + 0.55 * p) for p in norm_pcts]
