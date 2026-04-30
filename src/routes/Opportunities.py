@@ -5,7 +5,8 @@ from datetime import datetime
 from ..database.db_sqlmodel import get_session
 from ..models.OpportunitiesModel import Opportunities, OpportunitiesCreate
 from ..models.SubcontractorModel import Subcontractor
-from ..models.link_models.OpportunitiesLinks import OpportSubcLink
+from ..models.SkillsModel import Skills
+from ..models.link_models.OpportunitiesLinks import OpportSubcLink, OpportSkillsLink
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -34,6 +35,8 @@ def list_opportunities():
             state_filter = request.args.get("state", "").strip()
             priority_filter = request.args.get("priority", "").strip()
             job_id = request.args.get("job_id", "").strip()
+            skill_id = request.args.get("skill_id", "").strip()
+            print(f"DEBUG: list_opportunities args: {request.args}")
 
             statement = (
                 select(Opportunities)
@@ -43,6 +46,9 @@ def list_opportunities():
                     joinedload(Opportunities.subcontractors),
                 )
             )
+
+            if skill_id and skill_id != "ALL":
+                statement = statement.join(OpportSkillsLink, Opportunities.ID_Opportunities == OpportSkillsLink.opport_id).where(OpportSkillsLink.skills_id == skill_id)
 
             if q:
                 pattern = f"%{q}%"
@@ -60,7 +66,7 @@ def list_opportunities():
             elif state_filter == "inactive":
                 statement = statement.where(Opportunities.State == False)
 
-            if priority_filter:
+            if priority_filter and priority_filter != "ALL":
                 statement = statement.where(
                     Opportunities.Priority.ilike(priority_filter))
             
@@ -70,7 +76,7 @@ def list_opportunities():
             results = session.exec(statement).unique().all()
 
             if not results:
-                return [], 404
+                return [], 200
 
             opport_data = []
             for opportunities in results:
