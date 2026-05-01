@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from sqlmodel import Session, select
-from sqlalchemy import func, extract, cast, Integer, Date
+from sqlalchemy import func, extract, cast, Integer, Date, case
 from datetime import datetime
 
 from src.models.JobModel import Job
@@ -10,27 +10,16 @@ from src.models.link_models.JobMember import JobMemberLink
 from src.models.MemberModel import Member
 from src.models.ClientModel import Client
 
+from .metrics_shared import PAID_STATUSES, ACTIVE_STATUSES
 
-# ---------------------------------------------------------------------------
-# Status ordering and pipeline logic
-# ---------------------------------------------------------------------------
 
-# Orden lógico para la visualización en el reporte (de inicial a final)
+# Orden lógico para la visualización en el reporte (basado en el flujo de trabajo real)
 STATUS_ORDER = [
-    "Received-Stand By", "HOLD", "Assigned/P.quote", "Waiting for approval",
-    "Scheduled/Work in progress", "Assigned-In progress", "In Progress",
-    "Completed P.INV / POs", "Completed PVI", "Invoiced", "PAID", "Paid",
-    "Warranty", "Cancelled"
+    "Received-Stand By", "HOLD", "Assigned/P. Quote", "Waiting for Approval",
+    "Scheduled / Work in Progress", "Assigned-In progress", "In Progress",
+    "Completed P. INV / POs", "Completed PVI / POs", "Completed PVI",
+    "Invoiced", "PAID", "Paid", "Warranty", "Cancelled"
 ]
-ACTIVE_STATUSES = {
-    "Received-Stand By",
-    "HOLD",
-    "Assigned/P.quote",
-    "Waiting for approval",
-    "Scheduled/Work in progress",
-    "Assigned-In progress",
-    "In Progress"
-}
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +97,7 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     # 1. SUMMARY KPIs
     # ------------------------------------------------------------------
-    paid_flag = cast(func.upper(Job.Job_status) == "PAID", Integer)
+    paid_flag = cast(Job.Job_status.in_(list(PAID_STATUSES)), Integer)
 
     pct_col = Job.Gqm_target_return if job_type in ("PTL", "PAR") else Job.Gqm_final_percentage
     pct_label = "Target Return %" if job_type in ("PTL", "PAR") else "Avg Final %"
@@ -119,8 +108,8 @@ def get_jobs_report_data(
         func.sum(Job.Gqm_target_sold_pricing).label("total_quoted"),
         func.sum(Job.Gqm_formula_pricing).label("total_formula"),
         func.sum(Job.Gqm_adj_formula_pricing).label("total_adj_formula"),
-        func.sum(final_col).label("total_final"),
-        func.sum(Job.Gqm_premium_in_money).label("total_premium"),
+        func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("total_final"),
+        func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("total_premium"),
         func.avg(pct_col).label("avg_final_pct"),
         func.avg(Job.Gqm_target_return).label("avg_target_ret"),
         func.sum(paid_flag).label("paid_count"),
@@ -161,8 +150,8 @@ def get_jobs_report_data(
         func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
         func.sum(Job.Gqm_formula_pricing).label("formula"),
         func.sum(Job.Gqm_adj_formula_pricing).label("adj_formula"),
-        func.sum(final_col).label("final_sold"),
-        func.sum(Job.Gqm_premium_in_money).label("premium"),
+        func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("final_sold"),
+        func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("premium"),
         func.avg(pct_col).label("avg_final_pct"),
     ).group_by(month_key).order_by(month_key)
 
@@ -188,7 +177,7 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     # 3. QUARTERLY BREAKDOWN
     # ------------------------------------------------------------------
-    qtr_key = func.to_char(Job.Date_assigned, 'YYYY-"Q"Q')
+    qtr_key = func.to_char(effective_date, 'YYYY-"Q"Q')
 
     stmt_qtr = select(
         qtr_key.label("quarter"),
@@ -196,8 +185,8 @@ def get_jobs_report_data(
         func.sum(paid_flag).label("paid_jobs"),
         func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
         func.sum(Job.Gqm_formula_pricing).label("formula"),
-        func.sum(final_col).label("final_sold"),
-        func.sum(Job.Gqm_premium_in_money).label("premium"),
+        func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("final_sold"),
+        func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("premium"),
         func.avg(pct_col).label("avg_final_pct"),
     ).group_by(qtr_key).order_by(qtr_key)
 
@@ -266,10 +255,10 @@ def get_jobs_report_data(
     stmt_status = select(
         func.trim(Job.Job_status).label("status"),
         func.count(Job.ID_Jobs).label("count"),
-        func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
-        func.sum(Job.Gqm_final_sold_pricing).label("final"),
-        func.sum(Job.Gqm_premium_in_money).label("premium"),
-    ).group_by(func.trim(Job.Job_status))
+            func.sum(Job.Gqm_target_sold_pricing).label("quoted"),
+            func.sum(Job.Gqm_final_sold_pricing).label("final"),
+            func.sum(Job.Gqm_premium_in_money).label("premium"),
+        ).group_by(func.trim(Job.Job_status))
 
     stmt_status = _apply_filters(stmt_status, year, month, job_type, client_id)
 
@@ -350,7 +339,7 @@ def get_jobs_report_data(
             )
         )
         for j_id, m_name in session.exec(stmt_reps).all():
-            rep_map.setdefault(j_id, []).append(m_name)
+            rep_map.setdefault(j_id, []).append(m_name or "—")
 
     job_table = []
     for row in raw_jobs:
@@ -359,7 +348,7 @@ def get_jobs_report_data(
         display_date = job.Date_assigned or job.Estimated_start_date or "—"
         job_table.append({
             "job_id":      job.ID_Jobs,
-            "client":      client.Client_Community if client else "—",
+            "client":      (client.Client_Community if client else "—") or "—",
             "rep":         ", ".join(rep_map.get(job.ID_Jobs, ["—"])),
             "status":      (job.Job_status or "—").strip(),
             "service":     job.Service_type or "—",

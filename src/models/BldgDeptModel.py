@@ -29,6 +29,9 @@ class BuildingDept(BldgDeptBase, table=True):
     # Relaciones foráneas 1:M
     jobs: List["Job"] = Relationship(  # type: ignore
         back_populates="building_dept")
+    attachments: List["Attachments"] = Relationship(  # type: ignore
+        back_populates="building_dept",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
 
 
 class BuildingDeptCreate(BldgDeptBase):

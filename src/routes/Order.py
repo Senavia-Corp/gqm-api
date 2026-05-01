@@ -23,7 +23,7 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
 )
 from ..utils.mappers.mapper_aux_functions import register_event
 from sqlalchemy import or_
-from src.utils.audit import audit
+from src.utils.audit import audit, log_activity, SOURCE_APP
 from src.utils.job_calculator import recalculate_and_apply, recalculate_order_formulas  # ← MODIFIED
 
 # Blueprint de Order:
@@ -347,6 +347,21 @@ def create_order():
             session.commit()
         # ─────────────────────────────────────────────────────────────────
 
+        # Log en timeline del Subcontractor si la orden tiene uno asignado
+        if obj.ID_Subcontractor:
+            member_id = request.headers.get("X-User-Id") or None
+            log_activity(
+                session,
+                action="Order created",
+                entity_id=obj.ID_Subcontractor,
+                entity_type="Subcontractor",
+                job_id=job_id_for_calc,
+                member_id=member_id,
+                description=f"Order: {obj.Title or obj.ID_Order}",
+                source=SOURCE_APP,
+            )
+            session.commit()
+
         return obj.model_dump(), 201
 
 
@@ -520,6 +535,10 @@ def delete_order(id_order):
                     400
                 )
 
+        # Capturar datos del subcontractor ANTES de borrar
+        subc_id_for_log    = order.ID_Subcontractor
+        order_title_for_log = order.Title or id_order
+
         # ----------- 🧹 DESVINCULAR ESTIMATE COSTS (Evitar fallos de Foreing Key)
         costs = session.exec(
             select(EstimateCost).where(EstimateCost.ID_Order == order.ID_Order)
@@ -540,6 +559,21 @@ def delete_order(id_order):
             recalculate_and_apply(job_id_for_calc, session)
             session.commit()
         # ─────────────────────────────────────────────────────────────────
+
+        # Log en timeline del Subcontractor si la orden tenía uno asignado
+        if subc_id_for_log:
+            member_id = request.headers.get("X-User-Id") or None
+            log_activity(
+                session,
+                action="Order deleted",
+                entity_id=subc_id_for_log,
+                entity_type="Subcontractor",
+                job_id=job_id_for_calc,
+                member_id=member_id,
+                description=f"Order: {order_title_for_log}",
+                source=SOURCE_APP,
+            )
+            session.commit()
 
         return jsonify({
             "message": f"Order {id_order} eliminado correctamente"
