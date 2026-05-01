@@ -256,10 +256,11 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
         log_activity(
             session,
             action="Subcontractor linked to Job",
-            entity_id=job_id,
-            entity_type="Job",
+            entity_id=subcontr_id,
+            entity_type="Subcontractor",
+            job_id=job_id,
             member_id=member_id_header,
-            description=f"Subcontractor: {subcontr_id}",
+            description=f"Job: {job_id}",
             source=SOURCE_APP
         )
 
@@ -328,10 +329,11 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
         log_activity(
             session,
             action="Subcontractor unlinked from Job",
-            entity_id=job_id,
-            entity_type="Job",
+            entity_id=subcontr_id,
+            entity_type="Subcontractor",
+            job_id=job_id,
             member_id=member_id_header,
-            description=f"Subcontractor: {subcontr_id}",
+            description=f"Job: {job_id}",
             source=SOURCE_APP
         )
 

@@ -7,6 +7,8 @@ from .SupplierModel import Supplier
 from .FinancialDocModel import FinancialDocument
 from .GQMInventoryModel import Inventory
 from .CertificateModel import Certificate
+from .BldgDeptModel import BuildingDept
+from .ChatModel import ChatMessage
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -54,6 +56,14 @@ class Attachments(AttachmentsBase, table=True):
         default=None, foreign_key="certificate.ID_Certificate")
     certificate: Optional[Certificate] = Relationship(
         back_populates="attachments")
+    ID_BldgDept: Optional[str] = Field(
+        default=None, foreign_key="bldg_dept.ID_BldgDept")
+    building_dept: Optional[BuildingDept] = Relationship(
+        back_populates="attachments")
+    ID_ChatMessage: Optional[str] = Field(
+        default=None, foreign_key="chat_message.ID_ChatMessage")
+    chat_message: Optional[ChatMessage] = Relationship(
+        back_populates="attachments")
 
 
 class AttachmentsCreate(AttachmentsBase):
@@ -63,6 +73,8 @@ class AttachmentsCreate(AttachmentsBase):
     ID_Supplier: Optional[str] = None
     ID_FinancialDoc: Optional[str] = None
     ID_Inventory: Optional[str] = None
+    ID_BldgDept: Optional[str] = None
+    ID_ChatMessage: Optional[str] = None
 
 
 class AttachmentsUpdate(AttachmentsBase):
@@ -72,3 +84,5 @@ class AttachmentsUpdate(AttachmentsBase):
     ID_Supplier: Optional[str] = None
     ID_FinancialDoc: Optional[str] = None
     ID_Inventory: Optional[str] = None
+    ID_BldgDept: Optional[str] = None
+    ID_ChatMessage: Optional[str] = None

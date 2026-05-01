@@ -6,9 +6,12 @@ from sqlalchemy.orm import joinedload
 from src.database.db_sqlmodel import get_session
 from src.models.ChatModel import ChatMessage, ChatMessageCreate
 from src.models.MemberModel import Member
-from src.utils.middleware.exceptions_handler import handle_exceptions
+from src.models.JobModel import Job
+from src.models.AttachmentsModel import Attachments
+from src.utils.middleware.exceptions_handler import handle_exceptions, AppException
 from src.utils.middleware.auth.routes_protection import require_role
 from src.utils.id_generator import generate_custom_id
+from src.cloudinary.service import upload_to_cloudinary
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,7 +49,7 @@ def get_messages(id_job):
     with get_session() as session:
         query = (
             select(ChatMessage)
-            .options(joinedload(ChatMessage.member))
+            .options(joinedload(ChatMessage.member), joinedload(ChatMessage.attachments))
             .where(ChatMessage.ID_Job == id_job)
             .order_by(ChatMessage.created_at.asc())
         )
@@ -65,6 +68,15 @@ def get_messages(id_job):
             "ID_Member":      m.ID_Member,
             "member_name":    m.member.Member_Name if m.member else None,
             "created_at":     m.created_at.isoformat(),
+            "attachments": [
+                {
+                    "ID_Attachment": a.ID_Attachment,
+                    "Document_name": a.Document_name,
+                    "Link":          a.Link,
+                    "Document_type": a.Document_type,
+                }
+                for a in m.attachments
+            ],
         }
         for m in results
     ]
@@ -118,6 +130,7 @@ def send_message(id_job):
         "ID_Member":      obj.ID_Member,
         "member_name":    member.Member_Name if member else None,
         "created_at":     obj.created_at.isoformat(),
+        "attachments":    [],
     }
 
     # ✅ Agrega al caché sin ir a Neon
@@ -127,4 +140,99 @@ def send_message(id_job):
 
     logger.info("💬 Mensaje enviado | job=%s member=%s",
                 id_job, current_user_id)
+    return jsonify(nuevo), 201
+
+
+# --------------- RUTA UPLOAD ATTACHMENT (LOGBOOK) ----------#
+
+@chat_bp.post("/job/<id_job>/attachment")
+@handle_exceptions()
+@require_role("member")
+def upload_chat_attachment(id_job):
+    current_user_id = g.current_user["id"] if hasattr(
+        g, "current_user") else "MEM60001"  # TODO: remove fallback
+
+    file = request.files.get("file")
+    if not file:
+        raise AppException("No se recibió ningún archivo.",
+                           "missing_file", 400)
+
+    with get_session() as session:
+        job = session.get(Job, id_job)
+        if not job:
+            raise AppException(
+                f"Job {id_job} no encontrado.", "job_not_found", 404)
+
+        job_type = job.Job_type.value if hasattr(
+            job.Job_type, "value") else str(job.Job_type)
+        folder = f"Jobs/{job_type}/{id_job}/logbook"
+
+        filename = file.filename
+        file_bytes = file.read()
+        mimetype = file.mimetype or "application/octet-stream"
+
+        cloudinary_result = upload_to_cloudinary(
+            file_bytes=file_bytes,
+            filename=filename,
+            mimetype=mimetype,
+            folder=folder,
+            tags=f"logbook,{id_job}"
+        )
+
+        logger.info("☁️ Archivo subido al logbook | %s → %s",
+                    filename, cloudinary_result["secure_url"])
+
+        msg = ChatMessage(
+            content=cloudinary_result["original_name"],
+            ID_Job=id_job,
+            ID_Member=current_user_id,
+        )
+        msg.ID_ChatMessage = generate_custom_id(
+            session, ChatMessage, "ID_ChatMessage", "MSG")
+        session.add(msg)
+        session.flush()
+
+        att_id = generate_custom_id(
+            session, Attachments, "ID_Attachment", "ATT")
+        attachment = Attachments(
+            ID_Attachment=att_id,
+            Document_name=cloudinary_result["original_name"],
+            Link=cloudinary_result["secure_url"],
+            Document_type=cloudinary_result["format"].lower() or mimetype,
+            access_level="logbook",
+            ID_Jobs=id_job,
+            ID_ChatMessage=msg.ID_ChatMessage,
+        )
+        session.add(attachment)
+        session.commit()
+        session.refresh(msg)
+
+    _cache.pop(id_job, None)
+
+    member_name = None
+    with get_session() as s:
+        member = s.exec(select(Member).where(
+            Member.ID_Member == current_user_id)).first()
+        if member:
+            member_name = member.Member_Name
+
+    nuevo = {
+        "ID_ChatMessage": msg.ID_ChatMessage,
+        "content":        msg.content,
+        "ID_Job":         msg.ID_Job,
+        "ID_Member":      msg.ID_Member,
+        "member_name":    member_name,
+        "created_at":     msg.created_at.isoformat(),
+        "attachments": [
+            {
+                "ID_Attachment": att_id,
+                "Document_name": cloudinary_result["original_name"],
+                "Link":          cloudinary_result["secure_url"],
+                "Document_type": cloudinary_result["format"].lower() or mimetype,
+            }
+        ],
+    }
+
+    logger.info("📎 Attachment logbook creado | job=%s msg=%s att=%s",
+                id_job, msg.ID_ChatMessage, att_id)
     return jsonify(nuevo), 201

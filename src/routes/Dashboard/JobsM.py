@@ -3,7 +3,6 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from sqlalchemy import func
 from src.models.ClientModel import Client
-from src.services.metrics.jobs_metrics_service import get_jobs_dashboard_data
 from src.database.db_sqlmodel import get_session
 from src.models.JobModel import Job
 from src.models.MemberModel import Member
@@ -209,10 +208,10 @@ def jobs_summary():
     Paginated list of all jobs with key financial fields for the detail table.
     """
     job_type = _norm_job_type(request.args.get("type")) or "ALL"
-    year     = _norm_year(request.args.get("year"))
-    page     = max(_safe_int(request.args.get("page"),  1), 1)
-    limit    = min(max(_safe_int(request.args.get("limit"), 50), 1), 200)
-    offset   = (page - 1) * limit
+    year = _norm_year(request.args.get("year"))
+    page = max(_safe_int(request.args.get("page"),  1), 1)
+    limit = min(max(_safe_int(request.args.get("limit"), 50), 1), 200)
+    offset = (page - 1) * limit
 
     client_id = request.args.get("client_id")
 
@@ -249,7 +248,8 @@ def jobs_summary():
         rep_map: dict = {}
         if job_ids:
             rep_stmt = (
-                select(JobMemberLink.job_id, Member.Member_Name, JobMemberLink.rol)
+                select(JobMemberLink.job_id,
+                       Member.Member_Name, JobMemberLink.rol)
                 .join(Member, Member.ID_Member == JobMemberLink.member_id)
                 .where(
                     JobMemberLink.job_id.in_(job_ids),
@@ -264,8 +264,9 @@ def jobs_summary():
         # Build output rows
         jobs_out = []
         for j, cl in raw:
-            d   = j.Date_assigned or j.Estimated_start_date
-            pct = float((j.Gqm_target_return if j.Job_type in ("PTL", "PAR") else j.Gqm_final_percentage) or 0)
+            d = j.Date_assigned or j.Estimated_start_date
+            pct = float((j.Gqm_target_return if j.Job_type in (
+                "PTL", "PAR") else j.Gqm_final_percentage) or 0)
             jobs_out.append({
                 "job_id":      j.ID_Jobs,
                 "type":        j.Job_type,
@@ -274,12 +275,12 @@ def jobs_summary():
                 "status":      (j.Job_status or "—").strip(),
                 "service":     j.Service_type or "—",
                 "date":        d.strftime("%Y-%m-%d") if d else "—",
-                "formula":     float(j.Gqm_formula_pricing     or 0),
+                "formula":     float(j.Gqm_formula_pricing or 0),
                 "adj_formula": float(j.Gqm_adj_formula_pricing or 0),
                 "target":      float(j.Gqm_target_sold_pricing or 0),
-                "final":       float(j.Gqm_final_sold_pricing  or 0),
+                "final":       float(j.Gqm_final_sold_pricing or 0),
                 "pct":         pct,
-                "premium":     float(j.Gqm_premium_in_money    or 0),
+                "premium":     float(j.Gqm_premium_in_money or 0),
             })
 
     total_pages = (total + limit - 1) // limit if total else 1
