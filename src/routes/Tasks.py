@@ -45,7 +45,8 @@ def get_weekly_tasks():
     Incluye relaciones: job y member.
     """
     today = date.today()
-    monday = today - timedelta(days=today.weekday())
+    week_offset = request.args.get("week_offset", 0, type=int)
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
     sunday = monday + timedelta(days=6)
 
     job_type_param = request.args.get("job_type", None)

@@ -37,15 +37,15 @@ STATUS_CATALOG = {
 # Status buckets
 # ---------------------------------------------------------------------------
 PENDING_BY_TYPE = {
-    "QID": {"Assigned/P. Quote", "Waiting for Approval", "HOLD"},
+    "QID": {"Assigned/P. Quote", "Waiting for Approval", "HOLD", "Hold"},
     "PTL": {"Received-Stand By"},
     "PAR": set(),
 }
 
 INPROGRESS_BY_TYPE = {
-    "QID": {"Scheduled / Work in Progress"},
+    "QID": {"Scheduled / Work in Progress", "Invoiced"},
     "PTL": {"Assigned-In progress"},
-    "PAR": {"In Progress"},
+    "PAR": {"In Progress", "Invoiced"},
 }
 
 INPROGRESS_ALL = (
@@ -64,19 +64,15 @@ COMPLETED_BY_TYPE = {
 CANCELLED_STATUS = "Cancelled"
 
 CLOSED_BY_TYPE = {
-    "QID": {"PAID"},
-    "PAR": {"PAID"},
-    "PTL": {"Paid"},
+    "QID": {"PAID", "Paid"},
+    "PAR": {"PAID", "Paid"},
+    "PTL": {"Paid", "PAID"},
 }
 
 PAID_STATUSES = {"PAID", "Paid"}
 
-# Active statuses for pipeline calculation (not paid/cancelled)
-ACTIVE_STATUSES = (
-    PENDING_BY_TYPE["QID"]
-    | PENDING_BY_TYPE["PTL"]
-    | INPROGRESS_ALL
-)
+# Active statuses for pipeline calculation (Active / uncollected)
+ACTIVE_STATUSES = INPROGRESS_ALL
 
 # Full breakdown list (all statuses across all types)
 STATUS_BREAKDOWN_LIST = [
@@ -100,6 +96,27 @@ STATUS_BREAKDOWN_LIST = [
 # ---------------------------------------------------------------------------
 # Normalizers
 # ---------------------------------------------------------------------------
+
+def _norm_status_expr():
+    """Returns a CASE expression to unify status names (Paid, Hold)."""
+    return case(
+        (func.upper(func.trim(Job.Job_status)) == "PAID", "Paid"),
+        (func.upper(func.trim(Job.Job_status)) == "HOLD", "Hold"),
+        else_=func.trim(Job.Job_status)
+    )
+
+
+def _normalize_status_str(status: str | None) -> str:
+    """Python helper to normalize a status string."""
+    if not status:
+        return "—"
+    s_upper = status.strip().upper()
+    if s_upper == "PAID":
+        return "Paid"
+    if s_upper == "HOLD":
+        return "Hold"
+    return status.strip()
+
 
 def _norm_job_type(value: str | None) -> str | None:
     if not value:

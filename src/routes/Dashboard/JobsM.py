@@ -11,6 +11,8 @@ from src.services.metrics.jobs_metrics_service import get_jobs_dashboard_data
 from src.services.metrics.metrics_shared import (
     _norm_job_type,
     _norm_year,
+    _normalize_status_str,
+    ACTIVE_STATUSES,
 )
 from src.services.metrics.aux_func_metrics import _safe_int, _year_expr
 from sqlalchemy import and_
@@ -58,22 +60,13 @@ def jobs_member_pipeline():
     offset = (max(page, 1) - 1) * limit
 
     # Define active statuses specifically for this "Pipeline" view
-    # QID: Assigned/P. Quote
-    # PAR: In Progress
-    # PTL: Assigned-In progress (User said schedule/work in progress (PTL))
-    pipe_map = {
-        "QID": ["Assigned/P. Quote"],
-        "PTL": ["Assigned-In progress"],
-        "PAR": ["In Progress"]
-    }
+    # Based on user request: Scheduled / Work in Progress, Invoiced, Assigned-In progress, In Progress
+    target_statuses = list(ACTIVE_STATUSES)
 
     if job_type == "ALL":
-        target_statuses = pipe_map["QID"] + pipe_map["PTL"] + pipe_map["PAR"]
         roles_to_use = ["Acc Rep Selling", "Mgmt Member"]
     else:
-        target_statuses = pipe_map.get(job_type, [])
-        roles_to_use = ["Mgmt Member"] if job_type == "PTL" else [
-            "Acc Rep Selling"]
+        roles_to_use = ["Mgmt Member"] if job_type == "PTL" else ["Acc Rep Selling"]
 
     with get_session() as session:
         # 1. Count total members who have jobs in these statuses
@@ -160,7 +153,7 @@ def jobs_member_pipeline():
                     "job_id": j.ID_Jobs,
                     "type": j.Job_type,
                     "client": cl.Client_Community if cl else "—",
-                    "status": (j.Job_status or "—").strip(),
+                    "status": _normalize_status_str(j.Job_status),
                     "service": j.Service_type or "—",
                     "date": (j.Date_assigned or j.Estimated_start_date).strftime("%Y-%m-%d") if (j.Date_assigned or j.Estimated_start_date) else "—",
                     "quoted_target_sold": float(j.Gqm_target_sold_pricing or 0),
@@ -272,7 +265,7 @@ def jobs_summary():
                 "type":        j.Job_type,
                 "client":      cl.Client_Community if cl else "—",
                 "rep":         rep_map.get(j.ID_Jobs, "—"),
-                "status":      (j.Job_status or "—").strip(),
+                "status":      _normalize_status_str(j.Job_status),
                 "service":     j.Service_type or "—",
                 "date":        d.strftime("%Y-%m-%d") if d else "—",
                 "formula":     float(j.Gqm_formula_pricing or 0),
