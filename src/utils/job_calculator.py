@@ -81,28 +81,22 @@ def _resolve_job_id_from_change_order(co: ChangeOrder, session: Session) -> Opti
 
 def _build_bdf_array(bdf_costs: list[EstimateCost]) -> list[Optional[float]]:
     """
-    Builds a compact 3-slot array for Bldg_dept_fees.
+    Builds a compact 3-slot array for Bldg_dept_fees (Podio sync).
+
+    Uses Client_price as the confirmed/approved spend for each cost.
+    Falls back to Builder_cost if Client_price is not set (legacy data).
 
     Strategy: values are packed left-to-right ordered by ID_EstimateCost
     (a stable proxy for creation order). Unused slots are None.
-
-    Examples:
-      3 BDF costs (val=20, 30, 50) → [20.0, 30.0, 50.0]
-      2 BDF costs (val=20, 50)     → [20.0, 50.0, None]   ← after deleting the 30
-      1 BDF cost  (val=20)         → [20.0, None,  None]
-      0 BDF costs                  → [None, None,  None]
-
-    Since the 3 Podio slots have no semantic meaning (they are generic fee fields),
-    there is no need to track which cost maps to which slot. Compacting guarantees
-    Podio always receives a valid left-aligned array regardless of which costs
-    were added or removed.
     """
-    # Sort by ID_EstimateCost for a stable, deterministic order
     sorted_costs = sorted(bdf_costs, key=lambda ec: ec.ID_EstimateCost or "")
 
     result: list[Optional[float]] = [None, None, None]
     for i, ec in enumerate(sorted_costs[:BDF_SLOTS]):
-        result[i] = float(ec.Builder_cost) if ec.Builder_cost is not None else 0.0
+        # Client_price holds the confirmed (approved) amount.
+        # Fall back to Builder_cost for legacy rows where Client_price was never set.
+        confirmed = ec.Client_price if ec.Client_price is not None else ec.Builder_cost
+        result[i] = float(confirmed) if confirmed is not None else 0.0
 
     return result
 
@@ -121,28 +115,45 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
     estimated_material = 0.0
     estimated_city     = 0.0
     ptl_gc_fee_num     = 0.0
-    bdf_costs: list[EstimateCost] = []
+    bdf_approved_costs: list[EstimateCost]  = []
+    rent_approved_costs: list[EstimateCost] = []
 
     for ec in estimate_costs:
         cost = float(ec.Builder_cost or 0)
         ct   = (ec.Cost_type or "").strip()
+        st   = (ec.Status or "").strip()
 
         if ct == "Rent":
+            # ALL Rent costs always contribute to estimated_rent using Builder_cost
             estimated_rent += cost
+            if st == "Approved":
+                rent_approved_costs.append(ec)
         elif ct == "Material":
             estimated_material += cost
         elif ct == "Permit":
+            # Legacy type — treated as BDF Estimated for backward compatibility
             estimated_city += cost
         elif ct == "PTLGCF":
             ptl_gc_fee_num += cost
         elif ct == "BDF":
-            bdf_costs.append(ec)
+            # ALL BDF costs always contribute to Estimated_city using Builder_cost
+            # (the original quoted amount — this never decreases when a cost is approved).
+            estimated_city += float(ec.Builder_cost or 0)
+            if st == "Approved":
+                # Approved BDF also contribute to Bldg_dept_fees using Client_price
+                # (the confirmed/actual spend, which may differ from the estimate).
+                bdf_approved_costs.append(ec)
 
-    # Compact 3-slot array — nulls at the end for unused slots
-    bldg_dept_fees_list = _build_bdf_array(bdf_costs)
+    # Compact 3-slot array — only Approved BDF costs fill Bldg_dept_fees
+    bldg_dept_fees_list = _build_bdf_array(bdf_approved_costs)
 
-    # Gqm_paid_fees = sum of non-null BDF values
-    gqm_paid_fees = sum(v for v in bldg_dept_fees_list if v is not None)
+    # Approved Rent paid fees = Client_price (confirmed spend) for each approved Rent cost
+    rent_paid_fees = sum(
+        float(ec.Client_price if ec.Client_price is not None else ec.Builder_cost or 0)
+        for ec in rent_approved_costs
+    )
+    # Gqm_paid_fees = BDF approved (Bldg_dept_fees slots) + Rent approved
+    gqm_paid_fees = sum(v for v in bldg_dept_fees_list if v is not None) + rent_paid_fees
 
     # ── 2. Purchases ─────────────────────────────────────────────────────────
     purchases = session.exec(

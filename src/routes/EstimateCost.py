@@ -57,6 +57,10 @@ def create_estimate():
     obj = EstimateCost(
         **create_estimate.model_dump(exclude_unset=False, exclude_none=False))
 
+    # BDF and Rent costs start as Estimated by default (quoted, not yet confirmed)
+    if (obj.Cost_type or "").strip() in ("BDF", "Rent") and not (obj.Status or "").strip():
+        obj.Status = "Estimated"
+
     with get_session() as session:
         obj.ID_EstimateCost = generate_custom_id(
             session, EstimateCost, "ID_EstimateCost", "EST")
