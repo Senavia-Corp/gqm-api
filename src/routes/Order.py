@@ -424,14 +424,35 @@ def update_order(id_order):
             ).first()
             job_id_for_calc = linked_job.ID_Jobs if linked_job else None
 
+        # Extract fields not in OrderUpdate before validation
+        financial_doc_id   = data.get("ID_FinancialDoc")
+        handle_bill_update = "ID_FinancialDoc" in data
+
         update_order = OrderUpdate.model_validate(data)
         update_data_dict = update_order.model_dump(exclude_unset=True)
         update_data_dict.pop("job_podio_id", None)
-        update_data_dict.pop("ID_Subcontractor", None)
 
         # ----------- 🔄 ACTUALIZAR EN DB
         for key, value in update_data_dict.items():
             setattr(order, key, value)
+
+        # ----------- 🔗 ACTUALIZAR BILL VINCULADO (SI SE ENVIÓ ID_FinancialDoc)
+        if handle_bill_update:
+            current_bills = session.exec(
+                select(FinancialDocument).where(FinancialDocument.ID_Order == id_order)
+            ).all()
+            for bill in current_bills:
+                bill.ID_Order = None
+                session.add(bill)
+            if financial_doc_id:
+                new_bill = session.exec(
+                    select(FinancialDocument).where(FinancialDocument.ID_FinancialDoc == financial_doc_id)
+                ).first()
+                if new_bill:
+                    new_bill.ID_Order = id_order
+                    session.add(new_bill)
+                else:
+                    raise AppException("FinancialDocument (Bill) no encontrado.", "financial_doc_not_found", 404)
 
         # ----------- 🟢 ACTUALIZAR EN PODIO (SI APLICA)
         if sync_podio:

@@ -150,7 +150,8 @@ def list_subcontractors_table():
                 "Organization":     s.Organization,
                 "Status":           s.Status,
                 "Email_Address":    s.Email_Address,
-                "Score":            s.Score,
+                "Phone_Number":     s.Phone_Number,
+                "Gqm_compliance":   s.Gqm_compliance,
                 "Specialty":        s.Specialty,
                 "skill_ids":        [sk.ID_Skill for sk in s.skills]
             }
@@ -177,6 +178,7 @@ def get_subcontractor(id_subcontractor):
             .options(
                 joinedload(Subcontractor.technicians)
                 .joinedload(Technician.tasks),
+                joinedload(Subcontractor.tasks),
                 joinedload(Subcontractor.orders).joinedload(Order.change_orders),
                 joinedload(Subcontractor.orders).joinedload(Order.financial_docs),
                 joinedload(Subcontractor.orders).joinedload(Order.estimate_costs),
@@ -198,7 +200,7 @@ def get_subcontractor(id_subcontractor):
                                "subc_not_found", 404)
 
         subcontr_data = add_relationships(
-            obj, ["technicians.tasks",
+            obj, ["technicians.tasks", "tasks",
                   "orders.change_orders", "orders.financial_docs", "orders.estimate_costs",
                   "jobs", "attachments",
                   "role", "tlactivity", "skills", "opportunities", "certificates"])
