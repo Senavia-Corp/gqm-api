@@ -6,6 +6,7 @@ from ..database.db_sqlmodel import get_session
 from ..models.OrderModel import Order, OrderCreate, OrderUpdate
 from ..models.JobModel import Job
 from ..models.EstimateCostModel import EstimateCost
+from ..models.FinancialDocModel import FinancialDocument
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
 from ..utils.relationships import add_relationships
@@ -44,6 +45,7 @@ def list_orders():
             .options(
                 joinedload(Order.estimate_costs),
                 joinedload(Order.subcontractor),
+                joinedload(Order.financial_docs),
             )
         )
         results = session.exec(statement).unique().all()
@@ -53,7 +55,7 @@ def list_orders():
 
         order_data = [
             add_relationships(
-                order, ["estimate_costs", "subcontractor"])
+                order, ["estimate_costs", "subcontractor", "financial_docs"])
             for order in results
         ]
 
@@ -70,6 +72,7 @@ def get_order(id_order):
             .options(
                 joinedload(Order.estimate_costs),
                 joinedload(Order.subcontractor),
+                joinedload(Order.financial_docs),
             )
             .where(Order.ID_Order == id_order)
         )
@@ -80,7 +83,7 @@ def get_order(id_order):
             raise AppException("Order no encontrado.", "order_not_found", 404)
 
         order_data = add_relationships(
-            obj, ["estimate_costs", "subcontractor"])
+            obj, ["estimate_costs", "subcontractor", "financial_docs"])
 
         return order_data, 200
 
@@ -112,6 +115,7 @@ def get_orders_by_subc_and_job(id_subcontractor, id_job):
                 joinedload(Order.estimate_costs).joinedload(EstimateCost.job),
                 joinedload(Order.subcontractor),
                 joinedload(Order.change_orders),
+                joinedload(Order.financial_docs),
             )
             .where(Order.ID_Subcontractor == id_subcontractor)
             .where(or_(*conditions))
@@ -125,7 +129,7 @@ def get_orders_by_subc_and_job(id_subcontractor, id_job):
         orders_data = [
             add_relationships(
                 order,
-                ["estimate_costs.job", "subcontractor", "change_orders"]
+                ["estimate_costs.job", "subcontractor", "change_orders", "financial_docs"]
             )
             for order in results
         ]
@@ -209,8 +213,13 @@ def create_order():
 
     data = request.get_json()
     create_order = OrderCreate.model_validate(data)
-    obj = Order(
-        **create_order.model_dump(exclude_unset=False, exclude_none=False))
+    # Excluir campos que no pertenecen al modelo Order (relaciones o auxiliares)
+    order_data = create_order.model_dump(
+        exclude={"estimate_cost_ids", "ID_FinancialDoc"},
+        exclude_unset=False,
+        exclude_none=False
+    )
+    obj = Order(**order_data)
         
     # 🔥 FIX RACE CONDITION TEMPRANO 🔥
     # Registrar el evento apenas entra el request. Así interceptamos cualquier webhook
@@ -241,6 +250,20 @@ def create_order():
             costs = session.exec(statement).all()
             obj.estimate_costs = list(costs)
             
+        session.flush()
+
+        # ----------- 🔗 VINCULAR FINANCIAL DOCUMENT (BILL) SI VIENE
+        if create_order.ID_FinancialDoc:
+            statement_fd = select(FinancialDocument).where(
+                FinancialDocument.ID_FinancialDoc == create_order.ID_FinancialDoc
+            )
+            fd = session.exec(statement_fd).first()
+            if fd:
+                fd.ID_Order = obj.ID_Order
+                session.add(fd)
+            else:
+                raise AppException("FinancialDocument (Bill) no encontrado.", "financial_doc_not_found", 404)
+
         session.flush()
 
         # ── Recálculo inicial de fórmulas de la Order ──────────────────────

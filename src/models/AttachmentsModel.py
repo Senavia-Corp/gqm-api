@@ -73,6 +73,7 @@ class AttachmentsCreate(AttachmentsBase):
     ID_Supplier: Optional[str] = None
     ID_FinancialDoc: Optional[str] = None
     ID_Inventory: Optional[str] = None
+    ID_Certificate: Optional[str] = None
     ID_BldgDept: Optional[str] = None
     ID_ChatMessage: Optional[str] = None
 
@@ -84,5 +85,6 @@ class AttachmentsUpdate(AttachmentsBase):
     ID_Supplier: Optional[str] = None
     ID_FinancialDoc: Optional[str] = None
     ID_Inventory: Optional[str] = None
+    ID_Certificate: Optional[str] = None
     ID_BldgDept: Optional[str] = None
     ID_ChatMessage: Optional[str] = None

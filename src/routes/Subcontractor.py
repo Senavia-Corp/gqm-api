@@ -4,6 +4,10 @@ from ..database.db_sqlmodel import get_session
 from ..models.SubcontractorModel import Subcontractor, SubcontractorCreate, SubcontractorUpdate
 from ..models.SkillsModel import Skills
 from ..models.TechnicianModel import Technician
+from ..models.OrderModel import Order
+from ..models.ChangeOrderModel import ChangeOrder
+from ..models.FinancialDocModel import FinancialDocument
+from ..models.EstimateCostModel import EstimateCost
 from ..models.link_models.JobSubcontractor import JobSubcontractorLink
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
@@ -173,7 +177,9 @@ def get_subcontractor(id_subcontractor):
             .options(
                 joinedload(Subcontractor.technicians)
                 .joinedload(Technician.tasks),
-                joinedload(Subcontractor.orders),
+                joinedload(Subcontractor.orders).joinedload(Order.change_orders),
+                joinedload(Subcontractor.orders).joinedload(Order.financial_docs),
+                joinedload(Subcontractor.orders).joinedload(Order.estimate_costs),
                 joinedload(Subcontractor.jobs),
                 joinedload(Subcontractor.attachments),
                 joinedload(Subcontractor.role),
@@ -192,7 +198,9 @@ def get_subcontractor(id_subcontractor):
                                "subc_not_found", 404)
 
         subcontr_data = add_relationships(
-            obj, ["technicians.tasks", "orders", "jobs", "attachments",
+            obj, ["technicians.tasks",
+                  "orders.change_orders", "orders.financial_docs", "orders.estimate_costs",
+                  "jobs", "attachments",
                   "role", "tlactivity", "skills", "opportunities", "certificates"])
 
         return subcontr_data, 200

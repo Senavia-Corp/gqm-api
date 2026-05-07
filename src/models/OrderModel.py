@@ -44,6 +44,7 @@ class OrderCreate(OrderBase):
     ID_Subcontractor: Optional[str] = None
     job_podio_id: Optional[str] = None
     estimate_cost_ids: Optional[List[str]] = None
+    ID_FinancialDoc: Optional[str] = None
 
 
 class OrderUpdate(OrderBase):
