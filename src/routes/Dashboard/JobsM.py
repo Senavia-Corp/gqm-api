@@ -207,6 +207,8 @@ def jobs_summary():
     offset = (page - 1) * limit
 
     client_id = request.args.get("client_id")
+    subcontractor_id = request.args.get("subcontractor_id")
+    status = request.args.get("status")
 
     with get_session() as session:
         # Build filter conditions
@@ -217,6 +219,19 @@ def jobs_summary():
             conditions.append(_year_expr(job_type, year))
         if client_id:
             conditions.append(Job.ID_Client == client_id)
+        if status:
+            if status.upper() == "PAID":
+                conditions.append(func.lower(Job.Job_status).in_(["paid"]))
+            else:
+                conditions.append(func.lower(Job.Job_status) == status.lower())
+        if subcontractor_id:
+            from src.models.link_models.JobSubcontractor import JobSubcontractorLink
+            conditions.append(
+                Job.ID_Jobs.in_(
+                    select(JobSubcontractorLink.job_id).where(
+                        JobSubcontractorLink.subcontr_id == subcontractor_id)
+                )
+            )
 
         where_clause = and_(*conditions)
 
@@ -268,6 +283,7 @@ def jobs_summary():
                 "status":      _normalize_status_str(j.Job_status),
                 "service":     j.Service_type or "—",
                 "date":        d.strftime("%Y-%m-%d") if d else "—",
+                "location":    j.Project_location or None,
                 "formula":     float(j.Gqm_formula_pricing or 0),
                 "adj_formula": float(j.Gqm_adj_formula_pricing or 0),
                 "target":      float(j.Gqm_target_sold_pricing or 0),

@@ -148,6 +148,7 @@ def list_jobs_table():
         parent_mgmt_co_id = request.args.get("parent_mgmt_co_id")
         date_from_raw = request.args.get("date_from")
         date_to_raw = request.args.get("date_to")
+        subcontractor_id = request.args.get("subcontractorId") or request.args.get("subcontractor_id")
 
         if job_type:
             job_type = job_type.upper()
@@ -225,6 +226,12 @@ def list_jobs_table():
                 statement = statement.where(
                     Job.client.has(
                         Client.ID_Community_Tracking == parent_mgmt_co_id)
+                )
+
+            # --- Filtro por subcontratista ---
+            if subcontractor_id:
+                statement = statement.where(
+                    Job.subcontractors.any(Subcontractor.ID_Subcontractor == subcontractor_id)
                 )
 
             # --- Filtro por rango de fechas ---
@@ -310,6 +317,11 @@ def list_jobs_table():
                 count_stmt = count_stmt.where(
                     Job.client.has(
                         Client.ID_Community_Tracking == parent_mgmt_co_id)
+                )
+
+            if subcontractor_id:
+                count_stmt = count_stmt.where(
+                    Job.subcontractors.any(Subcontractor.ID_Subcontractor == subcontractor_id)
                 )
 
             if date_from or date_to:

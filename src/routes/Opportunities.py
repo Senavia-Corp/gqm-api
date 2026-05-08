@@ -36,6 +36,7 @@ def list_opportunities():
             priority_filter = request.args.get("priority", "").strip()
             job_id = request.args.get("job_id", "").strip()
             skill_id = request.args.get("skill_id", "").strip()
+            subcontractor_id = request.args.get("subcontractor_id", "").strip()
             print(f"DEBUG: list_opportunities args: {request.args}")
 
             statement = (
@@ -72,6 +73,9 @@ def list_opportunities():
             
             if job_id:
                 statement = statement.where(Opportunities.ID_Jobs == job_id)
+
+            if subcontractor_id:
+                statement = statement.where(Opportunities.subcontractors.any(Subcontractor.ID_Subcontractor == subcontractor_id))
 
             results = session.exec(statement).unique().all()
 
