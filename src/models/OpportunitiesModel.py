@@ -27,6 +27,11 @@ class Opportunities(OpportBase, table=True):
         default=None, foreign_key="jobs.ID_Jobs")
     job: Optional[Job] = Relationship(back_populates="opportunities")
 
+    # Relación con Order (M:1) — la order que se les pagará a los subcontratistas
+    ID_Order: Optional[str] = Field(
+        default=None, foreign_key="order.ID_Order")
+    order: Optional["Order"] = Relationship(back_populates="opportunities")  # type: ignore
+
     # Relaciones de muchos a muchos
     skills: List[Skills] = Relationship(
         back_populates="opportunities",
@@ -40,7 +45,10 @@ class Opportunities(OpportBase, table=True):
 
 class OpportunitiesCreate(OpportBase):
     ID_Jobs: Optional[str] = None
+    ID_Order: Optional[str] = None
 
 
 class OpportunitiesUpdate(OpportBase):
     ID_Jobs: Optional[str] = None
+    ID_Order: Optional[str] = None
+

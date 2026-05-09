@@ -17,6 +17,8 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..services.excel_report.commission_excel_service import generate_commission_excel
+from ..utils.middleware.auth.routes_protection import get_user_context
+from ..utils.policy_evaluator import PolicyEvaluator
 
 # Blueprint de Commission:
 commission_bp = Blueprint("commission_blueprint",
@@ -32,6 +34,11 @@ commission_bp = Blueprint("commission_blueprint",
 @paginate()
 def list_commissions():
 
+    user_id, _user_type, policies = get_user_context()
+    can_read_all = PolicyEvaluator.evaluate(policies, "commission:read")
+    can_read_own = PolicyEvaluator.evaluate(policies, "commission:read_own")
+    filter_own = user_id and can_read_own and not can_read_all
+
     with get_session() as session:
         statement = (
             select(Commission)
@@ -41,6 +48,10 @@ def list_commissions():
                 .joinedload(CommissionGroup.comdetails)
             )
         )
+
+        if filter_own:
+            statement = statement.where(Commission.ID_Member == user_id)
+
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -63,6 +74,14 @@ def list_commission_table():
     limit = min(200, max(1, int(request.args.get("limit", 10))))
     q = request.args.get("q", "").strip()
 
+    # Determine if the requesting user is restricted to their own commissions.
+    # Users with commission:read see everything; users with commission:read_own
+    # (and without commission:read) only see commissions linked to their member ID.
+    user_id, _user_type, policies = get_user_context()
+    can_read_all = PolicyEvaluator.evaluate(policies, "commission:read")
+    can_read_own = PolicyEvaluator.evaluate(policies, "commission:read_own")
+    filter_own = user_id and can_read_own and not can_read_all
+
     with get_session() as session:
 
         stmt = (
@@ -73,7 +92,7 @@ def list_commission_table():
                     Commission.Month,
                     Commission.Year,
                     Commission.Total_commission,
-                    Commission.ID_Member,          # ← necesario para el join
+                    Commission.ID_Member,
                 ),
                 selectinload(Commission.member).load_only(
                     Member.ID_Member,
@@ -81,6 +100,9 @@ def list_commission_table():
                 )
             )
         )
+
+        if filter_own:
+            stmt = stmt.where(Commission.ID_Member == user_id)
 
         if q:
             pattern = f"%{q}%"
@@ -90,7 +112,7 @@ def list_commission_table():
                     Commission.Month.ilike(pattern),
                     Commission.Year.ilike(pattern),
                     Commission.Total_commission.ilike(pattern),
-                    Member.Member_Name.ilike(pattern),   # ← búsqueda por nombre
+                    Member.Member_Name.ilike(pattern),
                 )
             )
             stmt = stmt.join(Commission.member, isouter=True)
@@ -129,6 +151,11 @@ def list_commission_table():
 @handle_exceptions()
 def get_commission(id_commission):
 
+    user_id, _user_type, policies = get_user_context()
+    can_read_all = PolicyEvaluator.evaluate(policies, "commission:read")
+    can_read_own = PolicyEvaluator.evaluate(policies, "commission:read_own")
+    filter_own = user_id and can_read_own and not can_read_all
+
     with get_session() as session:
         statement = (
             select(Commission)
@@ -145,6 +172,10 @@ def get_commission(id_commission):
         if not obj:
             raise AppException("Commission no encontrado.",
                                "commission_not_found", 404)
+
+        if filter_own and obj.ID_Member != user_id:
+            raise AppException("Forbidden: you can only view your own commissions.",
+                               "commission_forbidden", 403)
 
         commission_data = add_relationships(
             obj, ["member", "comgroups.comdetails", "comgroups.comdetails.job"])

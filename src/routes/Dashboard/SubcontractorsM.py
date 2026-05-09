@@ -517,13 +517,22 @@ def subcontractor_detail(sub_id: str):
                     "paid_usd":       round(_safe_float(row.paid_usd), 2),
                 })
 
-        # ── 4. Pending bills (Percentage_Paid < 100 o NULL) ─────────────────
+        # ── 4. POs Released (all bills) ──────────────────────────────────────
         pending_bills = []
 
         if sub.Organization:
+            max_payment_date_subq = (
+                select(func.max(FinancialTransaction.Date_of_payment))
+                .join(FinancialLink, FinancialLink.ftransaction_id == FinancialTransaction.ID_FTransaction)
+                .where(FinancialLink.fdocument_id == FinancialDocument.ID_FinancialDoc)
+                .correlate(FinancialDocument)
+                .scalar_subquery()
+            )
+
             pending_stmt = (
                 select(
                     FinancialDocument.ID_FinancialDoc,
+                    FinancialDocument.Job_Ref_QBO,
                     FinancialDocument.Vendor_Customer,
                     FinancialDocument.Total_Amount,
                     FinancialDocument.Balance_Amount,
@@ -534,26 +543,33 @@ def subcontractor_detail(sub_id: str):
                     Order.Title.label("order_title"),
                     Order.Formula.label("order_formula"),
                     Order.Adj_formula.label("order_adj_formula"),
+                    max_payment_date_subq.label("max_payment_date"),
                 )
                 .outerjoin(Order, Order.ID_Order == FinancialDocument.ID_Order)
                 .where(
                     FinancialDocument.Type_of_document == "Bill",
-                    or_(
-                        FinancialDocument.Percentage_Paid < 100,
-                        FinancialDocument.Percentage_Paid.is_(None),
-                    ),
                     _vendor_match_cond(_clean_org(sub.Organization)),
                 )
                 .order_by(FinancialDocument.Due_Date.asc().nullslast())
             )
             for r in session.exec(pending_stmt).all():
+                total_amt  = _safe_float(r.Total_Amount)
+                bal_amt    = r.Balance_Amount
+                total_paid = round(total_amt - float(bal_amt), 2) if bal_amt is not None else None
+                is_paid    = (
+                    (r.Percentage_Paid is not None and r.Percentage_Paid >= 100) or
+                    (bal_amt is not None and bal_amt <= 0)
+                )
                 pending_bills.append({
                     "bill_id":         r.ID_FinancialDoc,
+                    "job_ref_qbo":     r.Job_Ref_QBO or None,
                     "vendor_customer": _clean_org(r.Vendor_Customer or ""),
-                    "total_amount":    round(_safe_float(r.Total_Amount), 2),
-                    "balance_amount":  round(_safe_float(r.Balance_Amount), 2),
+                    "total_amount":    round(total_amt, 2),
+                    "balance_amount":  round(float(bal_amt), 2) if bal_amt is not None else None,
+                    "total_paid":      total_paid,
                     "percentage_paid": r.Percentage_Paid,
                     "due_date":        _fmt_date(r.Due_Date),
+                    "completion_date": _fmt_date(r.max_payment_date) if (is_paid and r.max_payment_date) else None,
                     "notes":           r.Notes or None,
                     "order": {
                         "order_id":    r.ID_Order,

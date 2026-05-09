@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from sqlmodel import select
-from sqlalchemy import func, cast, case, Integer
+from sqlalchemy import func, cast, case, Integer, or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_sqlmodel import get_session
@@ -10,6 +10,7 @@ from ...models.ClientModel import Client
 from ...models.MemberModel import Member
 from ...models.link_models.JobMember import JobMemberLink
 from ...models.PurchaseModel import Purchase
+from ...models.FinancialDocModel import FinancialDocument
 
 from .metrics_shared import (
     STATUS_CATALOG,
@@ -21,6 +22,8 @@ from .metrics_shared import (
     _norm_job_type,
     _norm_year,
     _apply_year_filter,
+    _norm_status_expr,
+    _normalize_status_str,
 )
 
 
@@ -134,7 +137,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("total_final"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("total_premium"),
                 func.avg(pct_col).label("avg_final_pct"),
-                func.avg(Job.Gqm_target_return).label("avg_target_ret"),
+                func.avg(case((Job.Job_status.in_(list(ACTIVE_STATUSES)), Job.Gqm_target_return), else_=None)).label("avg_target_ret"),
                 func.sum(paid_flag).label("paid_count"),
             )
             stmt_sum = _apply_base_filters(stmt_sum, normed_type, year)
@@ -286,13 +289,14 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             # ------------------------------------------------------------------
             # 5. STATUS BREAKDOWN + PIPELINE
             # ------------------------------------------------------------------
+            status_expr = _norm_status_expr()
             stmt_status = select(
-                func.trim(Job.Job_status).label("status"),
+                status_expr.label("status"),
                 func.count(Job.ID_Jobs).label("count"),
                 func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
                 func.sum(final_col).label("final"),
                 func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
-            ).group_by(func.trim(Job.Job_status))
+            ).group_by(status_expr)
 
             stmt_status = _apply_base_filters(stmt_status, normed_type, year)
 
@@ -377,27 +381,96 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 for j_id, m_name in session.exec(stmt_reps).all():
                     inprog_rep_map.setdefault(j_id, []).append(m_name)
 
+            # Batch: collected invoices (fully paid) and bill counters per job
+            collected_map:   dict[str, float] = {}
+            paid_bills_map:  dict[str, int]   = {}
+            total_bills_map: dict[str, int]   = {}
+
+            if inprog_ids:
+                _is_paid = or_(
+                    FinancialDocument.Percentage_Paid >= 100,
+                    FinancialDocument.Balance_Amount  <= 0,
+                )
+
+                # Sum of Total_Amount for fully-paid Invoices
+                stmt_collected = (
+                    select(
+                        FinancialDocument.ID_Jobs,
+                        func.coalesce(func.sum(FinancialDocument.Total_Amount), 0.0).label("collected"),
+                    )
+                    .where(
+                        FinancialDocument.ID_Jobs.in_(inprog_ids),
+                        FinancialDocument.Type_of_document == "Invoice",
+                        _is_paid,
+                    )
+                    .group_by(FinancialDocument.ID_Jobs)
+                )
+                for r in session.exec(stmt_collected).all():
+                    collected_map[r.ID_Jobs] = _safe_float(r.collected)
+
+                # Total bill count per job
+                stmt_total_bills = (
+                    select(
+                        FinancialDocument.ID_Jobs,
+                        func.count(FinancialDocument.ID_FinancialDoc).label("cnt"),
+                    )
+                    .where(
+                        FinancialDocument.ID_Jobs.in_(inprog_ids),
+                        FinancialDocument.Type_of_document == "Bill",
+                    )
+                    .group_by(FinancialDocument.ID_Jobs)
+                )
+                for r in session.exec(stmt_total_bills).all():
+                    total_bills_map[r.ID_Jobs] = int(r.cnt or 0)
+
+                # Paid bill count per job
+                stmt_paid_bills = (
+                    select(
+                        FinancialDocument.ID_Jobs,
+                        func.count(FinancialDocument.ID_FinancialDoc).label("cnt"),
+                    )
+                    .where(
+                        FinancialDocument.ID_Jobs.in_(inprog_ids),
+                        FinancialDocument.Type_of_document == "Bill",
+                        _is_paid,
+                    )
+                    .group_by(FinancialDocument.ID_Jobs)
+                )
+                for r in session.exec(stmt_paid_bills).all():
+                    paid_bills_map[r.ID_Jobs] = int(r.cnt or 0)
+
             in_progress_jobs = []
             for row in raw_inprog:
                 job = row.Job
                 client = row.Client
                 display_date = job.Date_assigned or job.Estimated_start_date
-                amount = (
+                final_sold = (
                     _safe_float(job.Gqm_target_sold_pricing)
                     if job.Job_type == "PAR"
                     else _safe_float(job.Gqm_final_sold_pricing)
                 )
+                final_pct = (
+                    _safe_float(job.Gqm_target_return)
+                    if job.Job_type in ("PTL", "PAR")
+                    else _safe_float(job.Gqm_final_percentage)
+                )
+                j_id = job.ID_Jobs
                 in_progress_jobs.append({
-                    "job_id":   job.ID_Jobs,
-                    "type":     job.Job_type,
-                    "client":   client.Client_Community if client else "—",
-                    "rep":      ", ".join(inprog_rep_map.get(job.ID_Jobs, ["—"])),
-                    "status":   (job.Job_status or "—").strip(),
-                    "service":  job.Service_type or "—",
-                    "date":     display_date.strftime("%Y-%m-%d") if hasattr(display_date, "strftime") else "—",
-                    "amount":   amount,
+                    "job_id":           j_id,
+                    "type":             job.Job_type,
+                    "client":           client.Client_Community if client else "—",
+                    "rep":              ", ".join(inprog_rep_map.get(j_id, ["—"])),
+                    "status":           _normalize_status_str(job.Job_status),
+                    "service":          job.Service_type or "—",
+                    "date":             display_date.strftime("%Y-%m-%d") if hasattr(display_date, "strftime") else "—",
+                    "amount":           final_sold,
+                    "final_sold":       final_sold,
+                    "final_pct":        final_pct,
+                    "collected_amount": round(collected_map.get(j_id, 0.0), 2),
+                    "bills_paid":       paid_bills_map.get(j_id, 0),
+                    "bills_total":      total_bills_map.get(j_id, 0),
                     "quoted_target_sold":   _safe_float(job.Gqm_target_sold_pricing),
-                    "premium_in_money":  _safe_float(job.Gqm_premium_in_money),
+                    "premium_in_money":     _safe_float(job.Gqm_premium_in_money),
                     "final_adj_formula": (
                         _safe_float(job.Gqm_final_adj_form_pricing)
                         if job.Job_type in ("QID")
@@ -408,11 +481,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                         if job.Job_type in ("PTL", "PAR")
                         else _safe_float(job.Gqm_final_target_return)
                     ),
-                    "final_margin":      (
-                        _safe_float(job.Gqm_target_return)
-                        if job.Job_type in ("PTL", "PAR")
-                        else _safe_float(job.Gqm_final_percentage)
-                    ),
+                    "final_margin": final_pct,
                 })
 
             # ------------------------------------------------------------------
@@ -460,7 +529,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     "type":     job.Job_type,
                     "client":   client.Client_Community if client else "—",
                     "rep":      ", ".join(inv_rep_map.get(job.ID_Jobs, ["—"])),
-                    "status":   (job.Job_status or "—").strip(),
+                    "status":   _normalize_status_str(job.Job_status),
                     "service":  job.Service_type or "—",
                     "date":     display_date.strftime("%Y-%m-%d") if hasattr(display_date, "strftime") else "—",
                     "amount":   amount,
@@ -483,7 +552,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 .outerjoin(Job, Job.ID_Jobs == Purchase.ID_Jobs)
                 .outerjoin(Client, Client.ID_Client == Job.ID_Client)
                 .order_by(Purchase.created_at.desc())
-                .limit(5)
+                .limit(20)
             )
             # (Note: not applying base filters to purchases as it's a global top 5 usually, 
             # but if needed we could filter by year/type if they are linked to jobs of that type)
@@ -544,7 +613,14 @@ def get_jobs_status_metrics_data(job_type_raw: str | None, year_raw: str | None)
     """
     from sqlmodel import select
     from sqlalchemy import func
-    from .metrics_shared import STATUS_CATALOG, _norm_job_type, _norm_year, _apply_year_filter
+    from .metrics_shared import (
+        STATUS_CATALOG,
+        _norm_job_type,
+        _norm_year,
+        _apply_year_filter,
+        _norm_status_expr,
+        _normalize_status_str,
+    )
 
     job_type = _norm_job_type(job_type_raw)
     if job_type is None:
@@ -556,9 +632,10 @@ def get_jobs_status_metrics_data(job_type_raw: str | None, year_raw: str | None)
 
     try:
         with get_session() as session:
+            status_expr = _norm_status_expr()
             stmt = (
                 select(
-                    Job.Job_status,
+                    status_expr.label("status"),
                     func.count().label("count"),
                 )
                 .select_from(Job)
@@ -567,7 +644,7 @@ def get_jobs_status_metrics_data(job_type_raw: str | None, year_raw: str | None)
                 stmt = stmt.where(Job.Job_type == job_type)
             if year is not None:
                 stmt = _apply_year_filter(stmt, job_type, year)
-            stmt = stmt.group_by(Job.Job_status)
+            stmt = stmt.group_by(status_expr)
             db_rows = session.exec(stmt).all()
 
             total_stmt = select(func.count()).select_from(Job)

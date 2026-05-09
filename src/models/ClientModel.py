@@ -24,6 +24,7 @@ class ClientBase(SQLModel):
     Collection_Process: Optional[str] = Field(default=None)
     Payment_Collection: Optional[str] = Field(default=None)
     Text: Optional[str] = Field(default=None)
+    Residential_Units: Optional[int] = Field(default=None)
 
 
 class Client(ClientBase, table=True):

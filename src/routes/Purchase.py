@@ -1,6 +1,6 @@
 # ============ Lógica de rutas =================
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.PurchaseModel import Purchase, PurchaseCreate, PurchaseUpdate
@@ -18,6 +18,10 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 from sqlalchemy import func, or_
 from src.utils.job_calculator import recalculate_and_apply
 from src.utils.middleware.auth.routes_protection import require_permission
+from src.utils.policy_evaluator import PolicyEvaluator
+
+# Statuses that purchase:request_only users are allowed to set.
+_REQUEST_ONLY_ALLOWED_STATUSES = {"Pending", "In Review"}
 
 
 # Blueprint de Purchase:
@@ -96,6 +100,7 @@ def list_purchases_table():
                 Purchase.Return_request,
                 Purchase.Return_status,
                 Purchase.Total_spending,
+                Purchase.Is_extra,
                 Purchase.ID_Jobs,
                 Purchase.ID_Member,
                 Purchase.podio_item_id,
@@ -167,6 +172,7 @@ def list_purchases_table():
                     "Return_request":    r.Return_request,
                     "Return_status":     r.Return_status,
                     "Total_spending":    float(r.Total_spending) if r.Total_spending is not None else None,
+                    "Is_extra":          r.Is_extra,
                     "ID_Jobs":           r.ID_Jobs,
                     "ID_Member":         r.ID_Member,
                     "podio_item_id":     r.podio_item_id,
@@ -292,11 +298,28 @@ def create_purchase():
 
 
 @purchase_bp.patch("/<id_purchase>")
-@require_permission("purchase:update")
+@require_permission(["purchase:update", "purchase:request_only"])
 def update_purchase(id_purchase):
     session = None
     try:
         data = request.get_json()
+
+        # Users with purchase:request_only (without purchase:update) may only
+        # set Status to Pending or In Review.
+        policies = getattr(g, "user_policies", [])
+        is_request_only = (
+            PolicyEvaluator.evaluate(policies, "purchase:request_only")
+            and not PolicyEvaluator.evaluate(policies, "purchase:update")
+        )
+        if is_request_only:
+            new_status = data.get("Status") if data else None
+            if new_status and new_status not in _REQUEST_ONLY_ALLOWED_STATUSES:
+                return jsonify({
+                    "detail": f"You are not authorized to set status to '{new_status}'. "
+                              f"Allowed statuses: {sorted(_REQUEST_ONLY_ALLOWED_STATUSES)}.",
+                    "code": "forbidden_status"
+                }), 403
+
         with get_session() as session:
             obj = session.get(Purchase, id_purchase)
             if not obj:

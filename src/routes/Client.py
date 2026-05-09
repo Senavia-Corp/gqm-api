@@ -3,10 +3,11 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.ClientModel import Client, ClientCreate, ClientUpdate
+from ..models.JobModel import Job
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import load_only as _load_only
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_, extract
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -175,6 +176,80 @@ def get_client(id_client):
             obj, ["jobs", "manager", "parent_mgmt_co", "standard_ps", "members"])
 
         return client_data, 200
+
+
+@client_bp.get("/<id_client>/metrics")
+@require_permission("client:read")
+@handle_exceptions()
+def get_client_metrics(id_client):
+    """
+    Returns performance metrics for a community/client.
+
+    Query params:
+        month (int, 1-12): optional month filter
+        year  (int):       optional year filter
+    When both are omitted, returns all-time totals.
+    """
+    month_str = request.args.get("month", "").strip()
+    year_str  = request.args.get("year",  "").strip()
+
+    month = int(month_str) if month_str.isdigit() and 1 <= int(month_str) <= 12 else None
+    year  = int(year_str)  if year_str.isdigit()  and 1900 <= int(year_str) <= 2100 else None
+
+    PROPOSALS_STATUSES   = {"Waiting for Approval"}
+    EXCLUDE_FROM_APPROVED = {"Assigned/P. Quote", "Waiting for Approval", "Cancelled"}
+    INPROGRESS_STATUSES  = {"Scheduled / Work in Progress", "Assigned-In progress", "Invoiced", "In Progress"}
+    PAID_STATUSES        = {"paid"}   # compared after .upper()
+
+    with get_session() as session:
+        base = select(Job).where(Job.ID_Client == id_client)
+
+        if year is not None or month is not None:
+            ptl_conditions  = [Job.Job_type == "PTL", Job.Estimated_start_date.is_not(None)]
+            nonptl_conditions = [Job.Job_type != "PTL", Job.Date_assigned.is_not(None)]
+            if year is not None:
+                ptl_conditions.append(extract("year", Job.Estimated_start_date) == year)
+                nonptl_conditions.append(extract("year", Job.Date_assigned) == year)
+            if month is not None:
+                ptl_conditions.append(extract("month", Job.Estimated_start_date) == month)
+                nonptl_conditions.append(extract("month", Job.Date_assigned) == month)
+            base = base.where(
+                or_(and_(*ptl_conditions), and_(*nonptl_conditions))
+            )
+
+        jobs = session.exec(base).all()
+
+        proposals   = 0
+        approved    = 0
+        in_progress = 0
+        paid_count  = 0
+        paid_revenue = 0.0
+
+        for j in jobs:
+            status_raw  = (j.Job_status or "").strip()
+            status_norm = status_raw.upper()
+
+            if status_raw in PROPOSALS_STATUSES:
+                proposals += 1
+
+            if status_raw and status_raw not in EXCLUDE_FROM_APPROVED:
+                approved += 1
+
+            if status_raw in INPROGRESS_STATUSES:
+                in_progress += 1
+
+            if status_norm == "PAID":
+                paid_count  += 1
+                paid_revenue += j.Gqm_final_prem_in_money or 0.0
+
+        return jsonify({
+            "proposals":      proposals,
+            "approved_jobs":  approved,
+            "in_progress_jobs": in_progress,
+            "paid_jobs":      paid_count,
+            "paid_revenue":   round(paid_revenue, 2),
+            "filter": {"month": month, "year": year},
+        }), 200
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#

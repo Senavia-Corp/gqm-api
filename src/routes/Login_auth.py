@@ -9,6 +9,8 @@ from src.utils.middleware.auth.jwt_handler import (
 )
 from src.models.MemberModel import Member
 from src.models.TechnicianModel import Technician
+from src.utils.middleware.auth.routes_protection import get_user_context
+from src.utils.policy_evaluator import PolicyEvaluator
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -160,3 +162,22 @@ def refresh():
     except Exception as e:
         print(f"❌ Error en /refresh: {e}")
         return jsonify({"error": "Internal server error"}), 500
+
+
+@auth_bp.get("/can")
+def check_can():
+    """
+    Query: ?actions=action1,action2,...
+    Returns: { "results": { "action1": true/false, ... } }
+    If no valid token is present, all actions evaluate to false.
+    Used by the frontend to know which UI elements to show/restrict.
+    """
+    actions_param = request.args.get("actions", "")
+    if not actions_param:
+        return jsonify({"results": {}}), 200
+
+    actions_list = [a.strip() for a in actions_param.split(",") if a.strip()]
+    _, _, policies = get_user_context()
+
+    results = {action: PolicyEvaluator.evaluate(policies, action) for action in actions_list}
+    return jsonify({"results": results}), 200

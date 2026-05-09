@@ -16,6 +16,11 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from src.utils.job_calculator import recalculate_and_apply
+from src.utils.middleware.auth.routes_protection import get_user_context
+from src.utils.policy_evaluator import PolicyEvaluator
+
+# Fields that belong to the purchasing department and are forbidden for request-only users.
+_PURCHASE_DEPT_FIELDS = {"Purchase_shop", "Purchase_link", "Purchase_value", "Purchase_notes"}
 
 
 # Blueprint de PurchaseOrderItem:
@@ -144,27 +149,31 @@ def create_po_item():
             save_with_retry(session, obj)
 
             # ── Auto-crear EstimateCost relacionado al PurchaseOrderItem ──
+            # Skipped when the parent Purchase is flagged as extra/unplanned.
             job_id = None
+            is_extra_purchase = False
             if obj.ID_PurchaseOrder:
                 po = session.get(PurchaseOrder, obj.ID_PurchaseOrder)
                 if po and po.ID_Purchase:
                     purchase_obj = session.get(Purchase, po.ID_Purchase)
                     if purchase_obj:
                         job_id = purchase_obj.ID_Jobs
+                        is_extra_purchase = bool(purchase_obj.Is_extra)
 
-            est_id = generate_custom_id(session, EstimateCost, "ID_EstimateCost", "EST")
-            new_estimate = EstimateCost(
-                ID_EstimateCost=est_id,
-                Title=obj.Name,
-                Unit_cost=obj.Quote_value,
-                Builder_cost=obj.Quote_value,
-                Description=obj.Quote_notes,
-                Quatity=1.0,
-                Cost_type="Material",
-                ID_Jobs=job_id,
-                Cost_code=obj.ID_PurchaseOrderItem  # Link back to the source item for later updates
-            )
-            save_with_retry(session, new_estimate)
+            if not is_extra_purchase:
+                est_id = generate_custom_id(session, EstimateCost, "ID_EstimateCost", "EST")
+                new_estimate = EstimateCost(
+                    ID_EstimateCost=est_id,
+                    Title=obj.Name,
+                    Unit_cost=obj.Quote_value,
+                    Builder_cost=obj.Quote_value,
+                    Description=obj.Quote_notes,
+                    Quatity=1.0,
+                    Cost_type="Material",
+                    ID_Jobs=job_id,
+                    Cost_code=obj.ID_PurchaseOrderItem
+                )
+                save_with_retry(session, new_estimate)
             # ──────────────────────────────────────────────────────────────
 
             # ── Recalculate Purchase.Total_spending + Job.Gqm_total_materials_fees ──
@@ -201,7 +210,25 @@ def create_po_item():
 def update_po_item(id_po_item):
     session = None
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
+
+        # Users with purchase:request_only (without purchase:update) cannot modify
+        # purchasing-department fields.
+        user_id, _, policies = get_user_context()
+        if user_id:
+            is_request_only = (
+                PolicyEvaluator.evaluate(policies, "purchase:request_only")
+                and not PolicyEvaluator.evaluate(policies, "purchase:update")
+            )
+            if is_request_only:
+                forbidden = _PURCHASE_DEPT_FIELDS & set(data.keys())
+                if forbidden:
+                    return jsonify({
+                        "detail": "You are not authorized to update purchasing fields: "
+                                  + ", ".join(sorted(forbidden)),
+                        "code": "forbidden_fields"
+                    }), 403
+
         with get_session() as session:
             obj = session.get(PurchaseOrderItem, id_po_item)
             if not obj:
