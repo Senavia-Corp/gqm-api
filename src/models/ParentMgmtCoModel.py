@@ -12,6 +12,9 @@ class PaMgmtCoBase(SQLModel):
     Main_office_email: Optional[str] = Field(default=None)
     Main_office_number: Optional[str] = Field(default=None)
     State: Optional[str] = Field(default=None)
+    President_Name: Optional[str] = Field(default=None)
+    President_Email: Optional[str] = Field(default=None)
+    President_Phone: Optional[str] = Field(default=None)
 
 
 class ParentMgmtCo(PaMgmtCoBase, table=True):
