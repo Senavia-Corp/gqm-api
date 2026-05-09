@@ -12,12 +12,14 @@ from ..models.ClientModel import Client
 from ..models.ParentMgmtCoModel import ParentMgmtCo
 from ..models.SubcontractorModel import Subcontractor
 from ..models.FinancialDocModel import FinancialDocument
+from ..models.OrderModel import Order
 from ..models.link_models.JobMember import JobMemberLink
+from ..models.link_models.ClientLinks import ClientManagerLink
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload, selectinload, load_only
-from sqlalchemy import func, extract, or_, and_
+from sqlalchemy import func, extract, or_, and_, case
 from ..podio.services.job_services import podio_jobs_router
 from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
@@ -146,6 +148,7 @@ def list_jobs_table():
         parent_mgmt_co_id = request.args.get("parent_mgmt_co_id")
         date_from_raw = request.args.get("date_from")
         date_to_raw = request.args.get("date_to")
+        subcontractor_id = request.args.get("subcontractorId") or request.args.get("subcontractor_id")
 
         if job_type:
             job_type = job_type.upper()
@@ -223,6 +226,12 @@ def list_jobs_table():
                 statement = statement.where(
                     Job.client.has(
                         Client.ID_Community_Tracking == parent_mgmt_co_id)
+                )
+
+            # --- Filtro por subcontratista ---
+            if subcontractor_id:
+                statement = statement.where(
+                    Job.subcontractors.any(Subcontractor.ID_Subcontractor == subcontractor_id)
                 )
 
             # --- Filtro por rango de fechas ---
@@ -308,6 +317,11 @@ def list_jobs_table():
                 count_stmt = count_stmt.where(
                     Job.client.has(
                         Client.ID_Community_Tracking == parent_mgmt_co_id)
+                )
+
+            if subcontractor_id:
+                count_stmt = count_stmt.where(
+                    Job.subcontractors.any(Subcontractor.ID_Subcontractor == subcontractor_id)
                 )
 
             if date_from or date_to:
@@ -412,6 +426,67 @@ def list_jobs_table():
         return jsonify({"detail": "Error interno del servidor.", "code": "internal_error"}), 500
 
 
+@job_bp.get("/oldest")
+@require_permission(["job:read", "job:read_basics"])
+@handle_exceptions()
+def get_oldest_job():
+    """Returns the single oldest job for a parent company, ordered by effective date ASC."""
+    parent_mgmt_co_id = request.args.get("parent_mgmt_co_id", "").strip()
+    if not parent_mgmt_co_id:
+        return jsonify({"detail": "parent_mgmt_co_id is required"}), 400
+
+    # Effective date: Estimated_start_date for PTL, Date_assigned for all others
+    effective_date = case(
+        (Job.Job_type == "PTL", Job.Estimated_start_date),
+        else_=Job.Date_assigned,
+    )
+
+    with get_session() as session:
+        statement = (
+            select(Job)
+            .options(
+                load_only(
+                    Job.ID_Jobs, Job.Job_type, Job.Project_name,
+                    Job.Project_location, Job.Job_status,
+                    Job.Date_assigned, Job.Estimated_start_date,
+                    Job.Service_type,
+                ),
+                joinedload(Job.client).load_only(
+                    Client.ID_Client, Client.Client_Community,
+                ),
+            )
+            .join(Job.client)
+            .where(Client.ID_Community_Tracking == parent_mgmt_co_id)
+            .where(
+                or_(
+                    and_(Job.Job_type == "PTL", Job.Estimated_start_date.is_not(None)),
+                    and_(Job.Job_type != "PTL", Job.Date_assigned.is_not(None)),
+                )
+            )
+            .order_by(effective_date.asc())
+            .limit(1)
+        )
+
+        job = session.exec(statement).first()
+        if not job:
+            return jsonify({"detail": "No jobs found for this parent company"}), 404
+
+        return jsonify({
+            "ID_Jobs":               job.ID_Jobs,
+            "Job_type":              job.Job_type,
+            "Project_name":          job.Project_name,
+            "Project_location":      job.Project_location,
+            "Job_status":            job.Job_status,
+            "Date_assigned":         job.Date_assigned.isoformat()         if job.Date_assigned         else None,
+            "Estimated_start_date":  job.Estimated_start_date.isoformat()  if job.Estimated_start_date  else None,
+            "Service_type":          job.Service_type,
+            "client": {
+                "ID_Client":         job.client.ID_Client,
+                "Client_Community":  getattr(job.client, "Client_Community", None),
+            } if job.client else None,
+        }), 200
+
+
 @job_bp.get("/<id_job>")
 @require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
@@ -420,20 +495,24 @@ def get_job_by_id(id_job):
         statement = (
             select(Job)
             .options(
-                joinedload(Job.client), joinedload(Job.members),
+                joinedload(Job.client).selectinload(Client.manager),
+                joinedload(Job.members),
                 joinedload(Job.multipliers), joinedload(Job.attachments),
                 joinedload(Job.tasks), joinedload(Job.estimate_costs),
                 joinedload(Job.payment_units),
                 joinedload(Job.subcontractors).joinedload(
                     Subcontractor.technicians),
                 joinedload(Job.subcontractors).joinedload(
-                    Subcontractor.orders),
+                    Subcontractor.orders).joinedload(Order.financial_docs),
                 joinedload(Job.building_dept),
                 selectinload(Job.comdetails).joinedload(CommissionDetail.comgroup).joinedload(
                     CommissionGroup.commission).joinedload(Commission.member),
                 selectinload(Job.financial_docs).options(
+                    joinedload(FinancialDocument.order),
                     selectinload(FinancialDocument.financial_doc_items),
-                    selectinload(FinancialDocument.financial_transactions)))
+                    selectinload(FinancialDocument.financial_transactions)),
+                joinedload(Job.subcontractors).joinedload(
+                    Subcontractor.orders).joinedload(Order.financial_docs))
             .where(Job.ID_Jobs == id_job)
         )
         obj = session.exec(statement).unique().first()
@@ -449,15 +528,27 @@ def get_job_by_id(id_job):
                 roles_map[link.member_id] = []
             roles_map[link.member_id].append(link.rol)
 
+        # Manager roles for the client
+        mgr_roles_map = {}
+        if obj.ID_Client:
+            mgr_roles_stmt = select(ClientManagerLink).where(ClientManagerLink.clients_id == obj.ID_Client)
+            mgr_roles = session.exec(mgr_roles_stmt).all()
+            mgr_roles_map = {link.manager_id: link.rol for link in mgr_roles}
+
         job_data = add_relationships(
-            obj, ["client", "members", "multipliers", "building_dept", "change_orders",
+            obj, ["client.manager", "members", "multipliers", "building_dept", "change_orders",
                   "attachments", "subcontractors.technicians", "tasks",
-                  "subcontractors.orders", "estimate_costs", "payment_units",
-                  "financial_docs.financial_doc_items", "financial_docs.financial_transactions",
+                  "subcontractors.orders.financial_docs", "estimate_costs", "payment_units",
+                  "financial_docs.order", "financial_docs.financial_doc_items",
+                  "financial_docs.financial_transactions",
                   "comdetails.comgroup.commission.member"])
 
         for member in job_data.get("members", []):
             member["rol"] = roles_map.get(member["ID_Member"], [])
+
+        if job_data.get("client") and job_data["client"].get("manager"):
+            for mgr in job_data["client"]["manager"]:
+                mgr["rol"] = mgr_roles_map.get(mgr["ID_Manager"])
 
         job_data.pop("ID_Client", None)
         policies = getattr(g, "user_policies", [])

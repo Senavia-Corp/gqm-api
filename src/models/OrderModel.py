@@ -38,12 +38,15 @@ class Order(OrderBase, table=True):
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
     financial_docs: List["FinancialDocument"] = Relationship(  # type: ignore
         back_populates="order")
+    opportunities: List["Opportunities"] = Relationship(  # type: ignore
+        back_populates="order")
 
 
 class OrderCreate(OrderBase):
     ID_Subcontractor: Optional[str] = None
     job_podio_id: Optional[str] = None
     estimate_cost_ids: Optional[List[str]] = None
+    ID_FinancialDoc: Optional[str] = None
 
 
 class OrderUpdate(OrderBase):

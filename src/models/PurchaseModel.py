@@ -19,6 +19,7 @@ class PurchaseBase(SQLModel):
     Return_request: Optional[str] = Field(default=None)
     Return_status: Optional[str] = Field(default=None)
     Total_spending: Optional[float] = Field(default=None)
+    Is_extra: Optional[bool] = Field(default=False)
 
 
 class Purchase(PurchaseBase, table=True):

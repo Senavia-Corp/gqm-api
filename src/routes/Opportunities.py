@@ -36,6 +36,7 @@ def list_opportunities():
             priority_filter = request.args.get("priority", "").strip()
             job_id = request.args.get("job_id", "").strip()
             skill_id = request.args.get("skill_id", "").strip()
+            subcontractor_id = request.args.get("subcontractor_id", "").strip()
             print(f"DEBUG: list_opportunities args: {request.args}")
 
             statement = (
@@ -44,6 +45,7 @@ def list_opportunities():
                     joinedload(Opportunities.job),
                     joinedload(Opportunities.skills),
                     joinedload(Opportunities.subcontractors),
+                    joinedload(Opportunities.order),
                 )
             )
 
@@ -73,6 +75,9 @@ def list_opportunities():
             if job_id:
                 statement = statement.where(Opportunities.ID_Jobs == job_id)
 
+            if subcontractor_id:
+                statement = statement.where(Opportunities.subcontractors.any(Subcontractor.ID_Subcontractor == subcontractor_id))
+
             results = session.exec(statement).unique().all()
 
             if not results:
@@ -81,7 +86,7 @@ def list_opportunities():
             opport_data = []
             for opportunities in results:
                 data = add_relationships(
-                    opportunities, ["job", "skills", "subcontractors"])
+                    opportunities, ["job", "skills", "subcontractors", "order"])
                 data["applicants_count"] = len(opportunities.subcontractors) if opportunities.subcontractors else 0
                 opport_data.append(data)
 
@@ -114,6 +119,7 @@ def get_opportunity(id_opportunities):
                     joinedload(Opportunities.job),
                     joinedload(Opportunities.skills),
                     joinedload(Opportunities.subcontractors),
+                    joinedload(Opportunities.order),
                 )
                 .where(Opportunities.ID_Opportunities == id_opportunities)
             )
@@ -124,7 +130,7 @@ def get_opportunity(id_opportunities):
                 return jsonify({"error": "Opportunity not found"}), 404
 
             opport_data = add_relationships(
-                obj, ["job", "skills", "subcontractors"])
+                obj, ["job", "skills", "subcontractors", "order"])
 
             return jsonify(opport_data), 200
 
@@ -290,7 +296,7 @@ def update_opportunity(id_opportunities):
                 return jsonify({"error": "Opportunity not found"}), 404
 
             # Update plain string fields directly — no Pydantic coercion needed
-            for field in ("Project_name", "Description", "Priority", "ID_Jobs"):
+            for field in ("Project_name", "Description", "Priority", "ID_Jobs", "ID_Order"):
                 if field in data:
                     v = data[field]
                     setattr(obj, field, str(v).strip() if v is not None else None)
@@ -326,6 +332,7 @@ def update_opportunity(id_opportunities):
                 "Priority": obj.Priority,
                 "Start_Date": obj.Start_Date.isoformat() if obj.Start_Date else None,
                 "ID_Jobs": obj.ID_Jobs,
+                "ID_Order": obj.ID_Order,
             }), 200
 
     except IntegrityError as e:

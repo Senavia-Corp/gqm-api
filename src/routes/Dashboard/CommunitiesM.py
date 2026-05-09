@@ -164,14 +164,19 @@ def clients_metrics():
             and_(Job.Job_type == "PAR", status_in(bucket_dict.get("PAR", set()))),
         )
 
+    is_pending = is_in_bucket_expr(PENDING_BY_TYPE)
     is_inprog = is_in_bucket_expr(INPROGRESS_BY_TYPE)
     is_closed = is_in_bucket_expr(CLOSED_BY_TYPE)
 
-    quotes_count = _sum_if(and_(base_cond, Job.Job_status == "Assigned/P. Quote")).label("quotes_count")
-    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue")
+    quotes_count = _sum_if(and_(base_cond, is_pending)).label("quotes_count")
+    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, is_pending), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue")
+    pquote_count = _sum_if(and_(base_cond, Job.Job_status == "Assigned/P. Quote")).label("pquote_count")
+
     inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
     paid_revenue = func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue")
+    invoiced_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue")
     ave_target_sold = func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
+    ave_final_target = func.coalesce(func.avg(case((base_cond, Job.Gqm_final_target_return), else_=None)), 0.0).label("ave_final_target")
 
     # ✅ NEW: status breakdown columns (safe labels)
     status_label_map = [(s, f"st_{i:02d}")
@@ -187,13 +192,16 @@ def clients_metrics():
     with get_session() as session:
         # --- GLOBAL SUMMARY ---
         summary_stmt = select(
-            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), 1), else_=0)), 0).label("quotes_count"),
-            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, is_pending), 1), else_=0)), 0).label("quotes_count"),
+            func.coalesce(func.sum(case((and_(base_cond, is_pending), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), 1), else_=0)), 0).label("pquote_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_inprog), 1), else_=0)), 0).label("inprog_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
-            func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
+            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue"),
+            func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold"),
+            func.coalesce(func.avg(case((base_cond, Job.Gqm_final_target_return), else_=None)), 0.0).label("ave_final_target")
         ).select_from(Job)
         
         if member_id:
@@ -229,7 +237,7 @@ def clients_metrics():
 
                 revenue_all, revenue_qid, revenue_ptl, revenue_par,
 
-                quotes_count, quotes_revenue, inprog_revenue, paid_revenue, ave_target_sold,
+                quotes_count, quotes_revenue, pquote_count, inprog_revenue, paid_revenue, invoiced_revenue, ave_target_sold, ave_final_target,
 
                 *status_cols,
             )
@@ -297,11 +305,14 @@ def clients_metrics():
             "dashboard_stats": {
                 "total_amount_of_quotes": int(r.quotes_count or 0),
                 "dollars_quoted": float(r.quotes_revenue or 0.0),
+                "pquote_jobs_count": int(r.pquote_count or 0),
                 "in_progress_jobs_count": int(r.inprog_all or 0),
                 "dollars_in_progress": float(r.inprog_revenue or 0.0),
                 "paid_jobs_count": int(r.closed_all or 0),
                 "dollars_paid": float(r.paid_revenue or 0.0),
-                "ave_target_sold_pct": round(float(r.ave_target_sold or 0.0), 2)
+                "invoiced_revenue": float(r.invoiced_revenue or 0.0),
+                "ave_target_sold_pct": round(float(r.ave_target_sold or 0.0), 2),
+                "ave_final_target_pct": round(float(r.ave_final_target or 0.0), 2)
             },
             "totals": {
                 "all": int(r.total_all or 0),
@@ -372,11 +383,14 @@ def clients_metrics():
     summary_data = {
         "total_amount_of_quotes": int(global_s.get("quotes_count", 0)),
         "dollars_quoted": float(global_s.get("quotes_revenue", 0.0)),
+        "pquote_jobs_count": int(global_s.get("pquote_count", 0)),
         "in_progress_jobs_count": int(global_s.get("inprog_count", 0)),
         "dollars_in_progress": float(global_s.get("inprog_revenue", 0.0)),
         "paid_jobs_count": int(global_s.get("paid_count", 0)),
         "dollars_paid": float(global_s.get("paid_revenue", 0.0)),
-        "ave_target_sold_pct": round(float(global_s.get("ave_target_sold", 0.0)), 2)
+        "invoiced_revenue": float(global_s.get("invoiced_revenue", 0.0)),
+        "ave_target_sold_pct": round(float(global_s.get("ave_target_sold", 0.0)), 2),
+        "ave_final_target_pct": round(float(global_s.get("ave_final_target", 0.0)), 2)
     }
 
     return jsonify({
@@ -533,14 +547,19 @@ def parent_mgmt_co_metrics():
             and_(Job.Job_type == "PAR", status_in(bucket_dict.get("PAR", set()))),
         )
 
+    is_pending = is_in_bucket_expr(PENDING_BY_TYPE)
     is_inprog = is_in_bucket_expr(INPROGRESS_BY_TYPE)
     is_closed = is_in_bucket_expr(CLOSED_BY_TYPE)
 
-    quotes_count = _sum_if(and_(base_cond, Job.Job_status == "Assigned/P. Quote")).label("quotes_count")
-    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue")
+    quotes_count = _sum_if(and_(base_cond, is_pending)).label("quotes_count")
+    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, is_pending), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue")
+    pquote_count = _sum_if(and_(base_cond, Job.Job_status == "Assigned/P. Quote")).label("pquote_count")
+
     inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
     paid_revenue = func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue")
+    invoiced_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue")
     ave_target_sold = func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
+    ave_final_target = func.coalesce(func.avg(case((base_cond, Job.Gqm_final_target_return), else_=None)), 0.0).label("ave_final_target")
     
     # ✅ Count of distinct communities per parent co
     communities_count = func.count(func.distinct(Client.ID_Client)).label("communities_count")
@@ -559,13 +578,16 @@ def parent_mgmt_co_metrics():
     with get_session() as session:
         # --- GLOBAL SUMMARY ---
         summary_stmt = select(
-            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), 1), else_=0)), 0).label("quotes_count"),
-            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, is_pending), 1), else_=0)), 0).label("quotes_count"),
+            func.coalesce(func.sum(case((and_(base_cond, is_pending), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), 1), else_=0)), 0).label("pquote_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_inprog), 1), else_=0)), 0).label("inprog_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
-            func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
+            func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue"),
+            func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold"),
+            func.coalesce(func.avg(case((base_cond, Job.Gqm_final_target_return), else_=None)), 0.0).label("ave_final_target")
         ).select_from(Job).join(Client, Job.ID_Client == Client.ID_Client, isouter=True)
         
         if member_id:
@@ -597,7 +619,7 @@ def parent_mgmt_co_metrics():
 
                 revenue_all, revenue_qid, revenue_ptl, revenue_par,
                 
-                quotes_count, quotes_revenue, inprog_revenue, paid_revenue, ave_target_sold,
+                quotes_count, quotes_revenue, pquote_count, inprog_revenue, paid_revenue, invoiced_revenue, ave_target_sold, ave_final_target,
                 communities_count,
 
                 *status_cols,  # ✅ NEW
@@ -658,33 +680,40 @@ def parent_mgmt_co_metrics():
         total_all_v = int(r.total_all or 0)
         completed_all_v = int(r.completed_all or 0)
 
-        # 1) Top Communities subquery
+        # 1) Associated Communities subquery
         paid_jobs_col = func.sum(case((is_closed, 1), else_=0))
         total_jobs_col = func.count(Job.ID_Jobs)
+        is_proposed = Job.Job_status.in_(["Assigned/P. Quote", "Waiting for Approval", "Cancelled"])
+        proposed_jobs_col = func.sum(case((is_proposed, 1), else_=0))
         rev_comm_col = func.coalesce(func.sum(case((is_closed, revenue_expr), else_=0.0)), 0.0)
+        
         top_comm_stmt = select(
             Client.Client_Community.label("name"),
             total_jobs_col.label("total_jobs"),
             paid_jobs_col.label("paid_jobs"),
+            proposed_jobs_col.label("proposed_jobs"),
             rev_comm_col.label("revenue"),
         ).select_from(Client)\
          .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)\
          .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)\
          .group_by(Client.ID_Client, Client.Client_Community)\
-         .order_by(paid_jobs_col.desc(), total_jobs_col.desc(), Client.Client_Community.asc())\
-         .limit(5)
+         .order_by(paid_jobs_col.desc(), total_jobs_col.desc(), Client.Client_Community.asc())
 
         with get_session() as ds_session:
             tc_rows = ds_session.exec(top_comm_stmt).all()
-            top_communities = [
-                {
-                    "name":       tc.name,
-                    "total_jobs": int(tc.total_jobs or 0),
-                    "paid_jobs":  int(tc.paid_jobs  or 0),
-                    "revenue":    float(tc.revenue   or 0.0),
-                }
-                for tc in tc_rows
-            ]
+            top_communities = []
+            for tc in tc_rows:
+                tot = int(tc.total_jobs or 0)
+                prop = int(tc.proposed_jobs or 0)
+                appr = tot - prop
+                pct = round(appr / tot, 4) if tot > 0 else 0.0
+                top_communities.append({
+                    "name":         tc.name,
+                    "total_jobs":   tot,
+                    "paid_jobs":    int(tc.paid_jobs or 0),
+                    "revenue":      float(tc.revenue or 0.0),
+                    "approval_pct": pct,
+                })
 
             # 2) Member Assignments subquery
             rev_col     = func.coalesce(func.sum(revenue_expr), 0.0)
@@ -727,11 +756,14 @@ def parent_mgmt_co_metrics():
             "dashboard_stats": {
                 "total_amount_of_quotes": int(r.quotes_count    or 0),
                 "dollars_quoted":         float(r.quotes_revenue or 0.0),
+                "pquote_jobs_count":      int(r.pquote_count or 0),
                 "in_progress_jobs_count": int(r.inprog_all      or 0),
                 "dollars_in_progress":    float(r.inprog_revenue or 0.0),
                 "paid_jobs_count":        int(r.closed_all      or 0),
                 "dollars_paid":           float(r.paid_revenue   or 0.0),
+                "invoiced_revenue":       float(r.invoiced_revenue or 0.0),
                 "ave_target_sold_pct":    round(float(r.ave_target_sold or 0.0), 2),
+                "ave_final_target_pct":   round(float(r.ave_final_target or 0.0), 2),
             },
             "top_communities":      top_communities,
             "community_assignments": community_assignments,
@@ -803,11 +835,14 @@ def parent_mgmt_co_metrics():
     summary_data = {
         "total_amount_of_quotes": int(global_s.get("quotes_count", 0)),
         "dollars_quoted": float(global_s.get("quotes_revenue", 0.0)),
+        "pquote_jobs_count": int(global_s.get("pquote_count", 0)),
         "in_progress_jobs_count": int(global_s.get("inprog_count", 0)),
         "dollars_in_progress": float(global_s.get("inprog_revenue", 0.0)),
         "paid_jobs_count": int(global_s.get("paid_count", 0)),
         "dollars_paid": float(global_s.get("paid_revenue", 0.0)),
-        "ave_target_sold_pct": round(float(global_s.get("ave_target_sold", 0.0)), 2)
+        "invoiced_revenue": float(global_s.get("invoiced_revenue", 0.0)),
+        "ave_target_sold_pct": round(float(global_s.get("ave_target_sold", 0.0)), 2),
+        "ave_final_target_pct": round(float(global_s.get("ave_final_target", 0.0)), 2)
     }
 
     return jsonify({

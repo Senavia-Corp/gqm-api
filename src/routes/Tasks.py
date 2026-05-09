@@ -45,11 +45,13 @@ def get_weekly_tasks():
     Incluye relaciones: job y member.
     """
     today = date.today()
-    monday = today - timedelta(days=today.weekday())
+    week_offset = request.args.get("week_offset", 0, type=int)
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
     sunday = monday + timedelta(days=6)
 
     job_type_param = request.args.get("job_type", None)
     member_id_param = request.args.get("member_id", None)
+    subcontractor_id_param = request.args.get("subcontractor_id", None)
 
     with get_session() as session:
         query = (
@@ -59,8 +61,18 @@ def get_weekly_tasks():
                 joinedload(Tasks.member),
                 joinedload(Tasks.subcontractor),
             )
-            .where(Tasks.Delivery_date >= monday)
-            .where(Tasks.Delivery_date <= sunday)
+            .where(
+                or_(
+                    Tasks.Designation_date <= sunday,
+                    Tasks.Designation_date == None
+                )
+            )
+            .where(
+                or_(
+                    Tasks.Delivery_date >= monday,
+                    Tasks.Delivery_date == None
+                )
+            )
         )
 
         if member_id_param:
@@ -68,6 +80,15 @@ def get_weekly_tasks():
                 or_(
                     Tasks.ID_Member == member_id_param,
                     Tasks.job.has(Job.members.any(Member.ID_Member == member_id_param))
+                )
+            )
+
+        if subcontractor_id_param:
+            from src.models.TechnicianModel import Technician
+            query = query.where(
+                or_(
+                    Tasks.ID_Subcontractor == subcontractor_id_param,
+                    Tasks.technician.has(Technician.ID_Subcontractor == subcontractor_id_param)
                 )
             )
 

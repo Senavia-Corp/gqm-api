@@ -182,6 +182,9 @@ def upload_attachment():
     elif entity_id_upper.startswith("BLGDEP"):
         entity_type = "building_dept"
         app_type = "BLGDEP"
+    elif entity_id_upper.startswith("CER"):
+        entity_type = "certificate"
+        app_type = "CER"
     else:
         raise AppException(
             f"No se pudo determinar el tipo de entidad para: {entity_id}",
@@ -201,6 +204,17 @@ def upload_attachment():
             folder = f"{folder}/{access_level}"
         elif access_level:
             folder = f"{folder}/{access_level}"
+    elif entity_type == "certificate":
+        # Buscar el subcontratista dueño del certificado para anidar la carpeta
+        from ..models.CertificateModel import Certificate as CertificateModel
+        with get_session() as session_lookup:
+            cert_obj = session_lookup.exec(
+                select(CertificateModel).where(CertificateModel.ID_Certificate == entity_id)
+            ).first()
+        if cert_obj and cert_obj.ID_Subcontractor:
+            folder = f"SUBC/{cert_obj.ID_Subcontractor}/CER/{entity_id}"
+        else:
+            folder = f"CER/{entity_id}"
     else:
         folder = f"{app_type}/{entity_id}"
 
@@ -291,6 +305,8 @@ def upload_attachment():
             fk_kwargs["ID_Client"] = entity_id
         elif entity_type == "building_dept":
             fk_kwargs["ID_BldgDept"] = entity_id
+        elif entity_type == "certificate":
+            fk_kwargs["ID_Certificate"] = entity_id
 
         # ----------- 💾 GUARDAR EN DB
         attachment = Attachments(

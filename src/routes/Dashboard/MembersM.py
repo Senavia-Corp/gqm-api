@@ -36,6 +36,9 @@ INPROG_STATUSES = list(
 
 PAID_STATUSES_LIST = list(PAID_STATUSES)
 
+# Roles used for the Assigned/P.Quote count — mirrors the Pipeline endpoint
+PIPELINE_ROLES = [ACC_REP_ROLE, "Mgmt Member"]
+
 
 member_metrics_bp = Blueprint(
     "member_metrics_blueprint", __name__, url_prefix="/member_metrics"
@@ -115,13 +118,28 @@ def members_acc_rep_selling_metrics():
     paid_cond   = and_(base_cond, Job.Job_status.in_(PAID_STATUSES_LIST))
 
     # ── Aggregated columns ──────────────────────────────────────────────────
-    col_total_quotes        = _sum_if(base_cond).label("total_quotes")
-    col_total_quoted_usd    = _sum_money_if(base_cond).label("total_quoted_usd")
-    col_inprogress_count    = _sum_if(inprog_cond).label("inprogress_count")
-    col_inprogress_usd      = _sum_money_if(inprog_cond).label("inprogress_usd")
-    col_paid_count          = _sum_if(paid_cond).label("paid_count")
-    col_paid_usd            = _sum_money_if(paid_cond).label("paid_usd")
-    col_avg_target_sold_pct = _avg_pct_if(base_cond).label("avg_target_sold_pct")
+    col_total_quotes          = _sum_if(base_cond).label("total_quotes")
+    col_total_quoted_usd      = _sum_money_if(base_cond).label("total_quoted_usd")
+    col_inprogress_count      = _sum_if(inprog_cond).label("inprogress_count")
+    col_inprogress_usd        = _sum_money_if(inprog_cond).label("inprogress_usd")
+    col_paid_count            = _sum_if(paid_cond).label("paid_count")
+    col_paid_usd              = _sum_money_if(paid_cond).label("paid_usd")
+    col_avg_target_sold_pct   = _avg_pct_if(base_cond).label("avg_target_sold_pct")
+    # Correlated subquery: counts distinct jobs via both Acc Rep Selling + Mgmt Member roles
+    col_assigned_pquote_count = (
+        select(func.count(func.distinct(Job.ID_Jobs)))
+        .select_from(Job)
+        .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
+        .where(
+            JobMemberLink.member_id == Member.ID_Member,
+            JobMemberLink.rol.in_(PIPELINE_ROLES),
+            Job.Job_status == PENDING_VENDOR_QUOTE_STATUS,
+            type_ok,
+            year_ok,
+        )
+        .correlate(Member)
+        .scalar_subquery()
+    ).label("assigned_pquote_count")
 
     with get_session() as session:
         total_members = session.exec(
@@ -140,6 +158,7 @@ def members_acc_rep_selling_metrics():
                 col_paid_count,
                 col_paid_usd,
                 col_avg_target_sold_pct,
+                col_assigned_pquote_count,
             )
             .select_from(Member)
             .join(
@@ -177,14 +196,15 @@ def members_acc_rep_selling_metrics():
                 "company_role": r.Company_Role,
             },
             "summary": {
-                "total_quotes":        int(r.total_quotes or 0),
-                "total_quoted_usd":    round(_safe_float(r.total_quoted_usd), 2),
-                "inprogress_count":    int(r.inprogress_count or 0),
-                "inprogress_usd":      round(_safe_float(r.inprogress_usd), 2),
-                "paid_count":          paid_c,
-                "paid_usd":            round(paid_u, 2),
-                "avg_sale_per_job":    avg_sale,
-                "avg_target_sold_pct": round(_safe_float(r.avg_target_sold_pct), 4),
+                "total_quotes":           int(r.total_quotes or 0),
+                "total_quoted_usd":       round(_safe_float(r.total_quoted_usd), 2),
+                "inprogress_count":       int(r.inprogress_count or 0),
+                "inprogress_usd":         round(_safe_float(r.inprogress_usd), 2),
+                "paid_count":             paid_c,
+                "paid_usd":               round(paid_u, 2),
+                "avg_sale_per_job":       avg_sale,
+                "avg_target_sold_pct":    round(_safe_float(r.avg_target_sold_pct), 4),
+                "assigned_pquote_count":  int(r.assigned_pquote_count or 0),
             },
         })
 
@@ -322,15 +342,29 @@ def member_individual_stats(member_id: str):
         s = session.exec(summary_stmt).first()
         paid_c = int(s.paid_count or 0) if s else 0
         paid_u = _safe_float(s.paid_usd) if s else 0.0
+
+        assigned_pquote_val = session.exec(
+            select(func.count(func.distinct(Job.ID_Jobs)))
+            .select_from(Job)
+            .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
+            .where(
+                JobMemberLink.member_id == member_id,
+                JobMemberLink.rol.in_(PIPELINE_ROLES),
+                Job.Job_status == PENDING_VENDOR_QUOTE_STATUS,
+                year_ok_all,
+            )
+        ).one() or 0
+
         summary = {
-            "total_quotes":        int(s.total_quotes or 0) if s else 0,
-            "total_quoted_usd":    round(_safe_float(s.total_quoted_usd) if s else 0.0, 2),
-            "inprogress_count":    int(s.inprogress_count or 0) if s else 0,
-            "inprogress_usd":      round(_safe_float(s.inprogress_usd) if s else 0.0, 2),
-            "paid_count":          paid_c,
-            "paid_usd":            round(paid_u, 2),
-            "avg_sale_per_job":    round(paid_u / paid_c, 2) if paid_c else 0.0,
-            "avg_target_sold_pct": round(_safe_float(s.avg_target_sold_pct) if s else 0.0, 4),
+            "total_quotes":           int(s.total_quotes or 0) if s else 0,
+            "total_quoted_usd":       round(_safe_float(s.total_quoted_usd) if s else 0.0, 2),
+            "inprogress_count":       int(s.inprogress_count or 0) if s else 0,
+            "inprogress_usd":         round(_safe_float(s.inprogress_usd) if s else 0.0, 2),
+            "paid_count":             paid_c,
+            "paid_usd":               round(paid_u, 2),
+            "avg_sale_per_job":       round(paid_u / paid_c, 2) if paid_c else 0.0,
+            "avg_target_sold_pct":    round(_safe_float(s.avg_target_sold_pct) if s else 0.0, 4),
+            "assigned_pquote_count":  int(assigned_pquote_val),
         }
 
         # ── 4. QIDs created per month / year ──────────────────────────────
