@@ -94,8 +94,9 @@ def create_app():
         allowed_origins.extend([o.strip() for o in env_origins.split(",") if o.strip()])
 
     # Configurar CORS con origines específicos
-    CORS(app, resources={r"/*": {"origins": allowed_origins}}, supports_credentials=True)
-
+    # CORS(app, resources={r"/*": {"origins": allowed_origins}}, supports_credentials=True)
+    # CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+    CORS(app)
     # Middleware de logs para todas las rutas
     register_request_logger(app)
 
