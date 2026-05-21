@@ -78,14 +78,26 @@ from src.tests.debug_podio import debug_bp
 def create_app():
     app = Flask(__name__)
 
+    import os
+    # Orígenes permitidos por defecto para desarrollo
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+    
+    # Orígenes desde variables de entorno (separados por coma)
+    env_origins = os.environ.get("ALLOWED_ORIGINS")
+    if env_origins:
+        allowed_origins.extend([o.strip() for o in env_origins.split(",") if o.strip()])
+
     # Configurar CORS con origines específicos
-    CORS(app)
+    CORS(app, resources={r"/*": {"origins": allowed_origins}}, supports_credentials=True)
 
     # Middleware de logs para todas las rutas
     register_request_logger(app)
-
-    # Habilitar CORS
-    CORS(app)
 
     # Registrar blueprints
     app.register_blueprint(attachments_bp)
@@ -202,7 +214,7 @@ if __name__ == "__main__":
     try:
         validate_public_url()
 
-        app.run(debug=True, port=80)
+        app.run(debug=True, host="0.0.0.0", port=80)
 
     except RuntimeError as e:
         print(f"\n[ERROR CRÍTICO] La aplicación no pudo iniciar: {e}")

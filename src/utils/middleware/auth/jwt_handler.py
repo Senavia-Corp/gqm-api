@@ -2,7 +2,7 @@ import jwt
 import os
 from datetime import datetime, timedelta, timezone
 
-LOGIN_SECRET_KEY = os.getenv("SECRET_KEY")
+LOGIN_SECRET_KEY = os.getenv("LOGIN_SECRET_KEY")
 REFRESH_SECRET_KEY = os.getenv("REFRESH_SECRET_KEY")
 ACCESS_EXPIRE_MIN = int(os.getenv("ACCESS_TOKEN_EXPIRES_MIN", 60))
 REFRESH_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRES_DAYS", 7))

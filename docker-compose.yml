@@ -1,0 +1,14 @@
+# Docker Compose para GQM API
+services:
+  api:
+    build: .
+    container_name: gqm-api-container
+    ports:
+      - "8080:80"
+    env_file:
+      - src/.env
+    restart: always
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
