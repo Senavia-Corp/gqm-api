@@ -36,7 +36,7 @@ def upsert_job_from_item(session, item, app_type):
         print(f"⚠️ Job inválido (podio_item_id={podio_item_id})")
         return None
 
-    # pyrefly: ignore [missing-import]...
+    # pyrefly: ignore [missing-import]....
     from sqlalchemy import or_
     
     existing = session.exec(
