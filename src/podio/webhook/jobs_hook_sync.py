@@ -36,9 +36,15 @@ def upsert_job_from_item(session, item, app_type):
         print(f"⚠️ Job inválido (podio_item_id={podio_item_id})")
         return None
 
+    # pyrefly: ignore [missing-import]
+    from sqlalchemy import or_
+    
     existing = session.exec(
         select(Job).where(
-            Job.podio_item_id == podio_item_id
+            or_(
+                Job.podio_item_id == podio_item_id,
+                Job.ID_Jobs == tracking_id
+            )
         )
     ).first()
 
