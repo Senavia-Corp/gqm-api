@@ -91,7 +91,16 @@ def log_activity(
             activity_data["ID_Jobs"] = job_id
 
         entry = TLActivity(**activity_data)
-        session.add(entry)
+        
+        # pyrefly: ignore [missing-import]
+        from sqlalchemy.exc import IntegrityError
+        # Usamos un SAVEPOINT para aislar el log de auditoría.
+        # Si falla por ID duplicado, no destruye la transacción completa del webhook.
+        with session.begin_nested():
+            session.add(entry)
+
+    except IntegrityError as e:
+        print(f"⚠️  [audit] log_activity omitida por IntegrityError (ID duplicado): {e.__cause__}")
 
     except Exception as e:
         # Nunca dejamos que el log rompa la operación principal
