@@ -25,6 +25,9 @@ BASE_URL = "https://api.podio.com"
 TOKEN_URL = "https://api.podio.com/oauth/token"
 # TOKEN_URL = "https://api.podio.com/oauth/token/v2"
 
+# Entorno de la aplicación: "test" o "production" (default: production)
+APP_ENV = os.getenv("APP_ENV", "production").lower()
+
 # Credenciales (desde .env)
 PODIO_CLIENT_ID = os.getenv("PODIO_CLIENT_ID")
 PODIO_CLIENT_SECRET = os.getenv("PODIO_CLIENT_SECRET")
@@ -175,8 +178,8 @@ PODIO_APPS = {
 
     # Credencials reales
     "CLI": {
-        "APP_ID": PODIO_CLIENTS_APP_ID,
-        "APP_TOKEN": PODIO_CLIENTS_APP_TOKEN,
+        "APP_ID": CLI_TAP_APP_ID if APP_ENV == "test" else PODIO_CLIENTS_APP_ID,
+        "APP_TOKEN": CLI_TAP_APP_TOKEN if APP_ENV == "test" else PODIO_CLIENTS_APP_TOKEN,
     },
     "PMC": {
         "APP_ID": PODIO_PAMGMTCO_APP_ID,
@@ -198,18 +201,29 @@ JOB_TYPES = ["QID", "PTL", "PAR"]
 
 PODIO_JOB_APPS = {}
 
+# Mapa de credenciales TAP (test) por tipo de job
+_TAP_CREDS = {
+    "QID": (QID_TAP_APP_ID, QID_TAP_APP_TOKEN),
+    "PTL": (PTL_TAP_APP_ID, PTL_TAP_APP_TOKEN),
+    "PAR": (PAR_TAP_APP_ID, PAR_TAP_APP_TOKEN),
+}
+
 # Verificador de variables faltantes para los Jobs
 _missing_jobs = []
+
+if APP_ENV == "test":
+    print("[INFO] APP_ENV=test → usando credenciales TAP 2 (prueba) para todos los Jobs")
 
 for year in JOB_YEARS:
     PODIO_JOB_APPS[year] = {}
     for j_type in JOB_TYPES:
-        # Construye el nombre de la variable: Ej. PODIO_QID2026_APP_ID
-        env_id_name = f"PODIO_{j_type}{year}_APP_ID"
-        env_token_name = f"PODIO_{j_type}{year}_APP_TOKEN"
-
-        app_id = os.getenv(env_id_name)
-        app_token = os.getenv(env_token_name)
+        if APP_ENV == "test":
+            # En modo test se reutilizan las credenciales TAP para todos los años
+            app_id, app_token = _TAP_CREDS.get(j_type, (None, None))
+        else:
+            # En producción se usan las credenciales reales por año
+            app_id = os.getenv(f"PODIO_{j_type}{year}_APP_ID")
+            app_token = os.getenv(f"PODIO_{j_type}{year}_APP_TOKEN")
 
         # Validación rápida
         if not app_id or not app_token:
@@ -256,4 +270,5 @@ if not DATABASE_URL:
     raise ValueError("[ERROR] DATABASE_URL no está configurada en .env")
 
 # URL PARA WEBHOOK DE PODIO
-PUBLIC_URL = os.getenv("PUBLIC_URL")
+# PUBLIC_URL = os.getenv("PUBLIC_URL")
+PUBLIC_URL = "https://45c4-146-190-126-59.ngrok-free.app/"

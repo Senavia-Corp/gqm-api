@@ -43,9 +43,9 @@ PENDING_BY_TYPE = {
 }
 
 INPROGRESS_BY_TYPE = {
-    "QID": {"Scheduled / Work in Progress", "Invoiced"},
+    "QID": {"Scheduled / Work in Progress"},
     "PTL": {"Assigned-In progress"},
-    "PAR": {"In Progress", "Invoiced"},
+    "PAR": {"In Progress"},
 }
 
 INPROGRESS_ALL = (

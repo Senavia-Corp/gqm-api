@@ -74,6 +74,32 @@ The API will be available at `http://localhost:80`.
 
 ---
 
+## Docker Setup (Recommended)
+
+To run the project easily using Docker:
+
+1. **Build and start the container:**
+   ```bash
+   docker compose up --build
+   ```
+
+2. **Access the API:**
+   The API will be available at `http://localhost:8080`.
+
+3. **Running in background:**
+   ```bash
+   docker compose up -d
+   ```
+
+4. **View logs:**
+   ```bash
+   docker compose logs -f
+   ```
+
+> **Environment Variables:** Docker is configured to read your existing `.env` file from `src/.env`. Ensure all required variables are set there.
+
+---
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` and fill in all values. The app will fail to start if `PUBLIC_URL` is missing or malformed.
