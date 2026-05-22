@@ -22,6 +22,7 @@ def map_job_to_podio_par(job_obj, session=None):
             payload[config["external_id"]] = converted
 
     # Relación con Client (M:1)
+    # Si ID_Client es null → mandamos [] para LIMPIAR el campo en Podio
     client_internal_id = job_obj.ID_Client
 
     if client_internal_id and session:
@@ -33,6 +34,10 @@ def map_job_to_podio_par(job_obj, session=None):
             payload["relationship"] = convert_value_for_podio(
                 client.podio_item_id, "app"
             )
+        else:
+            payload["relationship"] = []
+    else:
+        payload["relationship"] = []
 
     # Relaciones con Members y Subcontractors (M:N) se mandan desde los links
 

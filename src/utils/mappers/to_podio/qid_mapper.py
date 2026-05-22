@@ -41,6 +41,7 @@ def map_job_to_podio_qid(job_obj, session=None):
                 payload[config["external_id"]] = converted
 
     # Relación con Client (M:1)
+    # Si ID_Client es null → mandamos [] para LIMPIAR el campo en Podio
     client_internal_id = job_obj.ID_Client
 
     if client_internal_id and session:
@@ -52,8 +53,13 @@ def map_job_to_podio_qid(job_obj, session=None):
             payload["relationship"] = convert_value_for_podio(
                 client.podio_item_id, "app"
             )
+        else:
+            payload["relationship"] = []
+    else:
+        payload["relationship"] = []
 
     # Relación con Building Department (M:1)
+    # Si ID_BldgDept es null → mandamos [] para LIMPIAR el campo en Podio
     bldg_internal_id = job_obj.ID_BldgDept
 
     if bldg_internal_id and session:
@@ -66,6 +72,10 @@ def map_job_to_podio_qid(job_obj, session=None):
             payload["bldg-dept"] = convert_value_for_podio(
                 bldg_dept.podio_item_id, "app"
             )
+        else:
+            payload["bldg-dept"] = []
+    else:
+        payload["bldg-dept"] = []
 
     # Relaciones con Members y Subcontractors (M:N) se mandan desde los links
 

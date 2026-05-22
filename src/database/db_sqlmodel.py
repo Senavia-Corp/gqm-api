@@ -11,7 +11,12 @@ DATABASE_URL = config("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL no está definida en el .env")
 
-engine = create_engine(DATABASE_URL, echo=False)
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,    # Verifica la conexión antes de usarla (evita SSL stale connections)
+    pool_recycle=1800,     # Recicla conexiones cada 30 min para evitar timeouts del servidor
+)
 
 
 def get_session():

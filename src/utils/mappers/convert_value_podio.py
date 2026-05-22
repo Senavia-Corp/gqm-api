@@ -5,7 +5,8 @@ from decimal import Decimal
 def convert_value_for_podio(value, field_type="text", end_value=None):
 
     if field_type == "app":
-        return {"value": int(value)} if value else None
+        # Podio espera lista: [{"value": item_id}]
+        return [{"value": int(value)}] if value else []
 
     if field_type == "tag":
         # Podio espera lista de strings
