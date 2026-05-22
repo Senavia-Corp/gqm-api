@@ -266,9 +266,10 @@ def list_jobs_table():
 
             if year_int is not None:
                 if job_type == "PTL":
+                    # ── ERR-007 fix: PTLs sin Estimated_start_date usan created_at como fallback
                     statement = statement.where(
-                        Job.Estimated_start_date.is_not(None),
-                        extract("year", Job.Estimated_start_date) == year_int)
+                        extract("year", func.coalesce(
+                            Job.Estimated_start_date, Job.created_at)) == year_int)
                 elif job_type:
                     statement = statement.where(
                         Job.Date_assigned.is_not(None),
@@ -276,8 +277,8 @@ def list_jobs_table():
                 else:
                     statement = statement.where(or_(
                         and_(Job.Job_type == "PTL",
-                             Job.Estimated_start_date.is_not(None),
-                             extract("year", Job.Estimated_start_date) == year_int),
+                             extract("year", func.coalesce(
+                                 Job.Estimated_start_date, Job.created_at)) == year_int),
                         and_(Job.Job_type != "PTL",
                              Job.Date_assigned.is_not(None),
                              extract("year", Job.Date_assigned) == year_int)))
@@ -354,9 +355,10 @@ def list_jobs_table():
 
             if year_int is not None:
                 if job_type == "PTL":
+                    # ── ERR-007 fix: mismo fallback para el count
                     count_stmt = count_stmt.where(
-                        Job.Estimated_start_date.is_not(None),
-                        extract("year", Job.Estimated_start_date) == year_int)
+                        extract("year", func.coalesce(
+                            Job.Estimated_start_date, Job.created_at)) == year_int)
                 elif job_type:
                     count_stmt = count_stmt.where(
                         Job.Date_assigned.is_not(None),
@@ -364,8 +366,8 @@ def list_jobs_table():
                 else:
                     count_stmt = count_stmt.where(or_(
                         and_(Job.Job_type == "PTL",
-                             Job.Estimated_start_date.is_not(None),
-                             extract("year", Job.Estimated_start_date) == year_int),
+                             extract("year", func.coalesce(
+                                 Job.Estimated_start_date, Job.created_at)) == year_int),
                         and_(Job.Job_type != "PTL",
                              Job.Date_assigned.is_not(None),
                              extract("year", Job.Date_assigned) == year_int)))

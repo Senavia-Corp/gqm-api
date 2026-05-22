@@ -71,6 +71,15 @@ CLOSED_BY_TYPE = {
 
 PAID_STATUSES = {"PAID", "Paid"}
 
+COMPLETED_ALL = (
+    COMPLETED_BY_TYPE["QID"]
+    | COMPLETED_BY_TYPE["PTL"]
+    | COMPLETED_BY_TYPE["PAR"]
+)
+
+# Incluye In Progress + Completed + Paid (excluye Pending y Cancelled)
+AVERAGE_TARGET_RETURN_STATUSES = INPROGRESS_ALL | COMPLETED_ALL | PAID_STATUSES
+
 # Active statuses for pipeline calculation (Active / uncollected)
 ACTIVE_STATUSES = INPROGRESS_ALL
 

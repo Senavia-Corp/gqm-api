@@ -19,6 +19,7 @@ from src.services.metrics.metrics_shared import (
     CANCELLED_STATUS,
     CLOSED_BY_TYPE,
     STATUS_BREAKDOWN_LIST,
+    AVERAGE_TARGET_RETURN_STATUSES,
     _norm_job_type,
     _norm_year
 )
@@ -175,8 +176,22 @@ def clients_metrics():
     inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
     paid_revenue = func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue")
     invoiced_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue")
-    ave_target_sold = func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
-    ave_final_target = func.coalesce(func.avg(case((base_cond, Job.Gqm_final_target_return), else_=None)), 0.0).label("ave_final_target")
+    # QID usa Gqm_final_percentage; PTL/PAR usan Gqm_target_return
+    _atr_status_cond = Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES))
+    _atr_pct_expr = case(
+        (Job.Job_type == "QID", Job.Gqm_final_percentage),
+        else_=Job.Gqm_target_return,
+    )
+    _atr_final_expr = case(
+        (Job.Job_type == "QID", Job.Gqm_final_percentage),
+        else_=Job.Gqm_final_target_return,
+    )
+    ave_target_sold = func.coalesce(
+        func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0
+    ).label("ave_target_sold")
+    ave_final_target = func.coalesce(
+        func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0
+    ).label("ave_final_target")
 
     # ✅ NEW: status breakdown columns (safe labels)
     status_label_map = [(s, f"st_{i:02d}")
@@ -200,8 +215,8 @@ def clients_metrics():
             func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue"),
-            func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold"),
-            func.coalesce(func.avg(case((base_cond, Job.Gqm_final_target_return), else_=None)), 0.0).label("ave_final_target")
+            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
+            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
         ).select_from(Job)
         
         if member_id:
@@ -558,8 +573,22 @@ def parent_mgmt_co_metrics():
     inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
     paid_revenue = func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue")
     invoiced_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue")
-    ave_target_sold = func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold")
-    ave_final_target = func.coalesce(func.avg(case((base_cond, Job.Gqm_final_target_return), else_=None)), 0.0).label("ave_final_target")
+    # ERR-009: Average Target Return debe incluir Paid, Invoiced y Completed
+    _atr_status_cond = Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES))
+    _atr_pct_expr = case(
+        (Job.Job_type == "QID", Job.Gqm_final_percentage),
+        else_=Job.Gqm_target_return,
+    )
+    _atr_final_expr = case(
+        (Job.Job_type == "QID", Job.Gqm_final_percentage),
+        else_=Job.Gqm_final_target_return,
+    )
+    ave_target_sold = func.coalesce(
+        func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0
+    ).label("ave_target_sold")
+    ave_final_target = func.coalesce(
+        func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0
+    ).label("ave_final_target")
     
     # ✅ Count of distinct communities per parent co
     communities_count = func.count(func.distinct(Client.ID_Client)).label("communities_count")
@@ -586,8 +615,8 @@ def parent_mgmt_co_metrics():
             func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue"),
-            func.coalesce(func.avg(case((base_cond, Job.Gqm_target_return), else_=None)), 0.0).label("ave_target_sold"),
-            func.coalesce(func.avg(case((base_cond, Job.Gqm_final_target_return), else_=None)), 0.0).label("ave_final_target")
+            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
+            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
         ).select_from(Job).join(Client, Job.ID_Client == Client.ID_Client, isouter=True)
         
         if member_id:
