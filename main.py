@@ -77,6 +77,7 @@ from src.tests.debug_podio import debug_bp
 
 def create_app():
     app = Flask(__name__)
+    app.url_map.strict_slashes = False  # Accept URLs with or without trailing slash (prevents 308 redirect that strips Authorization header)
 
     import os
     # Orígenes permitidos por defecto para desarrollo
