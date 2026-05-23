@@ -1,4 +1,4 @@
-from flask import Blueprint, request
+from flask import Blueprint, request, session
 import os
 import base64
 import requests
@@ -18,9 +18,18 @@ qbo_oauth_bp = Blueprint("qbo_oauth_bp", __name__)
 def qbo_callback():
     code = request.args.get("code")
     realmId = request.args.get("realmId")
+    state = request.args.get("state")
+
+    # Validar state para prevenir CSRF
+    expected_state = session.get("qbo_state")
+    if not state or state != expected_state:
+        return "Invalid state parameter, possible CSRF attack", 400
 
     if not code or not realmId:
         return "Missing code or realmId", 400
+
+    # Clear state after validation
+    session.pop("qbo_state", None)
 
     tokens = exchange_code_for_tokens(code)
 

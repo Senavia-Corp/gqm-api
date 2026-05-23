@@ -98,6 +98,54 @@ def create_app():
     # Middleware de logs para todas las rutas
     register_request_logger(app)
 
+    @app.before_request
+    def global_auth_middleware():
+        from flask import request, jsonify, g
+        from src.utils.middleware.auth.jwt_handler import decode_access_token
+
+        # Ignorar peticiones OPTIONS (CORS preflight)
+        if request.method == "OPTIONS":
+            return None
+
+        # Lista de prefijos de rutas públicas permitidas sin auth (Whitelist)
+        public_prefixes = [
+            "/auth",            # Rutas de login
+            "/webhook",         # Webhooks (Podio, etc.)
+            "/qbo/connect",     # QuickBooks OAuth inicio
+            "/callback",        # QuickBooks OAuth retorno
+            "/admin/hooks",     # Admin hooks podio
+            "/sync",            # Sincronización podio
+            "/podio",           # Rutas podio helper
+            "/test",            # Rutas test
+            "/debug"            # Rutas debug
+        ]
+
+        # Permitir root
+        if request.path == "/":
+            return None
+
+        # Verificar si la ruta empieza con algún prefijo público
+        for prefix in public_prefixes:
+            if request.path.startswith(prefix):
+                return None
+
+        # Si no es pública, EXIGIR autenticación (Fail-Closed)
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Global Auth: Missing or invalid Authorization header"}), 401
+            
+        token = auth_header.split(" ")[1]
+        payload = decode_access_token(token)
+        
+        if not payload:
+            return jsonify({"error": "Global Auth: Invalid or expired token"}), 401
+            
+        # Almacenar datos en flask.g para que @require_permission no tenga que decodificarlos nuevamente
+        g.current_user = {
+            "id": payload.get("sub"),
+            "role": payload.get("role")
+        }
+
     # Registrar blueprints
     app.register_blueprint(attachments_bp)
     app.register_blueprint(bldg_dept_bp)

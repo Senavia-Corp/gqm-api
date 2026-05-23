@@ -17,7 +17,7 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..services.excel_report.commission_excel_service import generate_commission_excel
-from ..utils.middleware.auth.routes_protection import get_user_context
+from ..utils.middleware.auth.routes_protection import get_user_context, require_permission
 from ..utils.policy_evaluator import PolicyEvaluator
 
 # Blueprint de Commission:
@@ -30,6 +30,7 @@ commission_bp = Blueprint("commission_blueprint",
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todas las commission
 @commission_bp.get("/")
+@require_permission(["commission:read", "commission:read_own"])
 @handle_exceptions()
 @paginate()
 def list_commissions():
@@ -67,6 +68,7 @@ def list_commissions():
 
 # Ruta para conseguir la lista de todas las commission con datos específicos
 @commission_bp.get("/commission_table")
+@require_permission(["commission:read", "commission:read_own"])
 @handle_exceptions()
 def list_commission_table():
 
@@ -148,6 +150,7 @@ def list_commission_table():
 
 # Ruta para conseguir una commission por ID
 @commission_bp.get("/<id_commission>")
+@require_permission(["commission:read", "commission:read_own"])
 @handle_exceptions()
 def get_commission(id_commission):
 
@@ -185,6 +188,7 @@ def get_commission(id_commission):
 
 # Ruta para conseguir una commission por ID_Member
 @commission_bp.get("/member/<id_member>")
+@require_permission(["commission:read", "commission:read_own"])
 @handle_exceptions()
 def get_commissions_by_member(id_member):
 
@@ -216,6 +220,7 @@ def get_commissions_by_member(id_member):
 # --------------- RUTA PATCH --------------- #
 # Ruta para actualizar una commission
 @commission_bp.patch("/<commission_id>")
+@require_permission("commission:update")
 @handle_exceptions()
 def update_commission(commission_id):
 
@@ -248,6 +253,7 @@ def update_commission(commission_id):
 
 # --------------- RUTA GET Excel --------------- #
 @commission_bp.get("/excel")
+@require_permission(["commission:read", "commission:read_own"])
 @handle_exceptions()
 def export_commissions_excel():
     member_ids = request.args.getlist("member_id") or None

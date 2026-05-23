@@ -11,6 +11,8 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
+from ..utils.middleware.auth.routes_protection import require_permission
+from ..utils.audit import audit
 from ..utils.middleware.logs.logs import logger
 
 # Blueprint de Certificate:
@@ -23,6 +25,7 @@ certificate_bp = Blueprint("certificate_blueprint", __name__,
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los certificates
 @certificate_bp.get("/")
+@require_permission("certificate:read")
 @handle_exceptions()
 @paginate()
 def list_certificates():
@@ -51,6 +54,7 @@ def list_certificates():
 
 # Ruta para conseguir un certificate por ID
 @certificate_bp.get("/<id_certificate>")
+@require_permission("certificate:read")
 @handle_exceptions()
 def get_certificate(id_certificate):
 
@@ -76,6 +80,7 @@ def get_certificate(id_certificate):
 
 # Ruta para conseguir certificates por subcontratista
 @certificate_bp.get("/subcontractor/<subc>")
+@require_permission("certificate:read")
 @handle_exceptions()
 @paginate()
 def list_cert_by_subcontractor(subc):
@@ -105,7 +110,9 @@ def list_cert_by_subcontractor(subc):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 # Ruta para crear un certificate
 @certificate_bp.post("/")
+@require_permission("certificate:create")
 @handle_exceptions()
+@audit("Certificate created", entity_type="Certificate", id_from="response")
 def create_certificate():
 
     data = request.get_json()
@@ -132,7 +139,9 @@ def create_certificate():
 
 # Ruta para actualizar un certificate
 @certificate_bp.patch("/<id_certificate>")
+@require_permission("certificate:update")
 @handle_exceptions()
+@audit("Certificate updated", entity_type="Certificate", id_param="id_certificate")
 def update_certificate(id_certificate):
 
     data = request.get_json()
@@ -164,7 +173,9 @@ def update_certificate(id_certificate):
 
 # Ruta para eliminar un certificate
 @certificate_bp.delete("/<id_certificate>")
+@require_permission("certificate:delete")
 @handle_exceptions()
+@audit("Certificate deleted", entity_type="Certificate", id_param="id_certificate")
 def delete_certificate(id_certificate):
 
     with get_session() as session:

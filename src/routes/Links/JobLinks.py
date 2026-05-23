@@ -234,8 +234,17 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
         session.add(link)
 
         if sync_podio and year:
-            if not job.podio_item_id or not subcontractor.podio_item_id:
-                return jsonify({"error": "Missing Podio IDs"}), 400
+            missing = []
+            if not job.podio_item_id:
+                missing.append(f"Job '{job_id}'")
+            if not subcontractor.podio_item_id:
+                missing.append(f"Subcontractor '{subcontr_id}'")
+
+            if missing:
+                return jsonify({
+                    "error": "Missing Podio IDs",
+                    "detail": f"The following entities are not synced with Podio: {', '.join(missing)}. Disable Podio sync or sync these entities first."
+                }), 400
             podio_service = podio_jobs_router.get_service(
                 job_type=job.Job_type, year=year)
             item = podio_service.get_item(int(job.podio_item_id))
@@ -286,8 +295,17 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
             subcontractor = session.get(Subcontractor, subcontr_id)
             if not job or not subcontractor:
                 return jsonify({"error": "Job or Subcontractor not found"}), 404
-            if not job.podio_item_id or not subcontractor.podio_item_id:
-                return jsonify({"error": "Missing Podio IDs"}), 400
+            missing = []
+            if not job.podio_item_id:
+                missing.append(f"Job '{job_id}'")
+            if not subcontractor.podio_item_id:
+                missing.append(f"Subcontractor '{subcontr_id}'")
+
+            if missing:
+                return jsonify({
+                    "error": "Missing Podio IDs",
+                    "detail": f"The following entities are not synced with Podio: {', '.join(missing)}. Disable Podio sync or sync these entities first."
+                }), 400
             podio_service = podio_jobs_router.get_service(
                 job_type=job.Job_type, year=year)
             item = podio_service.get_item(int(job.podio_item_id))

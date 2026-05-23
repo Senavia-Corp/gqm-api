@@ -1,7 +1,8 @@
 import os
 import requests
+import uuid
 from sqlmodel import select
-from flask import request
+from flask import request, session
 import urllib.parse
 from flask import Blueprint, redirect
 from ...tests.test_sandbox import get_company_info
@@ -40,12 +41,16 @@ def connect_qbo():
     # URL de OAuth2 para producción
     base_url = "https://appcenter.intuit.com/connect/oauth2"
 
+    # Generar state dinámico para prevenir CSRF
+    state_token = str(uuid.uuid4())
+    session["qbo_state"] = state_token
+
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "com.intuit.quickbooks.accounting",
-        "state": "security_token"  # opcionalmente generar dinámico por sesión
+        "state": state_token
     }
 
     url = f"{base_url}?{urllib.parse.urlencode(params)}"
