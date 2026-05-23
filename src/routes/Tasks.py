@@ -14,6 +14,7 @@ from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
+from ..utils.middleware.auth.routes_protection import require_permission
 from ..utils.middleware.logs.logs import logger
 from src.utils.audit import audit
 
@@ -23,6 +24,7 @@ tasks_bp = Blueprint("tasks_blueprint", __name__, url_prefix="/tasks")
 # ── GETs ─────────────────────────────────────────────────────────────────────
 
 @tasks_bp.get("/")
+@require_permission(["tasks:read", "tasks:read_own"])
 @handle_exceptions()
 @paginate()
 def list_tasks():
@@ -37,6 +39,7 @@ def list_tasks():
 
 
 @tasks_bp.get("/weekly")
+@require_permission(["tasks:read", "tasks:read_own"])
 @handle_exceptions()
 def get_weekly_tasks():
     """
@@ -132,6 +135,7 @@ def get_weekly_tasks():
 
 
 @tasks_bp.get("/<id_tasks>")
+@require_permission(["tasks:read", "tasks:read_own"])
 @handle_exceptions()
 def get_tasks(id_tasks):
     with get_session() as session:
@@ -146,6 +150,7 @@ def get_tasks(id_tasks):
 
 
 @tasks_bp.get("/job/<id_jobs>/tech/<id_tech>")
+@require_permission(["tasks:read", "tasks:read_own"])
 @handle_exceptions()
 @paginate()
 def get_tasks_by_job(id_jobs, id_tech):
@@ -164,6 +169,7 @@ def get_tasks_by_job(id_jobs, id_tech):
 # --------------- RUTAS POST, PATCH AND DELETE----------#
 
 @tasks_bp.post("/")
+@require_permission("tasks:create")
 @handle_exceptions()
 @audit("Task created", entity_type="Tasks", id_from="response")
 def create_tasks():
@@ -180,6 +186,7 @@ def create_tasks():
 
 
 @tasks_bp.patch("/<task_id>")
+@require_permission("tasks:update")
 @handle_exceptions()
 @audit("Task updated", entity_type="Tasks", id_param="task_id")
 def update_tasks(task_id):
@@ -200,6 +207,7 @@ def update_tasks(task_id):
 
 
 @tasks_bp.delete("/<task_id>")
+@require_permission("tasks:delete")
 @handle_exceptions()
 @audit("Task deleted", entity_type="Tasks", id_param="task_id")
 def delete_tasks(task_id):
