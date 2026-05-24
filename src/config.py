@@ -270,5 +270,4 @@ if not DATABASE_URL:
     raise ValueError("[ERROR] DATABASE_URL no está configurada en .env")
 
 # URL PARA WEBHOOK DE PODIO
-# PUBLIC_URL = os.getenv("PUBLIC_URL")
-PUBLIC_URL = "https://45c4-146-190-126-59.ngrok-free.app/"
+PUBLIC_URL = os.getenv("PUBLIC_URL")
