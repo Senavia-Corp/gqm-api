@@ -907,20 +907,42 @@ def create_job():
 
             podio_service = podio_jobs_router.get_service(
                 job_type=obj.Job_type, year=year)
-            podio_response = podio_service.create_item(podio_fields)
+            
+            try:
+                podio_response = podio_service.create_item(podio_fields)
 
-            if not podio_response or not podio_response.get("item_id"):
+                if not podio_response or not podio_response.get("item_id"):
+                    raise AppException(
+                        "No se pudo crear el item en Podio (respuesta vacía).", "podio_creation_failed", 502)
+
+                obj.podio_item_id = podio_response["item_id"]
+                item = podio_service.get_item(obj.podio_item_id)
+                formatted_id = item.get("app_item_id_formatted")
+
+                if not formatted_id:
+                    raise AppException(
+                        "No se pudo obtener el ID formateado desde Podio.",
+                        "podio_formatted_id_missing", 502)
+            except AppException:
+                raise
+            except Exception as e:
+                # Tratar de extraer detalles específicos del error de Podio (ej: pypodio2 TransportException)
+                error_details = str(e)
+                try:
+                    if hasattr(e, 'content') and e.content:
+                        import json
+                        podio_err = json.loads(e.content)
+                        if 'error_description' in podio_err:
+                            error_details = f"{error_details} - Detalles: {podio_err['error_description']}"
+                        elif 'error_detail' in podio_err:
+                            error_details = f"{error_details} - Detalles: {podio_err['error_detail']}"
+                    elif hasattr(e, 'response') and hasattr(e.response, 'text') and e.response.text:
+                        error_details = f"{error_details} - Detalles: {e.response.text}"
+                except Exception:
+                    pass # Fallback to default str(e)
+                
                 raise AppException(
-                    "No se pudo crear el item en Podio.", "podio_creation_failed", 502)
-
-            obj.podio_item_id = podio_response["item_id"]
-            item = podio_service.get_item(obj.podio_item_id)
-            formatted_id = item.get("app_item_id_formatted")
-
-            if not formatted_id:
-                raise AppException(
-                    "No se pudo obtener el ID formateado desde Podio.",
-                    "podio_formatted_id_missing", 502)
+                    f"Error de Podio al crear el registro: {error_details}", "podio_creation_error", 400)
 
             obj.ID_Jobs = formatted_id
             register_event(obj.podio_item_id)
@@ -938,7 +960,17 @@ def create_job():
                 session, Job, "ID_Jobs", prefix_map[obj.Job_type])
             obj.podio_item_id = None
 
-        save_with_retry(session, obj)
+        # Fix race condition: Webhook may have already inserted this job
+        existing = session.exec(select(Job).where(Job.ID_Jobs == obj.ID_Jobs)).first()
+        if existing:
+            logger.info(f"⚠️ El webhook ya insertó el Job {obj.ID_Jobs}. Actualizando registro existente.")
+            for key, value in obj.model_dump(exclude_unset=True).items():
+                if key not in ["id", "ID_Jobs", "created_at", "updated_at"] and value is not None:
+                    setattr(existing, key, value)
+            save_with_retry(session, existing)
+            obj = existing
+        else:
+            save_with_retry(session, obj)
         logger.info("✅ Job creado | job_id=%s | podio_item_id=%s",
                     obj.ID_Jobs, obj.podio_item_id)
         return obj.model_dump(), 201

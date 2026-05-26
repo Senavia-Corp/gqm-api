@@ -386,6 +386,23 @@ def podio_jobs_webhook(app_type, year):
     except Exception as e:
         print(f"❌ Error procesando webhook: {e}")
         traceback.print_exc()
+        
+        # Guardar en base de datos para sincronización manual
+        try:
+            from src.models.PodioFailedSyncModel import PodioFailedSync
+            with get_session() as error_session:
+                failed_sync = PodioFailedSync(
+                    item_id=str(data.get("item_id")) if 'data' in locals() and data else None,
+                    hook_type=f"podio.jobs.{app_type}.{year}.{event_type}" if 'app_type' in locals() and 'year' in locals() and 'event_type' in locals() else "unknown",
+                    payload=data if 'data' in locals() and data else {},
+                    error_message=str(e)
+                )
+                error_session.add(failed_sync)
+                error_session.commit()
+                print(f"✅ Falla guardada en podio_failed_syncs")
+        except Exception as inner_e:
+            print(f"❌ No se pudo guardar la falla en podio_failed_syncs: {inner_e}")
+            
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"status": "ok"}), 200
@@ -426,6 +443,99 @@ def qbo_webhook():
     except Exception as e:
         print(f"❌ Error crítico en QBO webhook: {str(e)}", flush=True)
         return jsonify({"error": "Internal server error"}), 500
+
+
+@webhook_bp.route("/webhook/podio/failed_syncs", methods=["GET"])
+def get_failed_syncs():
+    try:
+        from src.models.PodioFailedSyncModel import PodioFailedSync
+        with get_session() as session:
+            failed_syncs = session.exec(select(PodioFailedSync).order_by(PodioFailedSync.created_at.desc())).all()
+            return jsonify([f.model_dump() for f in failed_syncs]), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@webhook_bp.route("/webhook/podio/failed_syncs/count", methods=["GET"])
+def count_failed_syncs():
+    try:
+        from src.models.PodioFailedSyncModel import PodioFailedSync
+        from sqlalchemy import func
+        with get_session() as session:
+            count = session.exec(select(func.count(PodioFailedSync.id)).where(PodioFailedSync.resolved == False)).one()
+            return jsonify({"count": count}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@webhook_bp.route("/webhook/podio/failed_syncs/<int:id>/resync", methods=["POST"])
+def resync_failed_sync(id):
+    try:
+        from src.models.PodioFailedSyncModel import PodioFailedSync
+        with get_session() as session:
+            failed_sync = session.get(PodioFailedSync, id)
+            if not failed_sync:
+                return jsonify({"error": "Failed sync not found"}), 404
+            
+            if failed_sync.resolved:
+                return jsonify({"status": "Already resolved"}), 200
+
+            # hook_type es podio.jobs.{app_type}.{year}.{event_type}
+            parts = failed_sync.hook_type.split('.')
+            if len(parts) >= 5 and parts[0] == "podio" and parts[1] == "jobs":
+                app_type = parts[2]
+                year = int(parts[3])
+                event_type = ".".join(parts[4:])
+                item_id = failed_sync.item_id
+                
+                # Re-ejecutar la lógica
+                if event_type in ["item.create", "item.update"]:
+                    item = failed_sync.payload.get("item") or get_podio_item(item_id, app_type, year=year)
+                    
+                    existing_job = session.exec(select(Job).where(Job.podio_item_id == str(item_id))).first()
+                    old_status = existing_job.Job_status if existing_job else None
+
+                    process_jobs_podio(session=session, item=item, app_type=app_type, year=year)
+
+                    updated_job = session.exec(select(Job).where(Job.podio_item_id == str(item_id))).first()
+                    if updated_job:
+                        recalculate_and_apply(updated_job.ID_Jobs, session)
+                        new_status_norm = (updated_job.Job_status or "").upper()
+                        old_status_norm = (old_status or "").upper()
+
+                        if new_status_norm == "PAID" and old_status_norm != "PAID":
+                            process_job_to_commissions(updated_job, session)
+                            
+                elif event_type == "item.delete":
+                    event_delete(session=session, Model=Job, item_unique_id=str(item_id))
+                    
+                    orders = session.exec(select(Order).where(Order.job_podio_id == str(item_id))).all()
+                    for order in orders: delete_with_retry(session, order)
+                    
+                    ch_orders = session.exec(select(ChangeOrder).where(ChangeOrder.job_podio_id == str(item_id))).all()
+                    for ch_order in ch_orders: delete_with_retry(session, ch_order)
+                
+            # Solo si todo fue exitoso se marca como resuelto
+            failed_sync.resolved = True
+            session.add(failed_sync)
+            session.commit()
+            
+            return jsonify({"status": "ok", "message": "Resync exitoso"}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@webhook_bp.route("/webhook/podio/failed_syncs/<int:id>", methods=["DELETE"])
+def delete_failed_sync(id):
+    try:
+        from src.models.PodioFailedSyncModel import PodioFailedSync
+        with get_session() as session:
+            failed_sync = session.get(PodioFailedSync, id)
+            if failed_sync:
+                session.delete(failed_sync)
+                session.commit()
+            return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def _process_event(realm_id, entity_name, entity_id, operation):

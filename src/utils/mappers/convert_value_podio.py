@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 
@@ -90,7 +90,10 @@ def convert_value_for_podio(value, field_type="text", end_value=None):
                     end_value.year, end_value.month, end_value.day, 0, 0, 0)
             formatted_end = end_value.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            formatted_end = formatted_start
+            # Default end to start + 1 day so Podio never rejects with
+            # field.date.end_required (some apps require end != start)
+            end_fallback = value + timedelta(days=1)
+            formatted_end = end_fallback.strftime("%Y-%m-%d %H:%M:%S")
 
         return {
             "start": formatted_start,

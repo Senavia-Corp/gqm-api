@@ -24,11 +24,10 @@ def get_job_field_value(fields: list, field_cfg: dict):
         f_id = f.get("field_id")
         f_ext = f.get("external_id")
 
-        # Ambos deben coincidir
-        if f_id not in field_ids:
-            continue
+        match_id = (f_id in field_ids) if field_ids else False
+        match_ext = (f_ext and f_ext.lower() in external_ids) if external_ids else False
 
-        if not f_ext or f_ext.lower() not in external_ids:
+        if not (match_id or match_ext):
             continue
 
         raw = f.get("values") or f.get("value")
