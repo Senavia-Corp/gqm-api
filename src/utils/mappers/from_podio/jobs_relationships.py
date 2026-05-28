@@ -84,14 +84,10 @@ def upsert_job_member_link(
     created = 0
     skipped = 0
 
-    # Ahora busca por los 3 campos — la PK completa
-    link = session.exec(
-        select(JobMemberLink).where(
-            JobMemberLink.job_id == job_id,
-            JobMemberLink.member_id == member_id,
-            JobMemberLink.rol == rol
-        )
-    ).first()
+    from sqlalchemy.exc import IntegrityError
+
+    # Ahora busca por los 3 campos usando session.get para evitar consultas innecesarias y autoflush
+    link = session.get(JobMemberLink, (job_id, member_id, rol))
 
     if link:
         # El registro ya existe exactamente igual, no hay nada que actualizar
@@ -100,12 +96,18 @@ def upsert_job_member_link(
     # No existe → crear
     created += 1
     if not dry_run:
-        session.add(
-            JobMemberLink(
-                job_id=job_id,
-                member_id=member_id,
-                rol=rol
-            )
-        )
+        try:
+            with session.begin_nested():
+                session.add(
+                    JobMemberLink(
+                        job_id=job_id,
+                        member_id=member_id,
+                        rol=rol
+                    )
+                )
+                session.flush()
+        except IntegrityError:
+            # Ya existe en DB por concurrencia
+            pass
 
     return created, skipped

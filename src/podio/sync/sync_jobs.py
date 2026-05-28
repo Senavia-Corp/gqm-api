@@ -487,13 +487,10 @@ def sync_job_related_subcontractor(
                         )
                         continue
 
-                    link = session.exec(
-                        select(JobSubcontractorLink).where(
-                            JobSubcontractorLink.job_id == job.ID_Jobs,
-                            JobSubcontractorLink.subcontr_id ==
-                            subcontractor.ID_Subcontractor
-                        )
-                    ).first()
+                    link = session.get(
+                        JobSubcontractorLink,
+                        (job.ID_Jobs, subcontractor.ID_Subcontractor)
+                    )
 
                     if link:
                         continue
@@ -501,13 +498,20 @@ def sync_job_related_subcontractor(
                     created += 1
 
                     if not dry_run:
-                        session.add(
-                            JobSubcontractorLink(
-                                job_id=job.ID_Jobs,
-                                subcontr_id=subcontractor.ID_Subcontractor,
-                                position=external_id
-                            )
-                        )
+                        from sqlalchemy.exc import IntegrityError
+                        try:
+                            with session.begin_nested():
+                                session.add(
+                                    JobSubcontractorLink(
+                                        job_id=job.ID_Jobs,
+                                        subcontr_id=subcontractor.ID_Subcontractor,
+                                        position=external_id
+                                    )
+                                )
+                                session.flush()
+                        except IntegrityError:
+                            # Ya existe o hubo violación de unicidad por concurrencia
+                            pass
 
         if not dry_run:
             session.commit()

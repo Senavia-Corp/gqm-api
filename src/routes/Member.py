@@ -115,6 +115,8 @@ def list_members_table():
                     Member.Company_Role,
                     Member.Email_Address,
                     Member.Phone_Number,
+                    Member.podio_profile_id,
+                    Member.podio_item_id,
                 )
             )
         )
@@ -153,6 +155,8 @@ def list_members_table():
                 "Company_Role": m.Company_Role,
                 "Email_Address": m.Email_Address,
                 "Phone_Number": m.Phone_Number,
+                "podio_profile_id": m.podio_profile_id,
+                "podio_item_id": m.podio_item_id,
             }
             for m in results
         ]

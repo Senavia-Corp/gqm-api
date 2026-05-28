@@ -153,7 +153,8 @@ def list_subcontractors_table():
                 "Phone_Number":     s.Phone_Number,
                 "Gqm_compliance":   s.Gqm_compliance,
                 "Specialty":        s.Specialty,
-                "skill_ids":        [sk.ID_Skill for sk in s.skills]
+                "skill_ids":        [sk.ID_Skill for sk in s.skills],
+                "podio_item_id":    s.podio_item_id,
             }
             for s in results
         ]

@@ -249,29 +249,32 @@ def add_job_related_subcontractor(session, job, item):
                 )
                 continue
 
-            link = session.exec(
-                select(JobSubcontractorLink).where(
-                    JobSubcontractorLink.job_id == job.ID_Jobs,
-                    JobSubcontractorLink.subcontr_id ==
-                    subcontractor.ID_Subcontractor
-                )
-            ).first()
+            link = session.get(
+                JobSubcontractorLink,
+                (job.ID_Jobs, subcontractor.ID_Subcontractor)
+            )
 
             if link:
                 continue
 
-            session.add(
-                JobSubcontractorLink(
-                    job_id=job.ID_Jobs,
-                    subcontr_id=subcontractor.ID_Subcontractor,
-                    position=external_id
+            from sqlalchemy.exc import IntegrityError
+            try:
+                with session.begin_nested():
+                    session.add(
+                        JobSubcontractorLink(
+                            job_id=job.ID_Jobs,
+                            subcontr_id=subcontractor.ID_Subcontractor,
+                            position=external_id
+                        )
+                    )
+                    session.flush()
+                print(
+                    f"🟢 Link Job {job.ID_Jobs} ↔ Subc "
+                    f"{subcontractor.ID_Subcontractor}"
                 )
-            )
-
-            print(
-                f"🟢 Link Job {job.ID_Jobs} ↔ Subc "
-                f"{subcontractor.ID_Subcontractor}"
-            )
+            except IntegrityError:
+                # Ya existe o hubo violación de unicidad por concurrencia, lo ignoramos
+                pass
 
 
 def add_job_orders_and_change_orders(
