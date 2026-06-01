@@ -82,23 +82,23 @@ def convert_value_for_podio(value, field_type="text", end_value=None):
         if not isinstance(value, (datetime, date)):
             raise ValueError("Date fields must be datetime or date.")
 
-        formatted_start = value.strftime("%Y-%m-%d %H:%M:%S")
+        # Helper to avoid Podio's 00:00:00 truncation bug
+        def format_podio_date(dt_val: datetime) -> str:
+            if dt_val.hour == 0 and dt_val.minute == 0 and dt_val.second == 0:
+                # Use noon instead of midnight to guarantee Podio registers it as "with time"
+                dt_val = dt_val.replace(hour=12, minute=0, second=0)
+            return dt_val.strftime("%Y-%m-%d %H:%M:%S")
+
+        formatted_start = format_podio_date(value)
+        
+        payload = {"start": formatted_start}
 
         if end_value is not None:
             if isinstance(end_value, date) and not isinstance(end_value, datetime):
-                end_value = datetime(
-                    end_value.year, end_value.month, end_value.day, 0, 0, 0)
-            formatted_end = end_value.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            # Default end to start + 1 day so Podio never rejects with
-            # field.date.end_required (some apps require end != start)
-            end_fallback = value + timedelta(days=1)
-            formatted_end = end_fallback.strftime("%Y-%m-%d %H:%M:%S")
-
-        return {
-            "start": formatted_start,
-            "end": formatted_end
-        }
+                end_value = datetime(end_value.year, end_value.month, end_value.day, 0, 0, 0)
+            payload["end"] = format_podio_date(end_value)
+        
+        return payload
 
     if field_type == "email":
         if not value:
