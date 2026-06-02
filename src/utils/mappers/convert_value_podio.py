@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 
-def convert_value_for_podio(value, field_type="text", end_value=None):
+def convert_value_for_podio(value, field_type="text", end_value=None, with_time=False):
 
     if field_type == "app":
         # Podio espera lista: [{"value": item_id}]
@@ -84,10 +84,15 @@ def convert_value_for_podio(value, field_type="text", end_value=None):
 
         # Helper to avoid Podio's 00:00:00 truncation bug
         def format_podio_date(dt_val: datetime) -> str:
-            if dt_val.hour == 0 and dt_val.minute == 0 and dt_val.second == 0:
-                # Use noon instead of midnight to guarantee Podio registers it as "with time"
-                dt_val = dt_val.replace(hour=12, minute=0, second=0)
-            return dt_val.strftime("%Y-%m-%d %H:%M:%S")
+            if with_time:
+                if dt_val.hour == 0 and dt_val.minute == 0 and dt_val.second == 0:
+                    # Use noon instead of midnight to guarantee Podio registers it as "with time"
+                    dt_val = dt_val.replace(hour=12, minute=0, second=0)
+                return dt_val.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                # Podio API requires HH:MM:SS format even for time-disabled fields, but it MUST be 00:00:00
+                dt_val = dt_val.replace(hour=0, minute=0, second=0)
+                return dt_val.strftime("%Y-%m-%d %H:%M:%S")
 
         formatted_start = format_podio_date(value)
         

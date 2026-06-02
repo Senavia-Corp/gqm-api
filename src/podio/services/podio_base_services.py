@@ -1,3 +1,4 @@
+from src.utils.middleware.logs.logs import logger
 import requests
 from src.podio.podio_auth import get_podio_headers
 from src.config import BASE_URL
@@ -55,7 +56,8 @@ class PodioBaseService:
 
         try:
             response.raise_for_status()
-        except requests.exceptions.HTTPError:
+        except requests.exceptions.HTTPError as e:
+            logger.error("PODIO API ERROR on create_item! Payload was: %s", podio_fields)
             print("⚠️ Error al crear item en Podio:")
             print(response.text)
             raise
@@ -81,11 +83,12 @@ class PodioBaseService:
             print(f"✅ Item {item_id} actualizado correctamente en Podio")
 
         except requests.exceptions.HTTPError as e:
+            error_details = e.response.text
+            logger.error("PODIO API ERROR on update_item! Payload was: %s", payload)
             print("⚠️ Error al actualizar item en Podio:")
-            error_details = response.text
             print(error_details)
             # Levantar una excepción con el detalle exacto de Podio
-            raise Exception(f"Podio Update Error {response.status_code}: {error_details}") from e
+            raise Exception(f"Podio Update Error {e.response.status_code}: {error_details}") from e
 
         if not response.text.strip():
             return {"status": "ok", "item_id": item_id}

@@ -28,7 +28,8 @@ BASE_QID_FIELDS = {
         "external_id": "date-received",
         "type": "date",
         "end_attr": "Date_assigned_end",
-        "no_end": True
+        "no_end": True,
+        "with_time": True
     },
     "Additional_detail": {
         "external_id": "superintendent",
@@ -91,7 +92,8 @@ BASE_PTL_FIELDS = {
     "Estimated_start_date": {
         "external_id": "estimated-start-date",
         "type": "date",
-        "end_attr": "Estimated_start_date_end"
+        "end_attr": "Estimated_start_date_end",
+        "with_time": False
     },
     "Gqm_target_sold_pricing": {
         "external_id": "money",
@@ -118,7 +120,8 @@ BASE_PAR_FIELDS = {
     "Date_assigned": {
         "external_id": "date-received",
         "type": "date",
-        "end_attr": "Date_assigned_end"
+        "end_attr": "Date_assigned_end",
+        "with_time": False
     },
     "Job_status": {
         "external_id": "job-status",
