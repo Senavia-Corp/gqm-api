@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
 from ..utils.middleware.auth.password_hashing import hash_password
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
+from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.auth.routes_protection import require_permission
 from ..utils.audit import audit
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException

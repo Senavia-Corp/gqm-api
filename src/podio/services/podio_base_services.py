@@ -80,10 +80,12 @@ class PodioBaseService:
             response.raise_for_status()
             print(f"✅ Item {item_id} actualizado correctamente en Podio")
 
-        except requests.exceptions.HTTPError:
+        except requests.exceptions.HTTPError as e:
             print("⚠️ Error al actualizar item en Podio:")
-            print(response.text)
-            raise
+            error_details = response.text
+            print(error_details)
+            # Levantar una excepción con el detalle exacto de Podio
+            raise Exception(f"Podio Update Error {response.status_code}: {error_details}") from e
 
         if not response.text.strip():
             return {"status": "ok", "item_id": item_id}
