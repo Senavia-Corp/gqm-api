@@ -255,11 +255,18 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
                 (f for f in technician_fields if not current_values.get(f)), None)
             if not field_to_use:
                 return jsonify({"error": "No available technician slots in Podio"}), 400
-            podio_service.update_item(
-                int(job.podio_item_id),
-                {field_to_use: convert_value_for_podio(
-                    subcontractor.podio_item_id, "app")}
-            )
+            try:
+                podio_service.update_item(
+                    int(job.podio_item_id),
+                    {field_to_use: convert_value_for_podio(
+                        subcontractor.podio_item_id, "app")}
+                )
+            except Exception as e:
+                return jsonify({
+                    "error": "Podio update failed",
+                    "detail": str(e),
+                    "field_attempted": field_to_use
+                }), 400
             register_event(job.podio_item_id)
 
         log_activity(
