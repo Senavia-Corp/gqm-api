@@ -73,33 +73,52 @@ MONTH_NUMBER = {
 @job_bp.get("/")
 @require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
-@paginate()
 def list_jobs():
+    try:
+        page = int(request.args.get("page", 1))
+        limit = int(request.args.get("limit", 10))
+    except:
+        page = 1
+        limit = 10
+    limit = min(limit, 200)
+
+    job_type = request.args.get("type")
 
     with get_session() as session:
         statement = (
             select(Job)
             .options(
                 joinedload(Job.client),
-                joinedload(Job.members),
-                joinedload(Job.multipliers),
-                joinedload(Job.attachments),
-                joinedload(Job.tasks),
-                joinedload(Job.estimate_costs),
-                joinedload(Job.payment_units),
-                joinedload(Job.subcontractors).joinedload(
+                selectinload(Job.members),
+                selectinload(Job.multipliers),
+                selectinload(Job.attachments),
+                selectinload(Job.tasks),
+                selectinload(Job.estimate_costs),
+                selectinload(Job.payment_units),
+                selectinload(Job.subcontractors).selectinload(
                     Subcontractor.technicians),
-                joinedload(Job.subcontractors).joinedload(
+                selectinload(Job.subcontractors).selectinload(
                     Subcontractor.orders),
-                joinedload(Job.tlactivity),
-                joinedload(Job.change_orders),
+                selectinload(Job.tlactivity),
+                selectinload(Job.change_orders),
                 joinedload(Job.building_dept),
             )
         )
+
+        if job_type:
+            statement = statement.where(Job.Job_type == job_type)
+
+        count_stmt = select(func.count()).select_from(Job)
+        if job_type:
+            count_stmt = count_stmt.where(Job.Job_type == job_type)
+        total = session.exec(count_stmt).one()
+
+        offset = (page - 1) * limit
+        statement = statement.order_by(Job.created_at.desc(), Job.ID_Jobs.desc()).offset(offset).limit(limit)
         results = session.exec(statement).unique().all()
 
         if not results:
-            return [], 200
+            return jsonify({"page": page, "limit": limit, "total": total, "results": []}), 200
 
         job_ids = [job.ID_Jobs for job in results]
         roles_statement = (
@@ -124,7 +143,13 @@ def list_jobs():
             jobs_data.append(job_dict)
 
         policies = getattr(g, "user_policies", [])
-        return [serialize_job(j, policies) for j in jobs_data], 200
+        out = [serialize_job(j, policies) for j in jobs_data]
+        return jsonify({
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "results": out
+        }), 200
 
 
 @job_bp.get("/jobs_table")
@@ -179,7 +204,7 @@ def list_jobs_table():
                         Job.ID_Jobs, Job.Job_type, Job.Project_name,
                         Job.Project_location, Job.Job_status, Job.Date_assigned,
                         Job.Gqm_formula_pricing, Job.ID_Client, Job.Estimated_start_date, Job.Gqm_target_sold_pricing,
-                        Job.Gqm_target_return, Job.Service_type
+                        Job.Gqm_target_return, Job.Service_type, Job.created_at
                     ),
                     selectinload(Job.client).load_only(
                         Client.ID_Client, Client.Client_Community),
@@ -375,7 +400,7 @@ def list_jobs_table():
             total = session.exec(count_stmt).one()
             offset = (page - 1) * limit
             statement = statement.order_by(
-                Job.ID_Jobs.desc()).offset(offset).limit(limit)
+                Job.created_at.desc(), Job.ID_Jobs.desc()).offset(offset).limit(limit)
             results = session.exec(statement).unique().all()
 
             if not results:
@@ -400,6 +425,7 @@ def list_jobs_table():
                     "Gqm_formula_pricing": j.Gqm_formula_pricing,
                     "Gqm_target_return": j.Gqm_target_return,
                     "Gqm_target_sold_pricing": j.Gqm_target_sold_pricing,
+                    "created_at": j.created_at.isoformat() if hasattr(j, "created_at") and j.created_at else None,
                     "client": None, "members": [],
                 }
                 if j.client:
@@ -573,15 +599,15 @@ def get_jobs_by_type_year():
         statement = (
             select(Job)
             .options(
-                joinedload(Job.client), joinedload(Job.members),
-                joinedload(Job.multipliers), joinedload(Job.attachments),
-                joinedload(Job.tasks), joinedload(Job.estimate_costs),
-                joinedload(Job.payment_units),
-                joinedload(Job.subcontractors).joinedload(
+                joinedload(Job.client), selectinload(Job.members),
+                selectinload(Job.multipliers), selectinload(Job.attachments),
+                selectinload(Job.tasks), selectinload(Job.estimate_costs),
+                selectinload(Job.payment_units),
+                selectinload(Job.subcontractors).selectinload(
                     Subcontractor.technicians),
-                joinedload(Job.subcontractors).joinedload(
+                selectinload(Job.subcontractors).selectinload(
                     Subcontractor.orders),
-                joinedload(Job.tlactivity), joinedload(Job.change_orders),
+                selectinload(Job.tlactivity), selectinload(Job.change_orders),
                 joinedload(Job.building_dept))
             .where(Job.ID_Jobs.like(pattern))
         )
