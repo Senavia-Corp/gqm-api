@@ -14,6 +14,8 @@ from .link_models.JobMultiplierR import JobMultiplierRLink
 from .MultiplierRModel import MultiplierR
 from .link_models.JobSubcontractor import JobSubcontractorLink
 from .SubcontractorModel import Subcontractor
+from .link_models.JobTechnician import JobTechnicianLink
+from .TechnicianModel import Technician
 from .link_models.JobPaymentU import JobPaymentULink
 from .PaymentUnitModel import PaymentUnit
 from .BldgDeptModel import BuildingDept
@@ -132,6 +134,10 @@ class Job(JobBase, table=True):
     subcontractors: List[Subcontractor] = Relationship(
         back_populates="jobs",
         link_model=JobSubcontractorLink
+    )
+    technicians: List[Technician] = Relationship(
+        back_populates="jobs",
+        link_model=JobTechnicianLink
     )
     payment_units: List[PaymentUnit] = Relationship(
         back_populates="jobs",

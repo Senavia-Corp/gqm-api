@@ -5,6 +5,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from .SubcontractorModel import Subcontractor
 from .link_models.PermissionLinks import PermissionTechLink
+from .link_models.JobTechnician import JobTechnicianLink
 
 
 class TechnicianBase(SQLModel):
@@ -41,6 +42,10 @@ class Technician(TechnicianBase, table=True):
     permissions: List["Permission"] = Relationship(  # type: ignore
         back_populates="technicians",
         link_model=PermissionTechLink
+    )
+    jobs: List["Job"] = Relationship(  # type: ignore
+        back_populates="technicians",
+        link_model=JobTechnicianLink
     )
 
 

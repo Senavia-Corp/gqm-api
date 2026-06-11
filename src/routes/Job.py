@@ -532,6 +532,7 @@ def get_job_by_id(id_job):
                     Subcontractor.technicians),
                 joinedload(Job.subcontractors).joinedload(
                     Subcontractor.orders).joinedload(Order.financial_docs),
+                joinedload(Job.technicians),
                 joinedload(Job.building_dept),
                 selectinload(Job.comdetails).joinedload(CommissionDetail.comgroup).joinedload(
                     CommissionGroup.commission).joinedload(Commission.member),
@@ -565,7 +566,7 @@ def get_job_by_id(id_job):
 
         job_data = add_relationships(
             obj, ["client.manager", "members", "multipliers", "building_dept", "change_orders",
-                  "attachments", "subcontractors.technicians", "tasks",
+                  "attachments", "subcontractors.technicians", "technicians", "tasks",
                   "subcontractors.orders.financial_docs", "estimate_costs", "payment_units",
                   "financial_docs.order", "financial_docs.financial_doc_items",
                   "financial_docs.financial_transactions",

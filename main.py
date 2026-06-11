@@ -6,7 +6,7 @@ import sys
 from src.utils.middleware.logs.request_logger import register_request_logger
 # Blueprints:
 from src.routes.Job import job_bp, job_excel_bp
-from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp, job_subcontractor_bp, job_payment_unit_bp
+from src.routes.Links.JobLinks import job_member_bp, job_multiplier_bp, job_subcontractor_bp, job_payment_unit_bp, job_technician_bp
 from src.routes.Client import client_bp
 from src.routes.Subcontractor import subcontractor_bp
 from src.routes.Supplier import supplier_bp
@@ -170,6 +170,7 @@ def create_app():
     app.register_blueprint(job_multiplier_bp)
     app.register_blueprint(job_member_bp)
     app.register_blueprint(job_subcontractor_bp)
+    app.register_blueprint(job_technician_bp)
     app.register_blueprint(job_payment_unit_bp)
     app.register_blueprint(manager_bp)
     app.register_blueprint(member_bp)

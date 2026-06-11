@@ -9,6 +9,8 @@ from ...models.SubcontractorModel import Subcontractor
 from ...models.link_models.JobSubcontractor import JobSubcontractorLink
 from ...models.PaymentUnitModel import PaymentUnit
 from ...models.link_models.JobPaymentU import JobPaymentULink
+from ...models.TechnicianModel import Technician
+from ...models.link_models.JobTechnician import JobTechnicianLink
 from ...podio.services.job_services import podio_jobs_router
 from src.utils.mappers.convert_value_podio import convert_value_for_podio
 from src.utils.mappers.mapper_aux_functions import register_event
@@ -396,3 +398,61 @@ def remove_paymentU_from_job(job_id, payment_unit_id):
         session.delete(link)
         session.commit()
         return jsonify({"status": "Unlinked ✖️", "job_id": job_id, "payment_unit_id": payment_unit_id}), 200
+
+# ─────────────────────────── Job ↔ Technician ─────────────────────────────
+job_technician_bp = Blueprint(
+    "job_technician", __name__, url_prefix="/job_technician")
+
+@job_technician_bp.post("/jobs/<job_id>/technicians/<technician_id>")
+def assign_technician_to_job(job_id, technician_id):
+    member_id_header = request.headers.get("X-User-Id") or None
+    with get_session() as session:
+        job = session.get(Job, job_id)
+        technician = session.get(Technician, technician_id)
+        if not job or not technician:
+            return jsonify({"error": "Job or Technician not found"}), 404
+            
+        existing_link = session.get(JobTechnicianLink, (job_id, technician_id))
+        if existing_link:
+            return jsonify({"status": "Already linked ✔️"}), 200
+            
+        link = JobTechnicianLink(job_id=job_id, technician_id=technician_id)
+        session.add(link)
+        
+        log_activity(
+            session,
+            action="Technician linked to Job",
+            entity_id=technician_id,
+            entity_type="Technician",
+            job_id=job_id,
+            member_id=member_id_header,
+            description=f"Job: {job_id}",
+            source=SOURCE_APP
+        )
+        
+        session.commit()
+        return jsonify({"status": "Linked 🔗", "job_id": job_id, "technician_id": technician_id}), 201
+
+@job_technician_bp.delete("/jobs/<job_id>/technicians/<technician_id>")
+def remove_technician_from_job(job_id, technician_id):
+    member_id_header = request.headers.get("X-User-Id") or None
+    with get_session() as session:
+        link = session.get(JobTechnicianLink, (job_id, technician_id))
+        if not link:
+            return jsonify({"error": "Relationship does not exist"}), 404
+            
+        session.delete(link)
+        
+        log_activity(
+            session,
+            action="Technician unlinked from Job",
+            entity_id=technician_id,
+            entity_type="Technician",
+            job_id=job_id,
+            member_id=member_id_header,
+            description=f"Job: {job_id}",
+            source=SOURCE_APP
+        )
+        
+        session.commit()
+        return jsonify({"status": "Unlinked ✖️", "job_id": job_id, "technician_id": technician_id}), 200

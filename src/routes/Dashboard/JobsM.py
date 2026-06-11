@@ -208,6 +208,7 @@ def jobs_summary():
 
     client_id = request.args.get("client_id")
     subcontractor_id = request.args.get("subcontractor_id")
+    technician_id = request.args.get("technician_id")
     status = request.args.get("status")
 
     with get_session() as session:
@@ -230,6 +231,14 @@ def jobs_summary():
                 Job.ID_Jobs.in_(
                     select(JobSubcontractorLink.job_id).where(
                         JobSubcontractorLink.subcontr_id == subcontractor_id)
+                )
+            )
+        if technician_id:
+            from src.models.link_models.JobTechnician import JobTechnicianLink
+            conditions.append(
+                Job.ID_Jobs.in_(
+                    select(JobTechnicianLink.job_id).where(
+                        JobTechnicianLink.technician_id == technician_id)
                 )
             )
 
