@@ -9,6 +9,7 @@ from .link_models.JobSubcontractor import JobSubcontractorLink
 from .RoleModel import Role
 from .link_models.OpportunitiesLinks import OpportSubcLink
 from .link_models.SkillsSubcontractor import SkillsSubcLink
+from .link_models.PermissionLinks import PermissionSubcLink
 
 
 class SubcontractorBase(SQLModel):
@@ -26,6 +27,7 @@ class SubcontractorBase(SQLModel):
     Coverage_Area: Optional[List[str]] = Field(
         default=None, sa_column=Column(JSON))
     Notes: Optional[str] = Field(default=None)
+    Password: Optional[str] = Field(default=None)
 
 
 class Subcontractor(SubcontractorBase, table=True):
@@ -49,6 +51,10 @@ class Subcontractor(SubcontractorBase, table=True):
     skills: List["Skills"] = Relationship(  # type: ignore
         back_populates="subcontractors",
         link_model=SkillsSubcLink
+    )
+    permissions: List["Permission"] = Relationship(  # type: ignore
+        back_populates="subcontractors",
+        link_model=PermissionSubcLink
     )
 
     # Relaciones foráneas M:1
@@ -80,3 +86,4 @@ class SubcontractorCreate(SubcontractorBase):
 
 class SubcontractorUpdate(SubcontractorBase):
     ID_Role: Optional[str] = None
+    Password: Optional[str] = Field(default=None)

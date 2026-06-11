@@ -9,8 +9,11 @@ from src.utils.middleware.auth.jwt_handler import (
 )
 from src.models.MemberModel import Member
 from src.models.TechnicianModel import Technician
+from src.models.SubcontractorModel import Subcontractor
+from src.models.RoleModel import Role
 from src.utils.middleware.auth.routes_protection import get_user_context
 from src.utils.policy_evaluator import PolicyEvaluator
+from sqlalchemy.orm import joinedload
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -78,7 +81,38 @@ def login():
                 user_data["role_detail"] = None
                 user_data["policies"] = policies
             else:
-                return jsonify({"error": "Invalid email or password"}), 401
+                # Buscar en Subcontractor
+                stmt = select(Subcontractor).options(
+                    joinedload(Subcontractor.role).joinedload(Role.permissions),
+                    joinedload(Subcontractor.permissions)
+                ).where(Subcontractor.Email_Address.contains(email))
+                subcontractor = session.exec(stmt).unique().first()
+                
+                if subcontractor and subcontractor.Password and verify_password(password, subcontractor.Password):
+                    user_type = "subcontractor"
+                    user_data = subcontractor.model_dump()
+                    user_data.pop("Password", None)
+                    user_id = subcontractor.ID_Subcontractor
+                    
+                    policies = []
+                    role_detail = None
+                    if subcontractor.role:
+                        role_detail = {
+                            "ID_Role": subcontractor.role.ID_Role,
+                            "Name": subcontractor.role.Name
+                        }
+                        for perm in subcontractor.role.permissions:
+                            if perm.Active and perm.Document:
+                                policies.append(perm.Document)
+
+                    for perm in subcontractor.permissions:
+                        if perm.Active and perm.Document:
+                            policies.append(perm.Document)
+                    
+                    user_data["role_detail"] = role_detail
+                    user_data["policies"] = policies
+                else:
+                    return jsonify({"error": "Invalid email or password"}), 401
 
         # Crear tokens
         access_token = create_access_token({
@@ -140,6 +174,11 @@ def refresh():
             elif role == "technician":
                 stmt = select(Technician).where(
                     Technician.ID_Technician == user_id)
+                user = session.exec(stmt).first()
+
+            elif role == "subcontractor":
+                stmt = select(Subcontractor).where(
+                    Subcontractor.ID_Subcontractor == user_id)
                 user = session.exec(stmt).first()
 
             else:

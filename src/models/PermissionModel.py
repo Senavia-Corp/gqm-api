@@ -7,7 +7,8 @@ from typing import Optional, List, Dict, Any
 from .RoleModel import Role
 from .MemberModel import Member
 from .TechnicianModel import Technician
-from .link_models.PermissionLinks import PermissionRoleLink, PermissionMemberLink, PermissionTechLink
+from .SubcontractorModel import Subcontractor
+from .link_models.PermissionLinks import PermissionRoleLink, PermissionMemberLink, PermissionTechLink, PermissionSubcLink
 
 
 class PermissionBase(SQLModel):
@@ -37,6 +38,10 @@ class Permission(PermissionBase, table=True):
     technicians: List[Technician] = Relationship(
         back_populates="permissions",
         link_model=PermissionTechLink
+    )
+    subcontractors: List[Subcontractor] = Relationship(
+        back_populates="permissions",
+        link_model=PermissionSubcLink
     )
 
 

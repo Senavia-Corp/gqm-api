@@ -44,3 +44,18 @@ class PermissionTechLink(SQLModel, table=True):
         foreign_key="technician.ID_Technician",
         primary_key=True
     )
+
+
+# Tabla intermedia con Subcontractor
+class PermissionSubcLink(SQLModel, table=True):
+    __tablename__ = "permission_subc"
+
+    permission_id: str = Field(
+        foreign_key="permission.ID_Permission",
+        primary_key=True
+    )
+
+    subc_id: str = Field(
+        foreign_key="subcontractor.ID_Subcontractor",
+        primary_key=True
+    )

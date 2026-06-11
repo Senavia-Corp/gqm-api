@@ -23,6 +23,7 @@ from ..utils.middleware.exceptions_handler import handle_exceptions, AppExceptio
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
 from src.utils.middleware.auth.routes_protection import require_permission
+from src.utils.middleware.auth.password_hashing import hash_password
 
 
 # Blueprint de Subcontractor
@@ -320,6 +321,9 @@ def create_subcontractor():
     create_subcontractor = SubcontractorCreate.model_validate(data)
     obj = Subcontractor(
         **create_subcontractor.model_dump(exclude_unset=False, exclude_none=False))
+        
+    if obj.Password:
+        obj.Password = hash_password(obj.Password)
 
     # 🔘 Función de sincronización
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
@@ -357,7 +361,9 @@ def create_subcontractor():
             obj.podio_item_id
         )
 
-        return obj.model_dump(), 201
+        response = obj.model_dump()
+        response.pop("Password", None)
+        return response, 201
 
 
 # Ruta para actualizar un subcontratista
@@ -381,6 +387,9 @@ def update_subcontractor(subc_id):
 
         update_subcontractor = SubcontractorUpdate.model_validate(data)
         update_data_dict = update_subcontractor.model_dump(exclude_unset=True)
+
+        if "Password" in update_data_dict and update_data_dict["Password"]:
+            update_data_dict["Password"] = hash_password(update_data_dict["Password"])
 
         # ----------- 🔄 ACTUALIZAR EN DB
         for key, value in update_data_dict.items():  # Recorre poniendo los datos donde van
@@ -420,7 +429,9 @@ def update_subcontractor(subc_id):
                     502
                 )
 
-        return obj.model_dump(), 200
+        response = obj.model_dump()
+        response.pop("Password", None)
+        return response, 200
 
 
 # Ruta para eliminar un subcontratista

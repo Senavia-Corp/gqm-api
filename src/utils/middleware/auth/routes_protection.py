@@ -10,6 +10,7 @@ from src.utils.policy_evaluator import PolicyEvaluator
 from src.models.MemberModel import Member
 from src.models.RoleModel import Role
 from src.models.TechnicianModel import Technician
+from src.models.SubcontractorModel import Subcontractor
 
 
 def get_user_context():
@@ -57,6 +58,21 @@ def get_user_context():
 
                 if user:
                     policies.extend([p.Document for p in user.permissions if p.Active])
+
+            elif user_type == "subcontractor":
+                user = session.exec(
+                    select(Subcontractor)
+                    .options(
+                        joinedload(Subcontractor.role).joinedload(Role.permissions),
+                        joinedload(Subcontractor.permissions)
+                    )
+                    .where(Subcontractor.ID_Subcontractor == user_id)
+                ).unique().first()
+
+                if user:
+                    policies.extend([p.Document for p in user.permissions if p.Active])
+                    if user.role:
+                        policies.extend([p.Document for p in user.role.permissions if p.Active])
     except Exception:
         pass
 
@@ -162,6 +178,21 @@ def require_permission(actions: list | str, resource: str = "*"):
                         
                         if user:
                             policies.extend([p.Document for p in user.permissions if p.Active])
+
+                    elif user_type == "subcontractor":
+                        user = session.exec(
+                            select(Subcontractor)
+                            .options(
+                                joinedload(Subcontractor.role).joinedload(Role.permissions),
+                                joinedload(Subcontractor.permissions)
+                            )
+                            .where(Subcontractor.ID_Subcontractor == user_id)
+                        ).unique().first()
+                        
+                        if user:
+                            policies.extend([p.Document for p in user.permissions if p.Active])
+                            if user.role:
+                                policies.extend([p.Document for p in user.role.permissions if p.Active])
                             
             except Exception as e:
                 print(f"Error checking DB permissions: {e}")
