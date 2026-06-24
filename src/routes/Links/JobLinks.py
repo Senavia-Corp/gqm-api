@@ -116,9 +116,12 @@ def remove_member_from_job(job_id, member_id):
                 cfg = JOB_MEMBER_PODIO_MAP.get(
                     job.Job_type, {}).get(rol_to_update)
                 if cfg and cfg.get("external_id"):
-                    podio_service.update_item(int(job.podio_item_id), {
-                                              cfg["external_id"]: []})
-                    register_event(job.podio_item_id)
+                    try:
+                        podio_service.update_item(int(job.podio_item_id), {
+                                                  cfg["external_id"]: []})
+                        register_event(job.podio_item_id)
+                    except Exception as e:
+                        logger.warning(f"Podio sync failed during member unlink (Job: {job_id}): {e}")
 
         session.delete(link)
 
@@ -343,9 +346,12 @@ def remove_subcontractor_from_job(job_id, subcontr_id):
                     break
 
             if field_to_clear:
-                podio_service.update_item(
-                    int(job.podio_item_id), {field_to_clear: []})
-                register_event(job.podio_item_id)
+                try:
+                    podio_service.update_item(
+                        int(job.podio_item_id), {field_to_clear: []})
+                    register_event(job.podio_item_id)
+                except Exception as e:
+                    logger.warning(f"Podio sync failed during subcontractor unlink (Job: {job_id}): {e}")
             else:
                 return jsonify({
                     "error": "Subcontractor not found in Podio for this Job. Possible inconsistency between DB and Podio."

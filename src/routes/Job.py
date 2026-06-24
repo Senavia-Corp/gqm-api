@@ -1,7 +1,7 @@
 # ============ Lógica de rutas =================
 
 from flask import Blueprint, jsonify, request
-from sqlmodel import select
+from sqlmodel import select, delete
 from ..database.db_sqlmodel import get_session
 from flask import send_file, request
 from datetime import datetime
@@ -14,6 +14,10 @@ from ..models.SubcontractorModel import Subcontractor
 from ..models.FinancialDocModel import FinancialDocument
 from ..models.OrderModel import Order
 from ..models.link_models.JobMember import JobMemberLink
+from ..models.link_models.JobMultiplierR import JobMultiplierRLink
+from ..models.link_models.JobSubcontractor import JobSubcontractorLink
+from ..models.link_models.JobTechnician import JobTechnicianLink
+from ..models.link_models.JobPaymentU import JobPaymentULink
 from ..models.link_models.ClientLinks import ClientManagerLink
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
@@ -1103,6 +1107,13 @@ def delete_job(id_job):
                                  id_job, obj.podio_item_id)
                 raise AppException(
                     "Error al eliminar el Job en Podio.", "podio_delete_failed", 502)
+
+        # Workaround para evitar StaleDataError por duplicados en las tablas de links
+        session.exec(delete(JobMemberLink).where(JobMemberLink.job_id == id_job))
+        session.exec(delete(JobMultiplierRLink).where(JobMultiplierRLink.job_id == id_job))
+        session.exec(delete(JobSubcontractorLink).where(JobSubcontractorLink.job_id == id_job))
+        session.exec(delete(JobTechnicianLink).where(JobTechnicianLink.job_id == id_job))
+        session.exec(delete(JobPaymentULink).where(JobPaymentULink.job_id == id_job))
 
         delete_with_retry(session, obj)
         logger.info("🗑️ Job eliminado | job_id=%s", id_job)
