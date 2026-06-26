@@ -18,6 +18,12 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 from src.utils.job_calculator import recalculate_and_apply
 from src.utils.middleware.auth.routes_protection import get_user_context
 from src.utils.policy_evaluator import PolicyEvaluator
+from ..models.JobModel import Job
+from ..utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
+from ..utils.mappers.to_podio.ptl_mapper import map_job_to_podio_ptl
+from ..utils.mappers.to_podio.par_mapper import map_job_to_podio_par
+from ..podio.services.job_services import podio_jobs_router
+import traceback
 
 # Fields that belong to the purchasing department and are forbidden for request-only users.
 _PURCHASE_DEPT_FIELDS = {"Purchase_shop", "Purchase_link", "Purchase_value", "Purchase_notes"}
@@ -68,6 +74,27 @@ def _recalculate_purchase_total(order_id: str, session) -> None:
     # 3. Propagate to Job so Gqm_total_materials_fees stays in sync
     if purchase.ID_Jobs:
         recalculate_and_apply(purchase.ID_Jobs, session)
+        
+        # 4. Automatically sync to Podio to reflect Purchases in Job (PURCHASE 1...13)
+        try:
+            job = session.get(Job, purchase.ID_Jobs)
+            if job and job.podio_item_id:
+                podio_fields = None
+                if job.Job_type == "QID":
+                    podio_fields = map_job_to_podio_qid(job, session=session)
+                elif job.Job_type == "PTL":
+                    podio_fields = map_job_to_podio_ptl(job, session=session)
+                elif job.Job_type == "PAR":
+                    podio_fields = map_job_to_podio_par(job, session=session)
+                
+                if podio_fields:
+                    from datetime import datetime
+                    year = job.Date_assigned.year if job.Date_assigned else datetime.now().year
+                    podio_service = podio_jobs_router.get_service(job_type=job.Job_type, year=year)
+                    podio_service.update_item(job.podio_item_id, podio_fields)
+        except Exception as e:
+            print(f"Error syncing purchase changes to Podio for Job {purchase.ID_Jobs}: {e}")
+            traceback.print_exc()
 
 
 # -------------------RUTAS CRUD-------------------#

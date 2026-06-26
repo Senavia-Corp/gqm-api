@@ -80,12 +80,18 @@ def find_field_with_subc(
 def resolve_tech_index_from_field(job_type: str, tech_field: str) -> int:
 
     field_config = JOB_TYPE_FIELD_REGISTRY[job_type]
-    order_fields_map = field_config["order"]
+    order_fields_map = field_config.get("order", {})
 
-    formula_map = order_fields_map["Formula"]
+    formula_map = order_fields_map.get("Formula", {})
 
     for index, external_id in formula_map.items():
         if external_id == tech_field:
+            return index
+
+    # Si no es un field principal, tal vez sea un Change Order de ese tech
+    order_co_map = field_config.get("order_co", {})
+    for index, fields_list in order_co_map.items():
+        if tech_field in fields_list:
             return index
 
     raise Exception(f"Tech index not found for field: {tech_field}")
@@ -149,28 +155,57 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
     # 🔥 2️⃣ Resolver Formula field
     formula_field = formula_map[tech_index]
 
+    # Verificar si el formula_field primario ya está ocupado en Podio
+    primary_values = podio_job_fields.get(formula_field)
+    
+    is_primary_taken = False
+    if primary_values and (not isinstance(primary_values, list) or len(primary_values) > 0):
+        is_primary_taken = True
+        
+    if not is_primary_taken:
+        assigned_field = formula_field
+        is_co_field = False
+    else:
+        # El primario está ocupado, buscar en los Change Order fields para este tech
+        if "order_co" not in field_config:
+            raise Exception("No Change Order config available to map additional Order")
+            
+        order_co_map = field_config["order_co"]
+        if tech_index not in order_co_map:
+            raise Exception("No Change Order slots for this technician index")
+            
+        candidate_fields = order_co_map[tech_index]
+        available_field = find_next_available_field(podio_job_fields, candidate_fields)
+        
+        if not available_field:
+            raise Exception("No available Change Order slots in Podio for additional Order")
+            
+        assigned_field = available_field
+        is_co_field = True
+
     # 🔥 3️⃣ Guardar el campo asignado
-    order.tech_field = formula_field
+    order.tech_field = assigned_field
 
     # ================= FORMULA =================
     if order.Formula is not None:
-        fields_to_update[formula_field] = float(order.Formula)
+        fields_to_update[assigned_field] = float(order.Formula)
 
     # ================= PTL =================
-    if "Ptl_hd_materials" in order_fields_map:
-        if tech_index in order_fields_map["Ptl_hd_materials"]:
-
-            hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
-
-            if getattr(order, "Ptl_hd_materials", None) is not None:
-                fields_to_update[hd_field] = float(order.Ptl_hd_materials)
-
-    # ================= PAR =================
-    if "Notes" in order_fields_map:
-        notes_field = order_fields_map["Notes"][tech_index]
-
-        if getattr(order, "Notes", None):
-            fields_to_update[notes_field] = order.Notes
+    if not is_co_field:
+        if "Ptl_hd_materials" in order_fields_map:
+            if tech_index in order_fields_map["Ptl_hd_materials"]:
+    
+                hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
+    
+                if getattr(order, "Ptl_hd_materials", None) is not None:
+                    fields_to_update[hd_field] = float(order.Ptl_hd_materials)
+    
+        # ================= PAR =================
+        if "Notes" in order_fields_map:
+            notes_field = order_fields_map["Notes"][tech_index]
+    
+            if getattr(order, "Notes", None):
+                fields_to_update[notes_field] = order.Notes
 
     return fields_to_update
 
@@ -185,28 +220,32 @@ def map_order_patch_to_podio(order, job_type, session):
 
     field_config = JOB_TYPE_FIELD_REGISTRY[job_type]
     order_fields_map = field_config["order"]
+    formula_map = order_fields_map.get("Formula", {})
 
     # 🔥 Resolver index automáticamente
     tech_index = resolve_tech_index_from_field(job_type, order.tech_field)
+
+    is_co_field = order.tech_field not in formula_map.values()
 
     # ================= FORMULA =================
     if order.Formula is not None:
         fields_to_update[order.tech_field] = float(order.Formula)
 
     # ================= PTL =================
-    if "Ptl_hd_materials" in order_fields_map:
-        if tech_index in order_fields_map["Ptl_hd_materials"]:
-            hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
-
-            if getattr(order, "Ptl_hd_materials", None) is not None:
-                fields_to_update[hd_field] = float(order.Ptl_hd_materials)
-
-    # ================= PAR =================
-    if "Notes" in order_fields_map:
-        notes_field = order_fields_map["Notes"][tech_index]
-
-        if getattr(order, "Notes", None):
-            fields_to_update[notes_field] = order.Notes
+    if not is_co_field:
+        if "Ptl_hd_materials" in order_fields_map:
+            if tech_index in order_fields_map["Ptl_hd_materials"]:
+                hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
+    
+                if getattr(order, "Ptl_hd_materials", None) is not None:
+                    fields_to_update[hd_field] = float(order.Ptl_hd_materials)
+    
+        # ================= PAR =================
+        if "Notes" in order_fields_map:
+            notes_field = order_fields_map["Notes"][tech_index]
+    
+            if getattr(order, "Notes", None):
+                fields_to_update[notes_field] = order.Notes
 
     return fields_to_update
 
@@ -221,23 +260,27 @@ def map_order_delete_to_podio(order, job_type):
 
     field_config = JOB_TYPE_FIELD_REGISTRY[job_type]
     order_fields_map = field_config["order"]
+    formula_map = order_fields_map.get("Formula", {})
 
     # 🔥 Resolver index automáticamente
     tech_index = resolve_tech_index_from_field(job_type, order.tech_field)
 
+    is_co_field = order.tech_field not in formula_map.values()
+
     # Formula
     fields_to_update[order.tech_field] = []
 
-    # PTL
-    if "Ptl_hd_materials" in order_fields_map:
-        if tech_index in order_fields_map["Ptl_hd_materials"]:
-            hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
-            fields_to_update[hd_field] = []
-
-    # PAR
-    if "Notes" in order_fields_map:
-        notes_field = order_fields_map["Notes"][tech_index]
-        fields_to_update[notes_field] = []
+    if not is_co_field:
+        # PTL
+        if "Ptl_hd_materials" in order_fields_map:
+            if tech_index in order_fields_map["Ptl_hd_materials"]:
+                hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
+                fields_to_update[hd_field] = []
+    
+        # PAR
+        if "Notes" in order_fields_map:
+            notes_field = order_fields_map["Notes"][tech_index]
+            fields_to_update[notes_field] = []
 
     return fields_to_update
 

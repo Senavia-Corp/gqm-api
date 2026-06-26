@@ -11,6 +11,27 @@ def map_job_to_podio_qid(job_obj, session=None):
     for attr, config in BASE_QID_FIELDS.items():
         value = getattr(job_obj, attr, None)
 
+        # 🔹 DYNAMIC CALCULATION FOR Purchases_list
+        if attr == "Purchases_list" and session:
+            from src.models.EstimateCostModel import EstimateCost
+            from src.models.PurchaseModel import Purchase
+            rents = session.exec(
+                select(EstimateCost).where(
+                    EstimateCost.ID_Jobs == job_obj.ID_Jobs, 
+                    EstimateCost.Cost_type == "Rent", 
+                    EstimateCost.Status == "Approved"
+                )
+            ).all()
+            purchases = session.exec(
+                select(Purchase).where(Purchase.ID_Jobs == job_obj.ID_Jobs)
+            ).all()
+            p_list = []
+            for r in rents:
+                p_list.append(float(r.Client_price if r.Client_price is not None else r.Builder_cost or 0))
+            for p in purchases:
+                p_list.append(float(p.Total_spending or 0))
+            value = (p_list + [None]*13)[:13]
+
         # 🔹 MULTI FIELD (Bldg_dept_fees)
         if config.get("multi"):
             values = value or []

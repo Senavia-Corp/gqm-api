@@ -10,16 +10,50 @@ def map_job_to_podio_ptl(job_obj, session=None):
     for attr, config in BASE_PTL_FIELDS.items():
         value = getattr(job_obj, attr, None)
 
-        if value is None:
-            continue
+        # 🔹 DYNAMIC CALCULATION FOR Purchases_list
+        if attr == "Purchases_list" and session:
+            from src.models.EstimateCostModel import EstimateCost
+            from src.models.PurchaseModel import Purchase
+            rents = session.exec(
+                select(EstimateCost).where(
+                    EstimateCost.ID_Jobs == job_obj.ID_Jobs, 
+                    EstimateCost.Cost_type == "Rent", 
+                    EstimateCost.Status == "Approved"
+                )
+            ).all()
+            purchases = session.exec(
+                select(Purchase).where(Purchase.ID_Jobs == job_obj.ID_Jobs)
+            ).all()
+            p_list = []
+            for r in rents:
+                p_list.append(float(r.Client_price if r.Client_price is not None else r.Builder_cost or 0))
+            for p in purchases:
+                p_list.append(float(p.Total_spending or 0))
+            value = (p_list + [None]*13)[:13]
 
-        end_value = getattr(job_obj, config["end_attr"], None) if config.get(
-            "end_attr") else None
-        converted = convert_value_for_podio(
-            value, config["type"], end_value=end_value, with_time=config.get("with_time", False))
+        # 🔹 MULTI FIELD
+        if config.get("multi"):
+            values = value or []
+            for i, ext_id in enumerate(config["external_ids"]):
+                v = values[i] if i < len(values) else None
+                converted = convert_value_for_podio(v, config["type"])
+                if converted is not None:
+                    payload[ext_id] = converted
+                else:
+                    payload[ext_id] = []
+        
+        # 🔹 NORMAL FIELD
+        else:
+            if value is None:
+                continue
 
-        if converted is not None:
-            payload[config["external_id"]] = converted
+            end_value = getattr(job_obj, config["end_attr"], None) if config.get(
+                "end_attr") else None
+            converted = convert_value_for_podio(
+                value, config["type"], end_value=end_value, with_time=config.get("with_time", False))
+
+            if converted is not None:
+                payload[config["external_id"]] = converted
 
     # Relación con Client (M:1)
     # Si ID_Client es null → mandamos [] para LIMPIAR el campo en Podio
