@@ -72,6 +72,7 @@ def create_estimate():
             session.commit()
         # ─────────────────────────────────────────────────────────────────
 
+        session.refresh(obj)
         return obj.model_dump(), 201
 
 
@@ -112,6 +113,7 @@ def update_estimate(id_estimate):
             session.commit()
         # ─────────────────────────────────────────────────────────────────
 
+        session.refresh(obj)
         return obj.model_dump(), 200
 
 
