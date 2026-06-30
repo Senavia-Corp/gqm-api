@@ -129,25 +129,6 @@ BASE_PTL_FIELDS = {
     "Pricing_target": {
         "external_id": "pricing-target",
         "type": "category"
-    },
-    "Purchases_list": {
-        "external_ids": [
-            "materials-purchased-1-2",
-            "materials-purchased-2",
-            "materials-purchased-3",
-            "material-purchase-4",
-            "material-purchase-5",
-            "material-purchase-6",
-            "material-purchase-7",
-            "material-purchase-8",
-            "material-purchase-9",
-            "material-purchase-10",
-            "material-purchase-11",
-            "material-purchase-12",
-            "material-purchase-13"
-        ],
-        "type": "money",
-        "multi": True
     }
 }
 

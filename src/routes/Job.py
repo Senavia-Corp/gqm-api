@@ -1001,7 +1001,21 @@ def create_job():
             save_with_retry(session, existing)
             obj = existing
         else:
-            save_with_retry(session, obj)
+            try:
+                # Intento de insert único, por si el webhook lo inserta en este exacto milisegundo
+                save_with_retry(session, obj, max_retries=1)
+            except Exception as e:
+                # Si falló, muy probablemente fue un IntegrityError (duplicate key) por el webhook
+                existing_after = session.exec(select(Job).where(Job.ID_Jobs == obj.ID_Jobs)).first()
+                if existing_after:
+                    logger.info(f"⚠️ El webhook ganó la carrera para {obj.ID_Jobs}. Recuperando y actualizando.")
+                    for key, value in obj.model_dump(exclude_unset=True).items():
+                        if key not in ["id", "ID_Jobs", "created_at", "updated_at"] and value is not None:
+                            setattr(existing_after, key, value)
+                    save_with_retry(session, existing_after)
+                    obj = existing_after
+                else:
+                    raise e
         logger.info("✅ Job creado | job_id=%s | podio_item_id=%s",
                     obj.ID_Jobs, obj.podio_item_id)
         return obj.model_dump(), 201
