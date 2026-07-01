@@ -447,6 +447,162 @@ def add_job_orders_and_change_orders(
             )
 
 
+def sync_bdf_from_podio(session, job):
+    """
+    Sincroniza los valores de Bldg_dept_fees traídos desde Podio
+    (Job.Bldg_dept_fees) con los registros EstimateCost(BDF) para que
+    el UI del panel refleje los cambios hechos en Podio y no sean sobreescritos.
+    """
+    if job.Bldg_dept_fees is None:
+        return
+
+    from src.models.EstimateCostModel import EstimateCost
+    from src.utils.id_generator import generate_custom_id
+
+    # Obtener los EstimateCost BDF Aprobados existentes
+    bdf_costs = session.exec(
+        select(EstimateCost).where(
+            EstimateCost.ID_Jobs == job.ID_Jobs,
+            EstimateCost.Cost_type == "BDF",
+            EstimateCost.Status == "Approved"
+        ).order_by(EstimateCost.ID_EstimateCost)
+    ).all()
+
+    # Los valores que vienen de Podio (aseguramos floats validos)
+    try:
+        podio_bdfs = [float(v) for v in job.Bldg_dept_fees if v is not None]
+    except Exception:
+        podio_bdfs = []
+
+    # Actualizar o crear
+    for i, val in enumerate(podio_bdfs):
+        if i < len(bdf_costs):
+            # Actualizar existente
+            cost = bdf_costs[i]
+            if float(cost.Client_price or 0) != val:
+                cost.Client_price = val
+                # Si el Builder_cost está vacío, lo llenamos, si no lo dejamos para conservar lo cotizado
+                if not cost.Builder_cost:
+                    cost.Builder_cost = val
+                session.add(cost)
+        else:
+            # Crear nuevo costo desde Podio
+            new_cost = EstimateCost(
+                ID_EstimateCost=generate_custom_id(session, EstimateCost, "ID_EstimateCost", "EST"),
+                ID_Jobs=job.ID_Jobs,
+                Cost_type="BDF",
+                Status="Approved",
+                Title=f"Bldg Dept Fee {i+1} (Podio)",
+                Builder_cost=val,
+                Client_price=val,
+                Quatity=1
+            )
+            session.add(new_cost)
+
+    # Eliminar los excedentes si en Podio borraron uno
+    if len(bdf_costs) > len(podio_bdfs):
+        for cost in bdf_costs[len(podio_bdfs):]:
+            session.delete(cost)
+
+
+def sync_purchases_from_podio(session, job, item):
+    """
+    Sincroniza los valores de PURCHASE 1..13 traídos desde Podio
+    con los registros de Rent (EstimateCost) y Purchase para que
+    el UI del panel refleje los cambios hechos en Podio.
+    """
+    from src.models.EstimateCostModel import EstimateCost
+    from src.models.PurchaseModel import Purchase
+    from src.utils.id_generator import generate_custom_id
+
+    # IDs externos configurados en Podio para los materiales
+    PURCHASES_EXT_IDS = [
+        "materials-purchased-1-2",
+        "materials-purchased-2",
+        "materials-purchased-3",
+        "material-purchase-4",
+        "material-purchase-5",
+        "material-purchase-6",
+        "material-purchase-7",
+        "material-purchase-8",
+        "material-purchase-9",
+        "material-purchase-10",
+        "material-purchase-11",
+        "material-purchase-12",
+        "material-purchase-13"
+    ]
+
+    podio_purchases = []
+    fields = item.get("fields", [])
+    
+    for ext_id in PURCHASES_EXT_IDS:
+        val = None
+        for f in fields:
+            f_ext = f.get("external_id")
+            if f_ext and f_ext.lower() == ext_id:
+                raw = f.get("values") or f.get("value")
+                if isinstance(raw, list) and raw:
+                    raw_val = raw[0].get("value", raw[0])
+                    if isinstance(raw_val, dict) and "value" in raw_val:
+                        try:
+                            val = float(raw_val["value"])
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            val = float(raw_val)
+                        except Exception:
+                            pass
+                break
+        podio_purchases.append(val)
+
+    # Eliminar los 'None' del final para saber cuántos items reales hay
+    while podio_purchases and podio_purchases[-1] is None:
+        podio_purchases.pop()
+
+    # Obtener Rents y Purchases locales
+    rents = session.exec(
+        select(EstimateCost).where(
+            EstimateCost.ID_Jobs == job.ID_Jobs,
+            EstimateCost.Cost_type == "Rent",
+            EstimateCost.Status == "Approved"
+        ).order_by(EstimateCost.ID_EstimateCost)
+    ).all()
+
+    purchases = session.exec(
+        select(Purchase).where(Purchase.ID_Jobs == job.ID_Jobs).order_by(Purchase.ID_Purchase)
+    ).all()
+
+    # Recorrer los valores de Podio
+    for i, val in enumerate(podio_purchases):
+        if val is None:
+            # En Podio pueden borrar un valor intermedio. Si es None, lo tomamos como 0
+            val = 0.0
+
+        if i < len(rents):
+            # Es un Rent
+            r = rents[i]
+            if float(r.Client_price or 0) != val:
+                r.Client_price = val
+                session.add(r)
+        elif i < len(rents) + len(purchases):
+            # Es un Purchase
+            p = purchases[i - len(rents)]
+            if float(p.Total_spending or 0) != val:
+                p.Total_spending = val
+                session.add(p)
+        else:
+            # Nuevo Purchase
+            new_p = Purchase(
+                ID_Purchase=generate_custom_id(session, Purchase, "ID_Purchase", "PUR"),
+                ID_Jobs=job.ID_Jobs,
+                Description=f"Purchase {i+1} (Podio)",
+                Total_spending=val,
+                Status="Approved",
+                Is_extra=False
+            )
+            session.add(new_p)
+
 # -------- FUNCIÓN PARA UNIFICAR JOB FASE 1 Y 2
 def process_jobs_podio(session, item, app_type, year):
     job = upsert_job_from_item(session, item, app_type)
@@ -458,3 +614,5 @@ def process_jobs_podio(session, item, app_type, year):
     add_job_related_members(session, job, item, app_type, year)
     add_job_related_subcontractor(session, job, item)
     add_job_orders_and_change_orders(session, job, item, app_type)
+    sync_bdf_from_podio(session, job)
+    sync_purchases_from_podio(session, job, item)

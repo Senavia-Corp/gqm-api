@@ -93,23 +93,12 @@ ORDER_PAR_FIELDS = {
 # MAPEADOR PARA MANDAR CHANGE ORDER A LOS CAMPOS DE JOB EN PODIO
 
 # ================== QID PROJECT CHANGE ORDERS ================== #
-PROJECT_CO_QID_FIELDS = {
-    1: "change-order-1",
-    2: "change-order-2-2",
-    3: "change-order-3-2",
-    4: "change-order-4",
-    5: "change-order-5",
-    6: "change-order-6",
-    7: "change-order-7",
-    8: "change-order-8",
-    9: "change-order-9",
-    10: "change-order-10",
-    11: "change-order-11"
-}
+PROJECT_CO_QID_FIELDS = {}
 
 # ================== QID ORDER CHANGE ORDERS ================== #
 ORDER_CO_QID_FIELDS = {
     1: [
+        "change-order-1",
         "tech-1-change-order-3",
         "tech-1-change-order-2-2",
         "tech-1-change-order-2",
@@ -117,6 +106,7 @@ ORDER_CO_QID_FIELDS = {
         "tech-1-change-order-5"
     ],
     2: [
+        "change-order-2-2",
         "tech-2-change-order-1",
         "tech-2-change-order-1-2",
         "tech-2-change-order-3",
@@ -125,11 +115,13 @@ ORDER_CO_QID_FIELDS = {
         "tech-2-change-order-6"
     ],
     3: [
+        "change-order-3-2",
         "tech-3-change-order-1",
         "tech-3-change-order-2",
         "tech-3-change-order-3"
     ],
     4: [
+        "change-order-4",
         "tech-4-change-order-1",
         "tech-4-change-order-2",
         "tech-4-change-order-3",
@@ -140,11 +132,13 @@ ORDER_CO_QID_FIELDS = {
         "tech-4-change-order-8"
     ],
     5: [
+        "change-order-5",
         "material-tech-4",
         "rentals-tech-5",
         "tech-5-change-order-3"
     ],
     6: [
+        "change-order-6",
         "material-tech-6",
         "tech-6-change-order-2",
         "tech-6-change-order-3",
@@ -152,20 +146,23 @@ ORDER_CO_QID_FIELDS = {
         "tech-6-change-order-5"
     ],
     7: [
+        "change-order-7",
         "material-tech-7",
         "tech-7-change-order-2"
     ],
     8: [
+        "change-order-8",
         "material-tech-8",
         "tech-8-change-order-2"
     ],
     9: [
+        "change-order-9",
         "material-tech-9",
         "tech-9-change-order-2"
     ],
-    10: ["tech-10-change-order-1"],
-    11: ["tech-11-change-order-1"],
-    12: ["tech-12-change-order-1"],
+    10: ["change-order-10", "tech-10-change-order-1"],
+    11: ["change-order-11", "tech-11-change-order-1"],
+    12: ["change-order-12", "tech-12-change-order-1"],
     13: [
         "tech-13-change-order-1",
         "tech-13-change-order-2",
@@ -178,34 +175,33 @@ ORDER_CO_QID_FIELDS = {
 
 
 # ================== PTL PROJECT CHANGE ORDERS ================== #
-PROJECT_CO_PTL_FIELDS = {
-    1: "gqm-change-order-1",
-    2: "gqm-change-order-2",
-    3: "gqm-change-order-3",
-    4: "gqm-change-order-4"
-}
+PROJECT_CO_PTL_FIELDS = {}
 
 # ================== PTL ORDER CHANGE ORDERS ================== #
 ORDER_CO_PTL_FIELDS = {
     1: [
+        "gqm-change-order-1",
         "tech-1-change-order-1",
         "tech-1-change-order-2",
         "tech-1-change-order-3",
         "tech-1-change-order-4"
     ],
     2: [
+        "gqm-change-order-2",
         "tech-2-change-order-1",
         "tech-2-change-order-1-2",
         "tech-2-change-order-3",
         "tech-2-change-order-4"
     ],
     3: [
+        "gqm-change-order-3",
         "tech-3-change-order-1",
         "tech-3-change-order-2",
         "tech-3-change-order-3",
         "tech-3-change-order-4"
     ],
     4: [
+        "gqm-change-order-4",
         "tech-4-change-order-1",
         "tech-4-change-order-2",
         "tech-4-change-order-3",

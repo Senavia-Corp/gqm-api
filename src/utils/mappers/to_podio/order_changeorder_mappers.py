@@ -162,26 +162,11 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
     if primary_values and (not isinstance(primary_values, list) or len(primary_values) > 0):
         is_primary_taken = True
         
-    if not is_primary_taken:
-        assigned_field = formula_field
-        is_co_field = False
-    else:
-        # El primario está ocupado, buscar en los Change Order fields para este tech
-        if "order_co" not in field_config:
-            raise Exception("No Change Order config available to map additional Order")
-            
-        order_co_map = field_config["order_co"]
-        if tech_index not in order_co_map:
-            raise Exception("No Change Order slots for this technician index")
-            
-        candidate_fields = order_co_map[tech_index]
-        available_field = find_next_available_field(podio_job_fields, candidate_fields)
+    if is_primary_taken:
+        raise Exception("El técnico ya tiene una orden principal creada. Edite la existente en lugar de crear una nueva.")
         
-        if not available_field:
-            raise Exception("No available Change Order slots in Podio for additional Order")
-            
-        assigned_field = available_field
-        is_co_field = True
+    assigned_field = formula_field
+    is_co_field = False
 
     # 🔥 3️⃣ Guardar el campo asignado
     order.tech_field = assigned_field
