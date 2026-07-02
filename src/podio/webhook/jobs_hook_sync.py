@@ -591,17 +591,9 @@ def sync_purchases_from_podio(session, job, item):
             if float(p.Total_spending or 0) != val:
                 p.Total_spending = val
                 session.add(p)
-        else:
-            # Nuevo Purchase
-            new_p = Purchase(
-                ID_Purchase=generate_custom_id(session, Purchase, "ID_Purchase", "PUR"),
-                ID_Jobs=job.ID_Jobs,
-                Description=f"Purchase {i+1} (Podio)",
-                Total_spending=val,
-                Status="Approved",
-                Is_extra=False
-            )
-            session.add(new_p)
+        # Nota: No creamos nuevos Purchases automáticamente desde Podio.
+        # Esto previene que datos residuales en Podio (o Rentas que aún están en estado "Estimated")
+        # generen "ghost purchases" cada vez que se dispara un webhook.
 
 # -------- FUNCIÓN PARA UNIFICAR JOB FASE 1 Y 2
 def process_jobs_podio(session, item, app_type, year):

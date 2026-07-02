@@ -322,8 +322,7 @@ def map_chorder_create_to_podio(change_order, job_type, podio_job_fields, sessio
 
     # ====== Validación defensiva
     if not candidate_fields:
-        raise Exception(
-            "No candidate Podio fields configured for Change Orders")
+        return None
 
     # 2️⃣ Buscar siguiente slot disponible
     available_field = find_next_available_field(
