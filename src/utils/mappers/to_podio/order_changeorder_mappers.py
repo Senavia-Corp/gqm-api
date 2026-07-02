@@ -1,4 +1,6 @@
+from sqlmodel import select
 from src.models.SubcontractorModel import Subcontractor
+from src.models.ChangeOrderModel import ChangeOrder
 from .order_changeorder_fields_map import (
     ORDER_QID_FIELDS,
     ORDER_PTL_FIELDS,
@@ -320,14 +322,25 @@ def map_chorder_create_to_podio(change_order, job_type, podio_job_fields, sessio
 
         candidate_fields = list(project_co_map.values())
 
+    # 1.5️⃣ Filtrar los campos que ya están tomados localmente
+    taken_fields = session.exec(
+        select(ChangeOrder.podio_field).where(
+            ChangeOrder.job_podio_id == change_order.job_podio_id,
+            ChangeOrder.podio_field.isnot(None),
+            ChangeOrder.ID_ChangeOrder != change_order.ID_ChangeOrder
+        )
+    ).all()
+
+    available_candidates = [f for f in candidate_fields if f not in taken_fields]
+
     # ====== Validación defensiva
-    if not candidate_fields:
+    if not available_candidates:
         return None
 
     # 2️⃣ Buscar siguiente slot disponible
     available_field = find_next_available_field(
         podio_job_fields,
-        candidate_fields
+        available_candidates
     )
 
     if not available_field:
