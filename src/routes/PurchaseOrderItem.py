@@ -68,7 +68,10 @@ def _recalculate_purchase_total(order_id: str, session) -> None:
         .where(PurchaseOrder.ID_Purchase == purchase.ID_Purchase)
     ).all()
 
-    purchase.Total_spending = sum(float(it.Purchase_value or 0) for it in all_items)
+    purchase.Total_spending = sum(
+        float(it.Purchase_value) if it.Purchase_value and float(it.Purchase_value) > 0 else float(it.Quote_value or 0)
+        for it in all_items
+    )
     session.add(purchase)
 
     # 3. Propagate to Job so Gqm_total_materials_fees stays in sync
