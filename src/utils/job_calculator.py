@@ -95,8 +95,8 @@ def _build_bdf_array(bdf_costs: list[EstimateCost]) -> list[Optional[float]]:
     for i, ec in enumerate(sorted_costs[:BDF_SLOTS]):
         # Client_price holds the confirmed (approved) amount.
         # Fall back to Builder_cost for legacy rows where Client_price was never set.
-        confirmed = ec.Client_price if ec.Client_price is not None else ec.Builder_cost
-        result[i] = float(confirmed) if confirmed is not None else 0.0
+        val = float(ec.Client_price or 0)
+        result[i] = val
 
     return result
 
@@ -149,7 +149,7 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
 
     # Approved Rent paid fees = Client_price (confirmed spend) for each approved Rent cost
     rent_paid_fees = sum(
-        float(ec.Client_price if ec.Client_price is not None else ec.Builder_cost or 0)
+        float(ec.Client_price or 0)
         for ec in rent_approved_costs
     )
     # Gqm_paid_fees = BDF approved (Bldg_dept_fees slots) + Rent approved

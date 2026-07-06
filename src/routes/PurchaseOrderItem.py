@@ -69,7 +69,7 @@ def _recalculate_purchase_total(order_id: str, session) -> None:
     ).all()
 
     purchase.Total_spending = sum(
-        float(it.Purchase_value) if it.Purchase_value and float(it.Purchase_value) > 0 else float(it.Quote_value or 0)
+        float(it.Purchase_value or 0)
         for it in all_items
     )
     session.add(purchase)
