@@ -22,10 +22,10 @@ def map_job_to_podio_qid(job_obj, session=None):
                         EstimateCost.ID_Jobs == job_obj.ID_Jobs, 
                         EstimateCost.Cost_type == "Rent", 
                         EstimateCost.Status == "Approved"
-                    )
+                    ).order_by(EstimateCost.ID_EstimateCost)
                 ).all()
                 purchases = session.exec(
-                    select(Purchase).where(Purchase.ID_Jobs == job_obj.ID_Jobs)
+                    select(Purchase).where(Purchase.ID_Jobs == job_obj.ID_Jobs).order_by(Purchase.ID_Purchase)
                 ).all()
                 for r in rents:
                     p_list.append(float(r.Client_price if r.Client_price is not None else r.Builder_cost or 0))
