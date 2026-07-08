@@ -128,7 +128,12 @@ PROJECT_CHANGE_ORDER_FIELDS = {
         10: ["change-order-10"],
         11: ["change-order-11"]
     },
-    "PTL": {}
+    "PTL": {
+        1: ["gqm-change-order-1"],
+        2: ["gqm-change-order-2"],
+        3: ["gqm-change-order-3"],
+        4: ["gqm-change-order-4"]
+    }
 }
 
 # Order Change Orders
@@ -206,28 +211,24 @@ ORDER_CHANGE_ORDERS_FIELDS = {
     },
     "PTL": {
         1: [
-            "gqm-change-order-1",
             "tech-1-change-order-1",
             "tech-1-change-order-2",
             "tech-1-change-order-3",
             "tech-1-change-order-4"
         ],
         2: [
-            "gqm-change-order-2",
             "tech-2-change-order-1",
             "tech-2-change-order-1-2",
             "tech-2-change-order-3",
             "tech-2-change-order-4"
         ],
         3: [
-            "gqm-change-order-3",
             "tech-3-change-order-1",
             "tech-3-change-order-2",
             "tech-3-change-order-3",
             "tech-3-change-order-4"
         ],
         4: [
-            "gqm-change-order-4",
             "tech-4-change-order-1",
             "tech-4-change-order-2",
             "tech-4-change-order-3",

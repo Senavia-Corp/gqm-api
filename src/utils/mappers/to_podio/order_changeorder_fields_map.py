@@ -178,33 +178,34 @@ ORDER_CO_QID_FIELDS = {
 
 
 # ================== PTL PROJECT CHANGE ORDERS ================== #
-PROJECT_CO_PTL_FIELDS = {}
+PROJECT_CO_PTL_FIELDS = {
+    1: "gqm-change-order-1",
+    2: "gqm-change-order-2",
+    3: "gqm-change-order-3",
+    4: "gqm-change-order-4"
+}
 
 # ================== PTL ORDER CHANGE ORDERS ================== #
 ORDER_CO_PTL_FIELDS = {
     1: [
-        "gqm-change-order-1",
         "tech-1-change-order-1",
         "tech-1-change-order-2",
         "tech-1-change-order-3",
         "tech-1-change-order-4"
     ],
     2: [
-        "gqm-change-order-2",
         "tech-2-change-order-1",
         "tech-2-change-order-1-2",
         "tech-2-change-order-3",
         "tech-2-change-order-4"
     ],
     3: [
-        "gqm-change-order-3",
         "tech-3-change-order-1",
         "tech-3-change-order-2",
         "tech-3-change-order-3",
         "tech-3-change-order-4"
     ],
     4: [
-        "gqm-change-order-4",
         "tech-4-change-order-1",
         "tech-4-change-order-2",
         "tech-4-change-order-3",
