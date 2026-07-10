@@ -595,6 +595,57 @@ def sync_purchases_from_podio(session, job, item):
         # Esto previene que datos residuales en Podio (o Rentas que aún están en estado "Estimated")
         # generen "ghost purchases" cada vez que se dispara un webhook.
 
+
+def sync_ptl_gc_fee_from_podio(session, job):
+    """
+    Sincroniza el valor de Ptl_gc_fee traído desde Podio
+    con los registros EstimateCost(PTLGCF) para que el UI del panel
+    refleje los cambios hechos en Podio y no sean sobreescritos.
+    """
+    if job.Ptl_gc_fee is None:
+        return
+
+    from src.models.EstimateCostModel import EstimateCost
+    from src.utils.id_generator import generate_custom_id
+
+    # Obtener los EstimateCost PTLGCF Aprobados existentes
+    gc_costs = session.exec(
+        select(EstimateCost).where(
+            EstimateCost.ID_Jobs == job.ID_Jobs,
+            EstimateCost.Cost_type == "PTLGCF",
+            EstimateCost.Status == "Approved"
+        ).order_by(EstimateCost.ID_EstimateCost)
+    ).all()
+
+    val = float(job.Ptl_gc_fee)
+
+    if gc_costs:
+        cost = gc_costs[0]
+        if float(cost.Client_price or 0) != val or float(cost.Builder_cost or 0) != val:
+            cost.Client_price = val
+            cost.Builder_cost = val
+            session.add(cost)
+        
+        # Eliminar excedentes si por alguna razón hay más de uno
+        if len(gc_costs) > 1:
+            for extra_cost in gc_costs[1:]:
+                session.delete(extra_cost)
+    else:
+        # Solo creamos un costo nuevo si el valor es mayor a cero
+        if val > 0:
+            new_cost = EstimateCost(
+                ID_EstimateCost=generate_custom_id(session, EstimateCost, "ID_EstimateCost", "EST"),
+                ID_Jobs=job.ID_Jobs,
+                Cost_type="PTLGCF",
+                Status="Approved",
+                Title="PTL GC Fee (Podio)",
+                Builder_cost=val,
+                Client_price=val,
+                Quatity=1.0
+            )
+            session.add(new_cost)
+
+
 # -------- FUNCIÓN PARA UNIFICAR JOB FASE 1 Y 2
 def process_jobs_podio(session, item, app_type, year):
     job = upsert_job_from_item(session, item, app_type)
@@ -608,3 +659,4 @@ def process_jobs_podio(session, item, app_type, year):
     add_job_orders_and_change_orders(session, job, item, app_type)
     sync_bdf_from_podio(session, job)
     sync_purchases_from_podio(session, job, item)
+    sync_ptl_gc_fee_from_podio(session, job)

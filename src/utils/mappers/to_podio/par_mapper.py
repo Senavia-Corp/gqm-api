@@ -15,6 +15,8 @@ def map_job_to_podio_par(job_obj, session=None):
 
         end_value = getattr(job_obj, config["end_attr"], None) if config.get(
             "end_attr") else None
+        if config.get("end_attr") and end_value is None:
+            end_value = value
         converted = convert_value_for_podio(
             value, config["type"], end_value=end_value, with_time=config.get("with_time", False))
 
