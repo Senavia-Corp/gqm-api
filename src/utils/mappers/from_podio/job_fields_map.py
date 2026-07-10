@@ -154,19 +154,19 @@ FIELD_ALIASES_PTL = {
         "external_ids": ["date-received"]
     },
     "Gqm_target_sold_pricing": {
-        "field_id": [275089550, 268722727, 259504209, 246476784],
+        "field_id": [277037708, 275089550, 268722727, 259504209, 246476784],
         "external_ids": ["money"]
     },
     "Ptl_gc_fee": {
-        "field_id": [275089551, 268722728, 259504210, 246476785],
+        "field_id": [277037709, 275089551, 268722728, 259504210, 246476785],
         "external_ids": ["money-2"]
     },
     "Estimated_material": {
-        "field_id": [275089552, 268722729, 259504211, 246476791],
+        "field_id": [277037710, 275089552, 268722729, 259504211, 246476791],
         "external_ids": ["fees-and-cost"]
     },
     "Gqm_total_change_orders": {
-        "field_id": [275089553, 268722730, 259504212, 246832294],
+        "field_id": [277037711, 275089553, 268722730, 259504212, 246832294],
         "external_ids": ["gqm-total-change-orders"]
     },
     "Gqm_formula_pricing": {
