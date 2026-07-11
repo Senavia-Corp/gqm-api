@@ -1111,13 +1111,24 @@ def delete_job(id_job):
         if sync_podio and obj.podio_item_id:
             podio_service = podio_jobs_router.get_service(
                 job_type=obj.Job_type, year=year)
+            import requests
             try:
                 podio_service.delete_item(int(obj.podio_item_id))
                 register_event(obj.podio_item_id)
                 logger.info("🗑️ Job eliminado en Podio | job_id=%s | podio_item_id=%s",
                             id_job, obj.podio_item_id)
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else None
+                if status_code in (403, 404, 410):
+                    logger.warning("⚠️ No se pudo eliminar el item en Podio (Status %s) - Procediendo con eliminación local | job_id=%s | podio_item_id=%s",
+                                   status_code, id_job, obj.podio_item_id)
+                else:
+                    logger.exception("❌ Error eliminando Job en Podio | job_id=%s | podio_item_id=%s",
+                                     id_job, obj.podio_item_id)
+                    raise AppException(
+                        "Error al eliminar el Job en Podio.", "podio_delete_failed", 502)
             except Exception:
-                logger.exception("❌ Error eliminando Job en Podio | job_id=%s | podio_item_id=%s",
+                logger.exception("❌ Error inesperado eliminando Job en Podio | job_id=%s | podio_item_id=%s",
                                  id_job, obj.podio_item_id)
                 raise AppException(
                     "Error al eliminar el Job en Podio.", "podio_delete_failed", 502)
