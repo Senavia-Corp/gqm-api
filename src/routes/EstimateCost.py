@@ -69,6 +69,8 @@ def create_estimate():
         # ── Recálculo automático del Job asociado ─────────────────────────
         if obj.ID_Jobs:
             recalculate_and_apply(obj.ID_Jobs, session)
+            from src.utils.podio_job_sync import sync_job_to_podio
+            sync_job_to_podio(obj.ID_Jobs, session)
             session.commit()
         # ─────────────────────────────────────────────────────────────────
 
@@ -110,6 +112,8 @@ def update_estimate(id_estimate):
         # ── Recálculo automático del Job asociado ─────────────────────────
         if job_id_for_calc:
             recalculate_and_apply(job_id_for_calc, session)
+            from src.utils.podio_job_sync import sync_job_to_podio
+            sync_job_to_podio(job_id_for_calc, session)
             session.commit()
         # ─────────────────────────────────────────────────────────────────
 
@@ -135,6 +139,8 @@ def delete_estimate(id_estimate):
         # ── Recálculo automático del Job asociado ─────────────────────────
         if job_id_for_calc:
             recalculate_and_apply(job_id_for_calc, session)
+            from src.utils.podio_job_sync import sync_job_to_podio
+            sync_job_to_podio(job_id_for_calc, session)
             session.commit()
         # ─────────────────────────────────────────────────────────────────
 

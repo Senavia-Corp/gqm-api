@@ -43,6 +43,8 @@ def _recalculate_purchase_total_by_purchase_id(purchase_id: str, session) -> Non
 
     if purchase.ID_Jobs:
         recalculate_and_apply(purchase.ID_Jobs, session)
+        from src.utils.podio_job_sync import sync_job_to_podio
+        sync_job_to_podio(purchase.ID_Jobs, session)
 
 
 # -------------------RUTAS CRUD-------------------#

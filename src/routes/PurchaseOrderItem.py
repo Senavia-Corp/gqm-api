@@ -79,25 +79,8 @@ def _recalculate_purchase_total(order_id: str, session) -> None:
         recalculate_and_apply(purchase.ID_Jobs, session)
         
         # 4. Automatically sync to Podio to reflect Purchases in Job (PURCHASE 1...13)
-        try:
-            job = session.get(Job, purchase.ID_Jobs)
-            if job and job.podio_item_id:
-                podio_fields = None
-                if job.Job_type == "QID":
-                    podio_fields = map_job_to_podio_qid(job, session=session)
-                elif job.Job_type == "PTL":
-                    podio_fields = map_job_to_podio_ptl(job, session=session)
-                elif job.Job_type == "PAR":
-                    podio_fields = map_job_to_podio_par(job, session=session)
-                
-                if podio_fields:
-                    from datetime import datetime
-                    year = job.Date_assigned.year if job.Date_assigned else datetime.now().year
-                    podio_service = podio_jobs_router.get_service(job_type=job.Job_type, year=year)
-                    podio_service.update_item(job.podio_item_id, podio_fields)
-        except Exception as e:
-            print(f"Error syncing purchase changes to Podio for Job {purchase.ID_Jobs}: {e}")
-            traceback.print_exc()
+        from src.utils.podio_job_sync import sync_job_to_podio
+        sync_job_to_podio(purchase.ID_Jobs, session)
 
 
 # -------------------RUTAS CRUD-------------------#
