@@ -430,6 +430,17 @@ def add_job_orders_and_change_orders(
 
         order_obj = orders_map.get(tech_index)
         if not order_obj:
+            from src.models.OrderModel import Order
+            possible_fields = formula_map.get(tech_index, [])
+            if possible_fields:
+                order_obj = session.exec(
+                    select(Order).where(
+                        Order.job_podio_id == podio_item_id,
+                        Order.tech_field.in_(possible_fields)
+                    )
+                ).first()
+
+        if not order_obj:
             continue
 
         for external_id, value in changes.items():
