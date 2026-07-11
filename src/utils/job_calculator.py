@@ -171,6 +171,7 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
         ).all()
         for o in podio_orders:
             if o.ID_Order:
+                recalculate_order_formulas(o.ID_Order, session)
                 counted_order_ids.add(o.ID_Order)
             orders_adj.append(float(o.Adj_formula or 0))
 
@@ -184,6 +185,7 @@ def recalculate_job_fields(job_id: str, session: Session) -> dict:
             select(Order).where(Order.ID_Order == order_id)
         ).first()
         if order:
+            recalculate_order_formulas(order.ID_Order, session)
             counted_order_ids.add(order_id)
             orders_adj.append(float(order.Adj_formula or 0))
 
