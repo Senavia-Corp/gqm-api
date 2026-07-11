@@ -273,6 +273,23 @@ def update_po_item(id_po_item):
 
             save_with_retry(session, obj)
 
+            # ── Update corresponding EstimateCost record if it exists ──
+            est = session.exec(
+                select(EstimateCost).where(
+                    EstimateCost.Cost_code == id_po_item
+                )
+            ).first()
+            if est:
+                dump = update_data.model_dump(exclude_unset=True)
+                if "Name" in dump:
+                    est.Title = obj.Name
+                if "Quote_value" in dump:
+                    est.Unit_cost = obj.Quote_value
+                    est.Builder_cost = obj.Quote_value
+                if "Quote_notes" in dump:
+                    est.Description = obj.Quote_notes
+                save_with_retry(session, est)
+
             # ── Recalculate Purchase.Total_spending + Job.Gqm_total_materials_fees ──
             _recalculate_purchase_total(order_id_for_calc, session)
             session.commit()
@@ -317,6 +334,15 @@ def delete_po_item(id_po_item):
 
             # Capture FK before delete — object loses its data after deletion
             order_id_for_calc = obj.ID_PurchaseOrder
+
+            # ── Delete associated EstimateCost record first ──
+            est = session.exec(
+                select(EstimateCost).where(
+                    EstimateCost.Cost_code == id_po_item
+                )
+            ).first()
+            if est:
+                delete_with_retry(session, est)
 
             delete_with_retry(session, obj)
 

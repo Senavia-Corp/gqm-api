@@ -212,6 +212,22 @@ def delete_purchase_order(id_purchase_order):
             # Capture FK before delete
             purchase_id_for_calc = obj.ID_Purchase
 
+            # ── Delete associated EstimateCost records for all items in this order ──
+            from ..models.EstimateCostModel import EstimateCost
+            items_stmt = select(PurchaseOrderItem).where(
+                PurchaseOrderItem.ID_PurchaseOrder == id_purchase_order
+            )
+            items_to_delete = session.exec(items_stmt).all()
+            item_ids = [it.ID_PurchaseOrderItem for it in items_to_delete]
+            if item_ids:
+                estimates_to_delete = session.exec(
+                    select(EstimateCost).where(
+                        EstimateCost.Cost_code.in_(item_ids)
+                    )
+                ).all()
+                for est in estimates_to_delete:
+                    delete_with_retry(session, est)
+
             delete_with_retry(session, obj)
 
             # ── Recalculate Purchase.Total_spending + Job.Gqm_total_materials_fees ──

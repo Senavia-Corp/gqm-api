@@ -422,6 +422,27 @@ def delete_purchase(id_purchase):
             # Capturar job_id ANTES de borrar — después el objeto ya no tiene relaciones
             job_id_for_calc = obj.ID_Jobs
 
+            # ── Delete associated EstimateCost records for all items in all orders of this Purchase ──
+            orders_stmt = select(PurchaseOrder).where(
+                PurchaseOrder.ID_Purchase == id_purchase
+            )
+            orders = session.exec(orders_stmt).all()
+            order_ids = [o.ID_PurchaseOrder for o in orders]
+            if order_ids:
+                items_stmt = select(PurchaseOrderItem).where(
+                    PurchaseOrderItem.ID_PurchaseOrder.in_(order_ids)
+                )
+                items = session.exec(items_stmt).all()
+                item_ids = [it.ID_PurchaseOrderItem for it in items]
+                if item_ids:
+                    estimates_to_delete = session.exec(
+                        select(EstimateCost).where(
+                            EstimateCost.Cost_code.in_(item_ids)
+                        )
+                    ).all()
+                    for est in estimates_to_delete:
+                        delete_with_retry(session, est)
+
             delete_with_retry(session, obj)
 
             # ── Recálculo automático del Job asociado ─────────────────────
