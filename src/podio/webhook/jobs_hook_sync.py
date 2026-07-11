@@ -608,12 +608,11 @@ def sync_ptl_gc_fee_from_podio(session, job):
     from src.models.EstimateCostModel import EstimateCost
     from src.utils.id_generator import generate_custom_id
 
-    # Obtener los EstimateCost PTLGCF Aprobados existentes
+    # Obtener los EstimateCost PTLGCF existentes
     gc_costs = session.exec(
         select(EstimateCost).where(
             EstimateCost.ID_Jobs == job.ID_Jobs,
-            EstimateCost.Cost_type == "PTLGCF",
-            EstimateCost.Status == "Approved"
+            EstimateCost.Cost_type == "PTLGCF"
         ).order_by(EstimateCost.ID_EstimateCost)
     ).all()
 
