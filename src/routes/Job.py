@@ -927,11 +927,11 @@ def create_job():
 
         if sync_podio:
             if obj.Job_type == "QID":
-                podio_fields = map_job_to_podio_qid(obj, session=session)
+                podio_fields = map_job_to_podio_qid(obj, session=session, year=year)
             elif obj.Job_type == "PTL":
-                podio_fields = map_job_to_podio_ptl(obj, session=session)
+                podio_fields = map_job_to_podio_ptl(obj, session=session, year=year)
             elif obj.Job_type == "PAR":
-                podio_fields = map_job_to_podio_par(obj, session=session)
+                podio_fields = map_job_to_podio_par(obj, session=session, year=year)
             else:
                 raise AppException(
                     f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)
@@ -1068,11 +1068,11 @@ def update_job(id_job):
 
         if (sync_podio or dry_run) and obj.podio_item_id:
             if obj.Job_type == "QID":
-                podio_fields = map_job_to_podio_qid(obj, session=session)
+                podio_fields = map_job_to_podio_qid(obj, session=session, year=year)
             elif obj.Job_type == "PTL":
-                podio_fields = map_job_to_podio_ptl(obj, session=session)
+                podio_fields = map_job_to_podio_ptl(obj, session=session, year=year)
             elif obj.Job_type == "PAR":
-                podio_fields = map_job_to_podio_par(obj, session=session)
+                podio_fields = map_job_to_podio_par(obj, session=session, year=year)
             else:
                 raise AppException(
                     f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)

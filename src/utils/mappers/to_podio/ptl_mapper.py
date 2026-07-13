@@ -4,13 +4,11 @@ from .job_fields_map import BASE_PTL_FIELDS
 from src.models.ClientModel import Client
 
 
-def map_job_to_podio_ptl(job_obj, session=None):
+def map_job_to_podio_ptl(job_obj, session=None, year=None):
     payload = {}
     # Campos normales
     for attr, config in BASE_PTL_FIELDS.items():
         value = getattr(job_obj, attr, None)
-
-
 
         # 🔹 MULTI FIELD
         if config.get("multi"):

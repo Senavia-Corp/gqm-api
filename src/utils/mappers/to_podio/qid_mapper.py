@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from ..convert_value_podio import convert_value_for_podio
 from sqlmodel import select
 from .job_fields_map import BASE_QID_FIELDS
@@ -5,7 +6,30 @@ from src.models.ClientModel import Client
 from src.models.BldgDeptModel import BuildingDept
 
 
-def map_job_to_podio_qid(job_obj, session=None):
+def map_job_to_podio_qid(job_obj, session=None, year=None):
+    # Year-specific mapping for category fields
+    if not year:
+        from flask import request
+        try:
+            year = request.args.get("year", type=int)
+        except Exception:
+            pass
+    if not year:
+        for dt_attr in ["Date_assigned", "Date_Received", "Estimated_start_date"]:
+            val = getattr(job_obj, dt_attr, None)
+            if val:
+                if isinstance(val, (date, datetime)):
+                    year = val.year
+                    break
+                elif isinstance(val, str) and len(val) >= 4:
+                    try:
+                        year = int(val[:4])
+                        break
+                    except ValueError:
+                        pass
+    if not year:
+        year = 2026
+
     payload = {}
     # Campos normales
     for attr, config in BASE_QID_FIELDS.items():
