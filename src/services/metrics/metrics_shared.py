@@ -81,7 +81,7 @@ COMPLETED_ALL = (
 AVERAGE_TARGET_RETURN_STATUSES = INPROGRESS_ALL | COMPLETED_ALL | PAID_STATUSES
 
 # Active statuses for pipeline calculation (Active / uncollected)
-ACTIVE_STATUSES = INPROGRESS_ALL
+ACTIVE_STATUSES = INPROGRESS_ALL | {"Invoiced"}
 
 # Full breakdown list (all statuses across all types)
 STATUS_BREAKDOWN_LIST = [
