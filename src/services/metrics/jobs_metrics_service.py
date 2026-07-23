@@ -133,6 +133,12 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             # ------------------------------------------------------------------
             paid_flag = cast(Job.Job_status.in_(list(PAID_STATUSES)), Integer)
 
+            avg_final_pct_expr = func.coalesce(
+                func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col * pct_col), else_=0)) /
+                func.nullif(func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)), 0),
+                0.0
+            ).label("avg_final_pct")
+
             stmt_sum = select(
                 func.count(Job.ID_Jobs).label("job_count"),
                 func.sum(Job.Gqm_target_sold_pricing).label("total_quoted"),
@@ -141,7 +147,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     "total_adj_formula"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("total_final"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("total_premium"),
-                func.avg(pct_col).label("avg_final_pct"),
+                avg_final_pct_expr,
                 func.avg(case((Job.Job_status.in_(list(ACTIVE_STATUSES)), Job.Gqm_target_return), else_=None)).label("avg_target_ret"),
                 func.sum(paid_flag).label("paid_count"),
             )
@@ -185,7 +191,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.sum(Job.Gqm_adj_formula_pricing).label("adj_formula"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("final_sold"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("premium_in_money"),
-                func.avg(pct_col).label("avg_final_pct"),
+                avg_final_pct_expr,
             ).group_by(month_key).order_by(month_key)
 
             stmt_mon = _apply_base_filters(stmt_mon, normed_type, year)
@@ -224,7 +230,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.sum(Job.Gqm_formula_pricing).label("formula"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("final_sold"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("premium_in_money"),
-                func.avg(pct_col).label("avg_final_pct"),
+                avg_final_pct_expr,
             ).group_by(qtr_key).order_by(qtr_key)
 
             stmt_qtr = _apply_base_filters(stmt_qtr, normed_type, year)
@@ -266,7 +272,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
                     func.sum(final_col).label("final"),
                     func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
-                    func.avg(pct_col).label("avg_final_pct"),
+                    avg_final_pct_expr,
                 )
                 .join(JobMemberLink, JobMemberLink.job_id == Job.ID_Jobs)
                 .join(Member, Member.ID_Member == JobMemberLink.member_id)
@@ -338,7 +344,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                     func.count(Job.ID_Jobs).label("count"),
                     func.sum(final_col).label("final"),
                     func.sum(Job.Gqm_premium_in_money).label("premium_in_money"),
-                    func.avg(pct_col).label("avg_final_pct"),
+                    avg_final_pct_expr,
                     func.sum(paid_flag).label("paid_jobs"),
                 ).group_by(Job.Service_type)
 
