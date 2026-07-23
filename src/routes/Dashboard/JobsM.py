@@ -145,7 +145,7 @@ def jobs_member_pipeline():
                     continue
                 seen_job_keys.add(key)
                 amount = (
-                    float(j.Gqm_target_sold_pricing or 0)
+                    float(j.Gqm_formula_pricing or 0)
                     if j.Job_type == "PAR"
                     else float(j.Gqm_final_sold_pricing or 0)
                 )

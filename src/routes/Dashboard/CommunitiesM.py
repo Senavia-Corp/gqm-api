@@ -153,7 +153,7 @@ def clients_metrics():
 
     revenue_par = func.coalesce(
         func.sum(case((type_only("PAR"), func.coalesce(
-            Job.Gqm_target_sold_pricing, 0.0)), else_=0.0)),
+            Job.Gqm_formula_pricing, 0.0)), else_=0.0)),
         0.0
     ).label("revenue_par")
 
@@ -550,7 +550,7 @@ def parent_mgmt_co_metrics():
 
     revenue_par = func.coalesce(
         func.sum(case((type_only("PAR"), func.coalesce(
-            Job.Gqm_target_sold_pricing, 0.0)), else_=0.0)),
+            Job.Gqm_formula_pricing, 0.0)), else_=0.0)),
         0.0
     ).label("revenue_par")
 

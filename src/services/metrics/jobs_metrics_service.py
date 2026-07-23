@@ -43,9 +43,9 @@ def _pct(num: float, den: float) -> float:
 
 
 def _money_expr():
-    """Revenue expression: PAR -> target_sold_pricing, QID/PTL -> final_sold_pricing."""
+    """Revenue expression: PAR -> formula_pricing, QID/PTL -> final_sold_pricing."""
     return case(
-        (Job.Job_type == "PAR", func.coalesce(Job.Gqm_target_sold_pricing, 0.0)),
+        (Job.Job_type == "PAR", func.coalesce(Job.Gqm_formula_pricing, 0.0)),
         else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
     )
 
@@ -61,7 +61,12 @@ def _final_col_expr(job_type: str | None):
     """Final sold column: PAR -> formula_pricing, others -> final_sold_pricing."""
     if job_type == "PAR":
         return Job.Gqm_formula_pricing
-    return Job.Gqm_final_sold_pricing
+    if job_type in ("QID", "PTL"):
+        return Job.Gqm_final_sold_pricing
+    return case(
+        (Job.Job_type == "PAR", func.coalesce(Job.Gqm_formula_pricing, 0.0)),
+        else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
+    )
 
 
 def _apply_base_filters(stmt, job_type: str | None, year: int | None):
@@ -116,7 +121,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
     pct_col = _pct_col_expr(job_type if job_type != "ALL" else None)
     pct_label = "Target Return %" if job_type in (
         "PTL", "PAR") else "Avg Final %"
-    final_col = _final_col_expr(job_type if job_type != "ALL" else None)
+    final_col = _final_col_expr(job_type)
 
     normed_type = job_type  # "ALL" | "QID" | "PTL" | "PAR"
 
@@ -445,7 +450,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 client = row.Client
                 display_date = job.Date_assigned or job.Estimated_start_date
                 final_sold = (
-                    _safe_float(job.Gqm_target_sold_pricing)
+                    _safe_float(job.Gqm_formula_pricing)
                     if job.Job_type == "PAR"
                     else _safe_float(job.Gqm_final_sold_pricing)
                 )
@@ -520,7 +525,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 client = row.Client
                 display_date = job.Date_assigned or job.Estimated_start_date
                 amount = (
-                    _safe_float(job.Gqm_target_sold_pricing)
+                    _safe_float(job.Gqm_formula_pricing)
                     if job.Job_type == "PAR"
                     else _safe_float(job.Gqm_final_sold_pricing)
                 )
