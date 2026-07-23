@@ -170,7 +170,7 @@ def clients_metrics():
     is_closed = is_in_bucket_expr(CLOSED_BY_TYPE)
 
     quotes_count = _sum_if(and_(base_cond, is_pending)).label("quotes_count")
-    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, is_pending), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue")
+    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, is_pending), Job.Gqm_target_sold_pricing), else_=0.0)), 0.0).label("quotes_revenue")
     pquote_count = _sum_if(and_(base_cond, Job.Job_status == "Assigned/P. Quote")).label("pquote_count")
 
     inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
@@ -178,19 +178,13 @@ def clients_metrics():
     invoiced_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue")
     # QID usa Gqm_final_percentage; PTL/PAR usan Gqm_target_return
     _atr_status_cond = Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES))
-    _atr_pct_expr = case(
-        (Job.Job_type == "QID", Job.Gqm_final_percentage),
-        else_=Job.Gqm_target_return,
-    )
-    _atr_final_expr = case(
-        (Job.Job_type == "QID", Job.Gqm_final_percentage),
-        else_=Job.Gqm_final_target_return,
-    )
+    _atr_pct_expr = Job.Gqm_target_return
+    _atr_final_expr = Job.Gqm_final_target_return
     ave_target_sold = func.coalesce(
-        func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0
+        func.avg(case((base_cond, _atr_pct_expr), else_=None)), 0.0
     ).label("ave_target_sold")
     ave_final_target = func.coalesce(
-        func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0
+        func.avg(case((base_cond, _atr_final_expr), else_=None)), 0.0
     ).label("ave_final_target")
 
     # ✅ NEW: status breakdown columns (safe labels)
@@ -208,15 +202,15 @@ def clients_metrics():
         # --- GLOBAL SUMMARY ---
         summary_stmt = select(
             func.coalesce(func.sum(case((and_(base_cond, is_pending), 1), else_=0)), 0).label("quotes_count"),
-            func.coalesce(func.sum(case((and_(base_cond, is_pending), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, is_pending), Job.Gqm_target_sold_pricing), else_=0.0)), 0.0).label("quotes_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), 1), else_=0)), 0).label("pquote_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_inprog), 1), else_=0)), 0).label("inprog_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue"),
-            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
-            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
+            func.coalesce(func.avg(case((base_cond, _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
+            func.coalesce(func.avg(case((base_cond, _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
         ).select_from(Job)
         
         if member_id:
@@ -573,21 +567,13 @@ def parent_mgmt_co_metrics():
     inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
     paid_revenue = func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue")
     invoiced_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue")
-    # ERR-009: Average Target Return debe incluir Paid, Invoiced y Completed
-    _atr_status_cond = Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES))
-    _atr_pct_expr = case(
-        (Job.Job_type == "QID", Job.Gqm_final_percentage),
-        else_=Job.Gqm_target_return,
-    )
-    _atr_final_expr = case(
-        (Job.Job_type == "QID", Job.Gqm_final_percentage),
-        else_=Job.Gqm_final_target_return,
-    )
+    _atr_pct_expr = Job.Gqm_target_return
+    _atr_final_expr = Job.Gqm_final_target_return
     ave_target_sold = func.coalesce(
-        func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0
+        func.avg(case((base_cond, _atr_pct_expr), else_=None)), 0.0
     ).label("ave_target_sold")
     ave_final_target = func.coalesce(
-        func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0
+        func.avg(case((base_cond, _atr_final_expr), else_=None)), 0.0
     ).label("ave_final_target")
     
     # ✅ Count of distinct communities per parent co
@@ -615,8 +601,8 @@ def parent_mgmt_co_metrics():
             func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue"),
-            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
-            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
+            func.coalesce(func.avg(case((base_cond, _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
+            func.coalesce(func.avg(case((base_cond, _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
         ).select_from(Job).join(Client, Job.ID_Client == Client.ID_Client, isouter=True)
         
         if member_id:

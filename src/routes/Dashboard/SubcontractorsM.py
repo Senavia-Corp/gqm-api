@@ -232,16 +232,18 @@ def subcontractors_summary():
         # ── Total paid (Bill Payments) per vendor ───────────────────────────
         paid_map: dict[str, float] = {}
         clean_vendor = _vendor_col_cleaned()
-        paid_stmt = (
+        
+        dedup_paid_subq = (
             select(
                 clean_vendor.label("vendor_clean"),
-                func.coalesce(
-                    func.sum(FinancialTransaction.Total_Amount), 0.0
-                ).label("total_paid"),
+                FinancialTransaction.ID_FTransaction,
+                FinancialTransaction.Total_Amount
             )
+            .distinct()
+            .select_from(FinancialLink)
             .join(
-                FinancialLink,
-                FinancialLink.fdocument_id == FinancialDocument.ID_FinancialDoc,
+                FinancialDocument,
+                FinancialDocument.ID_FinancialDoc == FinancialLink.fdocument_id,
             )
             .join(
                 FinancialTransaction,
@@ -251,7 +253,15 @@ def subcontractors_summary():
                 FinancialDocument.Type_of_document == "Bill",
                 FinancialTransaction.Type_of_transaction == "Bill Payment",
             )
-            .group_by(clean_vendor)
+            .subquery()
+        )
+        
+        paid_stmt = (
+            select(
+                dedup_paid_subq.c.vendor_clean,
+                func.coalesce(func.sum(dedup_paid_subq.c.Total_Amount), 0.0).label("total_paid"),
+            )
+            .group_by(dedup_paid_subq.c.vendor_clean)
         )
         for row in session.exec(paid_stmt).all():
             if row.vendor_clean:
@@ -560,6 +570,10 @@ def subcontractor_detail(sub_id: str):
                     (r.Percentage_Paid is not None and r.Percentage_Paid >= 100) or
                     (bal_amt is not None and bal_amt <= 0)
                 )
+                
+                if is_paid:
+                    continue
+                    
                 pending_bills.append({
                     "bill_id":         r.ID_FinancialDoc,
                     "job_ref_qbo":     r.Job_Ref_QBO or None,
