@@ -556,17 +556,20 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 })
 
             # ------------------------------------------------------------------
-            # 9. RECENT PURCHASES (Top 5)
+            # 9. RECENT PURCHASES
             # ------------------------------------------------------------------
             stmt_purch = (
                 select(Purchase, Job, Client)
                 .outerjoin(Job, Job.ID_Jobs == Purchase.ID_Jobs)
                 .outerjoin(Client, Client.ID_Client == Job.ID_Client)
                 .order_by(Purchase.created_at.desc())
-                .limit(20)
             )
-            # (Note: not applying base filters to purchases as it's a global top 5 usually, 
-            # but if needed we could filter by year/type if they are linked to jobs of that type)
+            
+            if normed_type and normed_type != "ALL":
+                stmt_purch = stmt_purch.where(Job.Job_type == normed_type)
+            if year:
+                from src.services.metrics.aux_func_metrics import _year_expr
+                stmt_purch = stmt_purch.where(_year_expr(Purchase.created_at) == year)
 
             recent_purchases = []
             for pur, j, cl in session.exec(stmt_purch).all():

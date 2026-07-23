@@ -12,7 +12,7 @@ from src.services.metrics.metrics_shared import (
     _norm_job_type,
     _norm_year,
     _normalize_status_str,
-    ACTIVE_STATUSES,
+    PENDING_ALL,
 )
 from src.services.metrics.aux_func_metrics import _safe_int, _year_expr
 from sqlalchemy import and_
@@ -60,8 +60,8 @@ def jobs_member_pipeline():
     offset = (max(page, 1) - 1) * limit
 
     # Define active statuses specifically for this "Pipeline" view
-    # Based on user request: Scheduled / Work in Progress, Invoiced, Assigned-In progress, In Progress
-    target_statuses = list(ACTIVE_STATUSES)
+    # Based on user request: Jobs in P/Quote or pending stage
+    target_statuses = list(PENDING_ALL)
 
     if job_type == "ALL":
         roles_to_use = ["Acc Rep Selling", "Mgmt Member"]
@@ -144,11 +144,7 @@ def jobs_member_pipeline():
                 if key in seen_job_keys:
                     continue
                 seen_job_keys.add(key)
-                amount = (
-                    float(j.Gqm_formula_pricing or 0)
-                    if j.Job_type == "PAR"
-                    else float(j.Gqm_final_sold_pricing or 0)
-                )
+                amount = float(j.Gqm_target_sold_pricing or 0)
                 job_dict = {
                     "job_id": j.ID_Jobs,
                     "type": j.Job_type,

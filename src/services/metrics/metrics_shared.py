@@ -42,6 +42,12 @@ PENDING_BY_TYPE = {
     "PAR": set(),
 }
 
+PENDING_ALL = (
+    PENDING_BY_TYPE["QID"]
+    | PENDING_BY_TYPE["PTL"]
+    | PENDING_BY_TYPE["PAR"]
+)
+
 INPROGRESS_BY_TYPE = {
     "QID": {"Scheduled / Work in Progress"},
     "PTL": {"Assigned-In progress"},

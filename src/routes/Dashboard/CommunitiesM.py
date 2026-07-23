@@ -567,7 +567,7 @@ def parent_mgmt_co_metrics():
     is_closed = is_in_bucket_expr(CLOSED_BY_TYPE)
 
     quotes_count = _sum_if(and_(base_cond, is_pending)).label("quotes_count")
-    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, is_pending), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue")
+    quotes_revenue = func.coalesce(func.sum(case((and_(base_cond, is_pending), Job.Gqm_target_sold_pricing), else_=0.0)), 0.0).label("quotes_revenue")
     pquote_count = _sum_if(and_(base_cond, Job.Job_status == "Assigned/P. Quote")).label("pquote_count")
 
     inprog_revenue = func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue")
@@ -608,7 +608,7 @@ def parent_mgmt_co_metrics():
         # --- GLOBAL SUMMARY ---
         summary_stmt = select(
             func.coalesce(func.sum(case((and_(base_cond, is_pending), 1), else_=0)), 0).label("quotes_count"),
-            func.coalesce(func.sum(case((and_(base_cond, is_pending), revenue_expr), else_=0.0)), 0.0).label("quotes_revenue"),
+            func.coalesce(func.sum(case((and_(base_cond, is_pending), Job.Gqm_target_sold_pricing), else_=0.0)), 0.0).label("quotes_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Assigned/P. Quote"), 1), else_=0)), 0).label("pquote_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_inprog), 1), else_=0)), 0).label("inprog_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_inprog), revenue_expr), else_=0.0)), 0.0).label("inprog_revenue"),
