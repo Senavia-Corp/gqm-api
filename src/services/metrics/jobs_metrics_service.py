@@ -568,8 +568,8 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             if normed_type and normed_type != "ALL":
                 stmt_purch = stmt_purch.where(Job.Job_type == normed_type)
             if year:
-                from src.services.metrics.aux_func_metrics import _year_expr
-                stmt_purch = stmt_purch.where(_year_expr(Purchase.created_at) == year)
+                from sqlalchemy import extract
+                stmt_purch = stmt_purch.where(extract('year', Purchase.created_at) == year)
 
             recent_purchases = []
             for pur, j, cl in session.exec(stmt_purch).all():
