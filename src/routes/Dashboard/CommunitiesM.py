@@ -180,11 +180,13 @@ def clients_metrics():
     _atr_status_cond = Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES))
     _atr_pct_expr = Job.Gqm_target_return
     _atr_final_expr = Job.Gqm_final_target_return
+    # PC-3/CL-2: el promedio solo considera jobs In-Progress/Completed/Paid
+    # (excluye Pending y Cancelled) — _atr_status_cond conectado al case.
     ave_target_sold = func.coalesce(
-        func.avg(case((base_cond, _atr_pct_expr), else_=None)), 0.0
+        func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0
     ).label("ave_target_sold")
     ave_final_target = func.coalesce(
-        func.avg(case((base_cond, _atr_final_expr), else_=None)), 0.0
+        func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0
     ).label("ave_final_target")
 
     # ✅ NEW: status breakdown columns (safe labels)
@@ -209,10 +211,11 @@ def clients_metrics():
             func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue"),
-            func.coalesce(func.avg(case((base_cond, _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
-            func.coalesce(func.avg(case((base_cond, _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
+            # PC-3/CL-2: promedio solo sobre In-Progress/Completed/Paid
+            func.coalesce(func.avg(case((and_(base_cond, Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES))), _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
+            func.coalesce(func.avg(case((and_(base_cond, Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES))), _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
         ).select_from(Job)
-        
+
         if member_id:
             summary_stmt = summary_stmt.join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id).where(JobMemberLink.member_id == member_id)
         
@@ -569,13 +572,15 @@ def parent_mgmt_co_metrics():
     invoiced_revenue = func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue")
     _atr_pct_expr = Job.Gqm_target_return
     _atr_final_expr = Job.Gqm_final_target_return
+    # PC-3: promedio solo sobre In-Progress/Completed/Paid (excluye Pending/Cancelled)
+    _atr_status_cond = Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES))
     ave_target_sold = func.coalesce(
-        func.avg(case((base_cond, _atr_pct_expr), else_=None)), 0.0
+        func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0
     ).label("ave_target_sold")
     ave_final_target = func.coalesce(
-        func.avg(case((base_cond, _atr_final_expr), else_=None)), 0.0
+        func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0
     ).label("ave_final_target")
-    
+
     # ✅ Count of distinct communities per parent co
     communities_count = func.count(func.distinct(Client.ID_Client)).label("communities_count")
 
@@ -601,8 +606,9 @@ def parent_mgmt_co_metrics():
             func.coalesce(func.sum(case((and_(base_cond, is_closed), 1), else_=0)), 0).label("paid_count"),
             func.coalesce(func.sum(case((and_(base_cond, is_closed), revenue_expr), else_=0.0)), 0.0).label("paid_revenue"),
             func.coalesce(func.sum(case((and_(base_cond, Job.Job_status == "Invoiced"), Job.Gqm_final_sold_pricing), else_=0.0)), 0.0).label("invoiced_revenue"),
-            func.coalesce(func.avg(case((base_cond, _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
-            func.coalesce(func.avg(case((base_cond, _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
+            # PC-3: promedio solo sobre In-Progress/Completed/Paid
+            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_pct_expr), else_=None)), 0.0).label("ave_target_sold"),
+            func.coalesce(func.avg(case((and_(base_cond, _atr_status_cond), _atr_final_expr), else_=None)), 0.0).label("ave_final_target")
         ).select_from(Job).join(Client, Job.ID_Client == Client.ID_Client, isouter=True)
         
         if member_id:
@@ -731,20 +737,33 @@ def parent_mgmt_co_metrics():
                 })
 
             # 2) Member Assignments subquery
-            rev_col     = func.coalesce(func.sum(revenue_expr), 0.0)
-            job_cnt_col = func.count(Job.ID_Jobs)
+            # PC-1: un member con DOS roles en el mismo job aporta dos filas de
+            # JobMemberLink → el job (y su revenue) se contaba doble. Se colapsa
+            # a pares DISTINCT (job, community, member) antes de agregar.
+            distinct_assign_sq = (
+                select(
+                    Job.ID_Jobs.label("job_id"),
+                    Client.Client_Community.label("community"),
+                    Member.Member_Name.label("member_name"),
+                    revenue_expr.label("job_revenue"),
+                )
+                .distinct()
+                .select_from(Job)
+                .join(Client, Job.ID_Client == Client.ID_Client)
+                .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)
+                .join(Member, JobMemberLink.member_id == Member.ID_Member)
+                .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)
+                .subquery()
+            )
+            rev_col     = func.coalesce(func.sum(distinct_assign_sq.c.job_revenue), 0.0)
+            job_cnt_col = func.count(distinct_assign_sq.c.job_id)
             member_assign_stmt = select(
-                Client.Client_Community.label("community"),
-                Member.Member_Name.label("member_name"),
+                distinct_assign_sq.c.community,
+                distinct_assign_sq.c.member_name,
                 rev_col.label("revenue"),
                 job_cnt_col.label("job_count"),
-            ).select_from(Job)\
-             .join(Client, Job.ID_Client == Client.ID_Client)\
-             .join(JobMemberLink, Job.ID_Jobs == JobMemberLink.job_id)\
-             .join(Member, JobMemberLink.member_id == Member.ID_Member)\
-             .where(Client.ID_Community_Tracking == pmc_id, type_ok, year_ok)\
-             .group_by(Client.Client_Community, Member.Member_Name)\
-             .order_by(Client.Client_Community.asc(), rev_col.desc())
+            ).group_by(distinct_assign_sq.c.community, distinct_assign_sq.c.member_name)\
+             .order_by(distinct_assign_sq.c.community.asc(), rev_col.desc())
 
             ma_rows = ds_session.exec(member_assign_stmt).all()
             community_assignments = [
