@@ -80,6 +80,11 @@ def _vendor_col_cleaned():
     )
 
 
+# Longitud mínima para permitir matching por contención de nombres (SC-1/AI-2):
+# por debajo de esto, solo igualdad exacta.
+MIN_VENDOR_MATCH_LEN = 5
+
+
 def _org_matches_vendor(org_clean: str, vendor_clean: str) -> bool:
     """
     Bidirectional containment check (Python side).
@@ -95,6 +100,13 @@ def _org_matches_vendor(org_clean: str, vendor_clean: str) -> bool:
         return False
     o = org_clean.lower()
     v = vendor_clean.lower()
+    if o == v:
+        return True
+    # Orgs muy cortas ("Pool", "ABC", "test") absorbían pagos de vendors ajenos
+    # por containment ("Pool" ⊆ "Plantation Pools LLC"). Con nombres cortos solo
+    # se acepta igualdad exacta.
+    if min(len(o), len(v)) < MIN_VENDOR_MATCH_LEN:
+        return False
     return o in v or v in o
 
 
@@ -106,8 +118,11 @@ def _find_best_paid(org_clean: str, paid_map: dict[str, float]) -> float:
     """
     if not org_clean:
         return 0.0
-    if org_clean in paid_map:
-        return paid_map[org_clean]
+    # paid_map viene con claves en MAYÚSCULAS: el mismo vendor puede aparecer con
+    # distinta capitalización en QBO y debe sumar en un solo bucket.
+    key = org_clean.upper()
+    if key in paid_map:
+        return paid_map[key]
     matches = [
         (vendor, amt)
         for vendor, amt in paid_map.items()
@@ -130,6 +145,12 @@ def _vendor_match_cond(org_clean: str):
         → also matches 'MPC'                (org ILIKE '%MPC%')
     """
     vc = _vendor_col_cleaned()
+    if len(org_clean) < MIN_VENDOR_MATCH_LEN:
+        # Mismo guard que _org_matches_vendor: org corta → solo igualdad exacta.
+        return and_(
+            FinancialDocument.Vendor_Customer.is_not(None),
+            func.upper(vc) == org_clean.upper(),
+        )
     return and_(
         FinancialDocument.Vendor_Customer.is_not(None),
         or_(
@@ -205,7 +226,9 @@ def subcontractors_summary():
             )
             .where(
                 Tasks.ID_Subcontractor.in_(sub_ids),
-                Tasks.Designation_date.is_not(None),
+                # "Activa" = no completada (SC-7/8): mismo criterio que el detalle,
+                # sin exigir Designation_date (una tarea abierta sin fecha cuenta).
+                func.coalesce(Tasks.Task_status, "") != "Completed",
             )
         )
         tasks_by_sub: dict[str, list[dict]] = {}
@@ -265,7 +288,10 @@ def subcontractors_summary():
         )
         for row in session.exec(paid_stmt).all():
             if row.vendor_clean:
-                paid_map[row.vendor_clean] = _safe_float(row.total_paid)
+                # Clave normalizada a MAYÚSCULAS: "Rodriguez's…" y "RODRIGUEZ'S…"
+                # son el mismo vendor y deben sumar juntos (SC-1).
+                key = row.vendor_clean.upper()
+                paid_map[key] = paid_map.get(key, 0.0) + _safe_float(row.total_paid)
 
     # ── Build full result list, then sort globally ──────────────────────────
     all_results = []
@@ -376,6 +402,8 @@ def subcontractor_detail(sub_id: str):
             .outerjoin(Job, Job.ID_Jobs == Tasks.ID_Jobs)
             .where(
                 Tasks.ID_Subcontractor == sub_id,
+                # Mismo criterio que la tarjeta (SC-7/8): activa = no completada.
+                func.coalesce(Tasks.Task_status, "") != "Completed",
             )
             .order_by(Tasks.Designation_date.asc().nullslast())
         )
