@@ -19,6 +19,7 @@ from .metrics_shared import (
     COMPLETED_BY_TYPE,
     PAID_STATUSES,
     ACTIVE_STATUSES,
+    CANCELLED_STATUS,
     _norm_job_type,
     _norm_year,
     _apply_year_filter,
@@ -51,10 +52,17 @@ def _money_expr():
 
 
 def _pct_col_expr(job_type: str | None):
-    """Percentage column: PTL/PAR -> target_return, QID/None -> final_percentage."""
+    """Percentage column: PTL/PAR -> target_return, QID -> final_percentage.
+    Bajo ALL (None) hace falta el case por tipo (H-5): los PTL/PAR tienen
+    Gqm_final_percentage NULL y el promedio salía sin ellos."""
     if job_type in ("PTL", "PAR"):
         return Job.Gqm_target_return
-    return Job.Gqm_final_percentage
+    if job_type == "QID":
+        return Job.Gqm_final_percentage
+    return case(
+        (Job.Job_type.in_(["PTL", "PAR"]), Job.Gqm_target_return),
+        else_=Job.Gqm_final_percentage,
+    )
 
 
 def _final_col_expr(job_type: str | None):
@@ -139,10 +147,14 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 0.0
             ).label("avg_final_pct")
 
+            # H-1/H-2: los cancelados no cuentan en el cotizado, la fórmula ni el
+            # total de jobs del contador de pagados (coalesce cubre status NULL).
+            alive = func.coalesce(Job.Job_status, "") != CANCELLED_STATUS
+
             stmt_sum = select(
-                func.count(Job.ID_Jobs).label("job_count"),
-                func.sum(Job.Gqm_target_sold_pricing).label("total_quoted"),
-                func.sum(Job.Gqm_formula_pricing).label("total_formula"),
+                func.sum(case((alive, 1), else_=0)).label("job_count"),
+                func.sum(case((alive, Job.Gqm_target_sold_pricing), else_=0.0)).label("total_quoted"),
+                func.sum(case((alive, Job.Gqm_formula_pricing), else_=0.0)).label("total_formula"),
                 func.sum(Job.Gqm_adj_formula_pricing).label(
                     "total_adj_formula"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("total_final"),
