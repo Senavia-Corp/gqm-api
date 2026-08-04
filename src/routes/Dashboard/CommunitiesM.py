@@ -14,6 +14,7 @@ from src.services.metrics.aux_func_metrics import (
     _sum_if, _norm_order_by)
 from src.services.metrics.metrics_shared import (
     PENDING_BY_TYPE,
+    PENDING_ALL,
     INPROGRESS_BY_TYPE,
     COMPLETED_BY_TYPE,
     CANCELLED_STATUS,
@@ -704,15 +705,24 @@ def parent_mgmt_co_metrics():
         # 1) Associated Communities subquery
         paid_jobs_col = func.sum(case((is_closed, 1), else_=0))
         total_jobs_col = func.count(Job.ID_Jobs)
-        is_proposed = Job.Job_status.in_(["Assigned/P. Quote", "Waiting for Approval", "Cancelled"])
-        proposed_jobs_col = func.sum(case((is_proposed, 1), else_=0))
+        # Approval % (definición de negocio 2026-08-04):
+        #   aprobado  = confirmado/en curso/pagado/terminado
+        #   pendiente = aún sin aprobación confirmada (P.Quote, Waiting, Hold,
+        #               Received-Stand By = PENDING_ALL del catálogo)
+        #   cancelado = FUERA de la métrica (ni numerador ni denominador)
+        #   pct = (total − pendientes − cancelados) / (total − cancelados)
+        is_pending_approval = Job.Job_status.in_(list(PENDING_ALL))
+        is_cancelled_j = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) == CANCELLED_STATUS.upper()
+        pending_jobs_col = func.sum(case((is_pending_approval, 1), else_=0))
+        cancelled_jobs_col = func.sum(case((is_cancelled_j, 1), else_=0))
         rev_comm_col = func.coalesce(func.sum(case((is_closed, revenue_expr), else_=0.0)), 0.0)
-        
+
         top_comm_stmt = select(
             Client.Client_Community.label("name"),
             total_jobs_col.label("total_jobs"),
             paid_jobs_col.label("paid_jobs"),
-            proposed_jobs_col.label("proposed_jobs"),
+            pending_jobs_col.label("pending_jobs"),
+            cancelled_jobs_col.label("cancelled_jobs"),
             rev_comm_col.label("revenue"),
         ).select_from(Client)\
          .join(Job, Job.ID_Client == Client.ID_Client, isouter=True)\
@@ -725,9 +735,11 @@ def parent_mgmt_co_metrics():
             top_communities = []
             for tc in tc_rows:
                 tot = int(tc.total_jobs or 0)
-                prop = int(tc.proposed_jobs or 0)
-                appr = tot - prop
-                pct = round(appr / tot, 4) if tot > 0 else 0.0
+                pend = int(tc.pending_jobs or 0)
+                canc = int(tc.cancelled_jobs or 0)
+                denom = tot - canc
+                appr = denom - pend
+                pct = round(appr / denom, 4) if denom > 0 else 0.0
                 top_communities.append({
                     "name":         tc.name,
                     "total_jobs":   tot,
