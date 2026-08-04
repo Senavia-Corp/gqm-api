@@ -145,6 +145,10 @@ def _vendor_match_cond(org_clean: str):
         → also matches 'MPC'                (org ILIKE '%MPC%')
     """
     vc = _vendor_col_cleaned()
+    if not org_clean:
+        # Org vacía tras limpiar ('{}', '""'): no matchear nada — sin este guard,
+        # upper(vc)=='' matchearía todos los bills cuyo vendor limpia a vacío.
+        return literal(False)
     if len(org_clean) < MIN_VENDOR_MATCH_LEN:
         # Mismo guard que _org_matches_vendor: org corta → solo igualdad exacta.
         return and_(
@@ -155,7 +159,13 @@ def _vendor_match_cond(org_clean: str):
         FinancialDocument.Vendor_Customer.is_not(None),
         or_(
             vc.ilike(f"%{org_clean}%"),
-            literal(org_clean).ilike(func.concat("%", vc, "%")),
+            # La rama inversa (vendor contenido en la org) exige también longitud
+            # mínima del VENDOR limpio: un vendor corto/vacío no puede ser
+            # absorbido por una org larga (guard simétrico a _org_matches_vendor).
+            and_(
+                func.length(vc) >= MIN_VENDOR_MATCH_LEN,
+                literal(org_clean).ilike(func.concat("%", vc, "%")),
+            ),
         ),
     )
 
@@ -228,7 +238,7 @@ def subcontractors_summary():
                 Tasks.ID_Subcontractor.in_(sub_ids),
                 # "Activa" = no completada (SC-7/8): mismo criterio que el detalle,
                 # sin exigir Designation_date (una tarea abierta sin fecha cuenta).
-                func.coalesce(Tasks.Task_status, "") != "Completed",
+                func.upper(func.trim(func.coalesce(Tasks.Task_status, ""))) != "COMPLETED",
             )
         )
         tasks_by_sub: dict[str, list[dict]] = {}
@@ -254,8 +264,11 @@ def subcontractors_summary():
 
         # ── Total paid (Bill Payments) per vendor ───────────────────────────
         paid_map: dict[str, float] = {}
-        clean_vendor = _vendor_col_cleaned()
-        
+        # upper() DENTRO del subquery: si el mismo txn batch enlaza bills con el
+        # vendor en distinta capitalización, el DISTINCT debe colapsarlos ANTES
+        # de sumar (si no, la transacción sobrevive dos veces).
+        clean_vendor = func.upper(_vendor_col_cleaned())
+
         dedup_paid_subq = (
             select(
                 clean_vendor.label("vendor_clean"),
@@ -403,7 +416,7 @@ def subcontractor_detail(sub_id: str):
             .where(
                 Tasks.ID_Subcontractor == sub_id,
                 # Mismo criterio que la tarjeta (SC-7/8): activa = no completada.
-                func.coalesce(Tasks.Task_status, "") != "Completed",
+                func.upper(func.trim(func.coalesce(Tasks.Task_status, ""))) != "COMPLETED",
             )
             .order_by(Tasks.Designation_date.asc().nullslast())
         )

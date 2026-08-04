@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from sqlmodel import select
-from sqlalchemy import func, cast, case, Integer, or_
+from sqlalchemy import func, cast, case, Integer, or_, and_
 from sqlalchemy.exc import SQLAlchemyError
 
 from ...database.db_sqlmodel import get_session
@@ -141,21 +141,30 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             # ------------------------------------------------------------------
             paid_flag = cast(Job.Job_status.in_(list(PAID_STATUSES)), Integer)
 
+            # El denominador solo cuenta jobs pagados con pct disponible: un pagado
+            # con pct NULL aportaba su monto al denominador y NULL al numerador,
+            # deflactando el promedio en silencio.
+            paid_with_pct = and_(
+                Job.Job_status.in_(list(PAID_STATUSES)),
+                pct_col.is_not(None),
+            )
             avg_final_pct_expr = func.coalesce(
-                func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col * pct_col), else_=0)) /
-                func.nullif(func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)), 0),
+                func.sum(case((paid_with_pct, final_col * pct_col), else_=0)) /
+                func.nullif(func.sum(case((paid_with_pct, final_col), else_=0)), 0),
                 0.0
             ).label("avg_final_pct")
 
             # H-1/H-2: los cancelados no cuentan en el cotizado, la fórmula ni el
-            # total de jobs del contador de pagados (coalesce cubre status NULL).
-            alive = func.coalesce(Job.Job_status, "") != CANCELLED_STATUS
+            # total de jobs del contador de pagados. upper(trim(coalesce)) cubre
+            # status NULL y variantes de mayúsculas/espacios de prod.
+            alive = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) != "CANCELLED"
 
             stmt_sum = select(
                 func.sum(case((alive, 1), else_=0)).label("job_count"),
+                func.count(Job.ID_Jobs).label("job_count_all"),
                 func.sum(case((alive, Job.Gqm_target_sold_pricing), else_=0.0)).label("total_quoted"),
                 func.sum(case((alive, Job.Gqm_formula_pricing), else_=0.0)).label("total_formula"),
-                func.sum(Job.Gqm_adj_formula_pricing).label(
+                func.sum(case((alive, Job.Gqm_adj_formula_pricing), else_=0.0)).label(
                     "total_adj_formula"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("total_final"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("total_premium"),
@@ -169,6 +178,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             total_quoted = _safe_float(r.total_quoted)
             total_final = _safe_float(r.total_final)
             job_count = int(r.job_count or 0)
+            job_count_all = int(r.job_count_all or 0)
             paid_count = int(r.paid_count or 0)
 
             kpi_summary = {
@@ -193,14 +203,16 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             month_key = func.to_char(effective_date, "YYYY-MM")
             month_name = func.to_char(effective_date, "Month")
 
+            # jobs/quoted/formula con el mismo criterio 'alive' que las tarjetas
+            # KPI: la fila TOTAL del frontend debe cuadrar con Total Quoted/Formula.
             stmt_mon = select(
                 month_key.label("month"),
                 func.max(month_name).label("month_name"),
-                func.count(Job.ID_Jobs).label("jobs"),
+                func.sum(case((alive, 1), else_=0)).label("jobs"),
                 func.sum(paid_flag).label("paid_jobs"),
-                func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
-                func.sum(Job.Gqm_formula_pricing).label("formula"),
-                func.sum(Job.Gqm_adj_formula_pricing).label("adj_formula"),
+                func.sum(case((alive, Job.Gqm_target_sold_pricing), else_=0.0)).label("quoted_target_sold"),
+                func.sum(case((alive, Job.Gqm_formula_pricing), else_=0.0)).label("formula"),
+                func.sum(case((alive, Job.Gqm_adj_formula_pricing), else_=0.0)).label("adj_formula"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("final_sold"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("premium_in_money"),
                 avg_final_pct_expr,
@@ -236,10 +248,10 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
 
             stmt_qtr = select(
                 qtr_key.label("quarter"),
-                func.count(Job.ID_Jobs).label("jobs"),
+                func.sum(case((alive, 1), else_=0)).label("jobs"),
                 func.sum(paid_flag).label("paid_jobs"),
-                func.sum(Job.Gqm_target_sold_pricing).label("quoted_target_sold"),
-                func.sum(Job.Gqm_formula_pricing).label("formula"),
+                func.sum(case((alive, Job.Gqm_target_sold_pricing), else_=0.0)).label("quoted_target_sold"),
+                func.sum(case((alive, Job.Gqm_formula_pricing), else_=0.0)).label("formula"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("final_sold"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("premium_in_money"),
                 avg_final_pct_expr,
@@ -335,7 +347,9 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 status_breakdown.append({
                     "status":  status_name,
                     "count":   count,
-                    "pct":     _pct(count, job_count),
+                    # pct sobre el total INCLUYENDO cancelados: la fila Cancelled
+                    # está en el desglose, así la columna suma 100%.
+                    "pct":     _pct(count, job_count_all),
                     "quoted_target_sold":  quoted,
                     "final":   final,
                     "premium_in_money": _safe_float(row.premium_in_money),

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from sqlmodel import Session, select
-from sqlalchemy import func, extract, cast, Integer, Date, case
+from sqlalchemy import func, extract, cast, Integer, Date, case, and_
 from datetime import datetime
 
 from src.models.JobModel import Job
@@ -11,6 +11,7 @@ from src.models.MemberModel import Member
 from src.models.ClientModel import Client
 
 from .metrics_shared import PAID_STATUSES, ACTIVE_STATUSES
+from .jobs_metrics_service import _pct_col_expr, _final_col_expr
 
 
 # Orden lógico para la visualización en el reporte (basado en el flujo de trabajo real)
@@ -99,19 +100,34 @@ def get_jobs_report_data(
     # ------------------------------------------------------------------
     paid_flag = cast(Job.Job_status.in_(list(PAID_STATUSES)), Integer)
 
-    pct_col = Job.Gqm_target_return if job_type in ("PTL", "PAR") else Job.Gqm_final_percentage
+    # Mismas expresiones que el dashboard de Jobs (jobs_metrics_service):
+    # el PDF y las tarjetas deben reportar números idénticos para KPIs homónimos.
+    pct_col = _pct_col_expr(job_type if job_type and job_type != "ALL" else None)
     pct_label = "Target Return %" if job_type in ("PTL", "PAR") else "Avg Final %"
-    final_col = Job.Gqm_formula_pricing if job_type == "PAR" else Job.Gqm_final_sold_pricing
+    final_col = _final_col_expr(job_type or "ALL")
+
+    # H-1/H-2: cancelados fuera de cotizado/fórmula/conteo (mismo criterio que el dashboard)
+    alive = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) != "CANCELLED"
+    paid_with_pct = and_(
+        Job.Job_status.in_(list(PAID_STATUSES)),
+        pct_col.is_not(None),
+    )
 
     stmt_sum = select(
-        func.count(Job.ID_Jobs).label("job_count"),
-        func.sum(Job.Gqm_target_sold_pricing).label("total_quoted"),
-        func.sum(Job.Gqm_formula_pricing).label("total_formula"),
-        func.sum(Job.Gqm_adj_formula_pricing).label("total_adj_formula"),
+        func.sum(case((alive, 1), else_=0)).label("job_count"),
+        func.count(Job.ID_Jobs).label("job_count_all"),
+        func.sum(case((alive, Job.Gqm_target_sold_pricing), else_=0.0)).label("total_quoted"),
+        func.sum(case((alive, Job.Gqm_formula_pricing), else_=0.0)).label("total_formula"),
+        func.sum(case((alive, Job.Gqm_adj_formula_pricing), else_=0.0)).label("total_adj_formula"),
         func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("total_final"),
         func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("total_premium"),
-        func.avg(pct_col).label("avg_final_pct"),
-        func.avg(Job.Gqm_target_return).label("avg_target_ret"),
+        # H-5: ponderado por monto de los pagados con pct disponible (= dashboard)
+        func.coalesce(
+            func.sum(case((paid_with_pct, final_col * pct_col), else_=0)) /
+            func.nullif(func.sum(case((paid_with_pct, final_col), else_=0)), 0),
+            0.0
+        ).label("avg_final_pct"),
+        func.avg(case((Job.Job_status.in_(list(ACTIVE_STATUSES)), Job.Gqm_target_return), else_=None)).label("avg_target_ret"),
         func.sum(paid_flag).label("paid_count"),
     )
     stmt_sum = _apply_filters(stmt_sum, year, month, job_type, client_id)
@@ -120,6 +136,7 @@ def get_jobs_report_data(
     total_quoted = _safe_float(r.total_quoted)
     total_final = _safe_float(r.total_final)
     job_count = int(r.job_count or 0)
+    job_count_all = int(r.job_count_all or 0)
     paid_count = int(r.paid_count or 0)
 
     summary = {
@@ -274,7 +291,7 @@ def get_jobs_report_data(
         status_list.append({
             "status":  status_name,
             "count":   count,
-            "pct":     _pct(count, job_count),
+            "pct":     _pct(count, job_count_all),
             "quoted":  quoted,
             "final":   final,
             "premium": _safe_float(row.premium),
@@ -356,8 +373,8 @@ def get_jobs_report_data(
             "formula":     _safe_float(job.Gqm_formula_pricing),
             "adj_formula": _safe_float(job.Gqm_adj_formula_pricing),
             "target":      _safe_float(job.Gqm_target_sold_pricing),
-            "final":       _safe_float(job.Gqm_formula_pricing) if job_type == "PAR" else _safe_float(job.Gqm_final_sold_pricing),
-            "pct":         _safe_float(job.Gqm_target_return) if job_type in ("PTL", "PAR") else _safe_float(job.Gqm_final_percentage),
+            "final":       _safe_float(job.Gqm_formula_pricing if job.Job_type == "PAR" else job.Gqm_final_sold_pricing),
+            "pct":         _safe_float(job.Gqm_target_return if job.Job_type in ("PTL", "PAR") else job.Gqm_final_percentage),
             "premium":     _safe_float(job.Gqm_premium_in_money),
         })
 
