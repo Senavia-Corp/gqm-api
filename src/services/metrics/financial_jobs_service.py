@@ -10,7 +10,7 @@ from src.models.link_models.JobMember import JobMemberLink
 from src.models.MemberModel import Member
 from src.models.ClientModel import Client
 
-from .metrics_shared import PAID_STATUSES, ACTIVE_STATUSES
+from .metrics_shared import PAID_STATUSES, ACTIVE_STATUSES, CANCELLED_STATUS
 from .jobs_metrics_service import _pct_col_expr, _final_col_expr
 
 
@@ -107,7 +107,7 @@ def get_jobs_report_data(
     final_col = _final_col_expr(job_type or "ALL")
 
     # H-1/H-2: cancelados fuera de cotizado/fórmula/conteo (mismo criterio que el dashboard)
-    alive = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) != "CANCELLED"
+    alive = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) != CANCELLED_STATUS.upper()
     paid_with_pct = and_(
         Job.Job_status.in_(list(PAID_STATUSES)),
         pct_col.is_not(None),

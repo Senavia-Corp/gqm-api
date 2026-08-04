@@ -172,7 +172,7 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             # H-1/H-2: los cancelados no cuentan en el cotizado, la fórmula ni el
             # total de jobs del contador de pagados. upper(trim(coalesce)) cubre
             # status NULL y variantes de mayúsculas/espacios de prod.
-            alive = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) != "CANCELLED"
+            alive = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) != CANCELLED_STATUS.upper()
 
             stmt_sum = select(
                 func.sum(case((alive, 1), else_=0)).label("job_count"),
