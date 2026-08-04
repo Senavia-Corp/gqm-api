@@ -43,10 +43,25 @@ def _pct(num: float, den: float) -> float:
     return round((num / den), 4) if den else 0.0
 
 
+def _par_revenue_expr():
+    """
+    Revenue real de un PAR = lo FACTURADO al cliente: final_sold, con fallback a
+    target cuando está en 0 (en prod 390/483 PAR pagados tienen final_sold=0).
+    NUNCA formula: la fórmula es el costo (lo que se le paga al técnico).
+    Verificado contra prod 2026-08-04: 18/19 PAR con facturas → Σ invoices = target;
+    premium = target − formula en 407/408 (ganancia = facturado − costo técnico).
+    """
+    return func.coalesce(
+        func.nullif(Job.Gqm_final_sold_pricing, 0.0),
+        Job.Gqm_target_sold_pricing,
+        0.0,
+    )
+
+
 def _money_expr():
-    """Revenue expression: PAR -> formula_pricing, QID/PTL -> final_sold_pricing."""
+    """Revenue expression: PAR -> facturado (final/target), QID/PTL -> final_sold_pricing."""
     return case(
-        (Job.Job_type == "PAR", func.coalesce(Job.Gqm_formula_pricing, 0.0)),
+        (Job.Job_type == "PAR", _par_revenue_expr()),
         else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
     )
 
@@ -66,13 +81,13 @@ def _pct_col_expr(job_type: str | None):
 
 
 def _final_col_expr(job_type: str | None):
-    """Final sold column: PAR -> formula_pricing, others -> final_sold_pricing."""
+    """Final sold column: PAR -> facturado (final/target), others -> final_sold_pricing."""
     if job_type == "PAR":
-        return Job.Gqm_formula_pricing
+        return _par_revenue_expr()
     if job_type in ("QID", "PTL"):
         return Job.Gqm_final_sold_pricing
     return case(
-        (Job.Job_type == "PAR", func.coalesce(Job.Gqm_formula_pricing, 0.0)),
+        (Job.Job_type == "PAR", _par_revenue_expr()),
         else_=func.coalesce(Job.Gqm_final_sold_pricing, 0.0),
     )
 

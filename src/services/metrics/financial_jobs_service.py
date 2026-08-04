@@ -373,7 +373,9 @@ def get_jobs_report_data(
             "formula":     _safe_float(job.Gqm_formula_pricing),
             "adj_formula": _safe_float(job.Gqm_adj_formula_pricing),
             "target":      _safe_float(job.Gqm_target_sold_pricing),
-            "final":       _safe_float(job.Gqm_formula_pricing if job.Job_type == "PAR" else job.Gqm_final_sold_pricing),
+            # Revenue PAR = lo facturado (final_sold, fallback a target si 0)
+            "final":       _safe_float((job.Gqm_final_sold_pricing or job.Gqm_target_sold_pricing)
+                                       if job.Job_type == "PAR" else job.Gqm_final_sold_pricing),
             "pct":         _safe_float(job.Gqm_target_return if job.Job_type in ("PTL", "PAR") else job.Gqm_final_percentage),
             "premium":     _safe_float(job.Gqm_premium_in_money),
         })

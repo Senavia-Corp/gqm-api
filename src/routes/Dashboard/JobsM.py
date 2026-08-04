@@ -292,9 +292,11 @@ def jobs_summary():
                 "formula":     float(j.Gqm_formula_pricing or 0),
                 "adj_formula": float(j.Gqm_adj_formula_pricing or 0),
                 "target":      float(j.Gqm_target_sold_pricing or 0),
-                # H-3: para PAR el revenue real es la fórmula (final_sold = target).
-                # Misma excepción que _final_col_expr del KPI.
-                "final":       float((j.Gqm_formula_pricing if j.Job_type == "PAR"
+                # Revenue PAR = lo facturado (final_sold, fallback a target si 0).
+                # La fórmula es el costo del técnico, no el revenue. Misma regla
+                # que _par_revenue_expr del KPI.
+                "final":       float(((j.Gqm_final_sold_pricing or j.Gqm_target_sold_pricing)
+                                      if j.Job_type == "PAR"
                                       else j.Gqm_final_sold_pricing) or 0),
                 "pct":         pct,
                 "premium":     float(j.Gqm_premium_in_money or 0),
