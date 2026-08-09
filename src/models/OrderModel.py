@@ -12,6 +12,12 @@ class OrderBase(SQLModel):
     Adj_formula: Optional[float] = Field(default=None)
     Notes: Optional[str] = Field(default=None)  # De PAR
     Ptl_hd_materials: Optional[float] = Field(default=None)  # De PTL
+    # Cuotas de PAR (decisión 2026-08-08): Formula = total del tech y cada
+    # Payment_N es un cheque parcial sincronizado desde Podio
+    # (check-amount-payment-N / tech-N-payment-N). Solo aplica a PAR.
+    Payment_1: Optional[float] = Field(default=None)
+    Payment_2: Optional[float] = Field(default=None)
+    Payment_3: Optional[float] = Field(default=None)
     # Para guardar el external id de TECH Formula de Job (Podio)
     tech_field: Optional[str] = Field(default=None)
 

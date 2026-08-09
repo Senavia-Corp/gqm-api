@@ -112,6 +112,47 @@ TECH_NOTES_FIELDS = {
     }
 }
 
+# Pagos parciales / cuotas (solo PAR — decisión 2026-08-08): la posición en
+# la lista es el número de cuota (slot 1..3). Tech 1/2 admiten 3 cheques,
+# Tech 3/4 solo 2 (esquema real de la app PAR).
+TECH_PAYMENT_FIELDS = {
+    "PAR": {
+        1: ["check-amount-payment-1", "check-amount-payment-2", "check-amount-payment-3"],
+        2: ["check-amount-payment-1-2", "check-amount-payment-2-2", "check-amount-payment-3-2"],
+        3: ["tech-3-payment-1", "tech-3-payment-2"],
+        4: ["tech-4-payment-1", "tech-4-payment-2"],
+    }
+}
+
+
+def collect_payment_slots(fields: list, job_type: str) -> dict:
+    """Devuelve {tech_index: {cuota(1..3): monto}} para los tipos con pagos
+    parciales (hoy solo PAR). Los montos llegan como strings de money."""
+    payment_map = TECH_PAYMENT_FIELDS.get(job_type, {})
+    if not payment_map:
+        return {}
+
+    out: dict = {}
+    for f in fields:
+        external_id = f.get("external_id")
+        values = f.get("values") or []
+        if not external_id or not values:
+            continue
+
+        raw = values[0].get("value", values[0])
+        if isinstance(raw, dict):
+            raw = raw.get("value")
+        try:
+            amount = float(raw)
+        except (TypeError, ValueError):
+            continue
+
+        for tech_index, slots in payment_map.items():
+            if external_id in slots:
+                out.setdefault(tech_index, {})[slots.index(external_id) + 1] = amount
+                break
+    return out
+
 
 # Project Change Order
 PROJECT_CHANGE_ORDER_FIELDS = {

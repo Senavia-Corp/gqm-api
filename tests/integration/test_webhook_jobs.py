@@ -142,6 +142,47 @@ def test_qid_webhook_syncs_rent_and_purchases(client, qid_ids):
         assert purchase.Total_spending == 222.22  # slot 2 → Purchase
 
 
+@pytest.fixture()
+def par_ids():
+    item_id, tracking = _unique_ids("PAR")
+    yield item_id, tracking
+    _cleanup(tracking, item_id)
+
+
+def test_par_webhook_syncs_order_with_payments(client, par_ids):
+    """REG-001: Formula = total del tech; check-amount-payment-N = cuotas."""
+    from tests.fixtures.podio_items import par_item
+
+    item_id, tracking = par_ids
+    item = par_item(item_id=item_id, tracking_id=tracking)
+    item["fields"] += [
+        calc("tech-1-ptl-original-pricing", "1000.00"),
+        money("check-amount-payment-1", "300.00"),
+        money("check-amount-payment-2", "200.00"),
+    ]
+    assert _post(client, "PAR", 2026, item).status_code == 200
+
+    with get_session() as session:
+        order = session.exec(select(Order).where(
+            Order.job_podio_id == str(item_id))).first()
+        assert order is not None
+        assert order.Formula == 1000.00
+        assert (order.Payment_1, order.Payment_2, order.Payment_3) == (300.00, 200.00, None)
+
+    # Podio borra el cheque 2 → el slot se limpia (Podio es fuente de verdad)
+    updated = par_item(item_id=item_id, tracking_id=tracking)
+    updated["fields"] += [
+        calc("tech-1-ptl-original-pricing", "1000.00"),
+        money("check-amount-payment-1", "300.00"),
+    ]
+    assert _post(client, "PAR", 2026, updated, event="item.update").status_code == 200
+
+    with get_session() as session:
+        order = session.exec(select(Order).where(
+            Order.job_podio_id == str(item_id))).first()
+        assert (order.Payment_1, order.Payment_2) == (300.00, None)
+
+
 def test_ptl_webhook_creates_gc_fee(client, ptl_ids):
     item_id, tracking = ptl_ids
     resp = _post(client, "PTL", 2026, ptl_item(item_id=item_id, tracking_id=tracking))

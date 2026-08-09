@@ -14,8 +14,10 @@ from src.utils.mappers.from_podio.order_changeorder_mapper import (
     TECH_ADJ_FORMULA_FIELDS,
     TECH_HD_MATERIALS_FIELDS,
     TECH_NOTES_FIELDS,
+    TECH_PAYMENT_FIELDS,
     PROJECT_CHANGE_ORDER_FIELDS,
-    ORDER_CHANGE_ORDERS_FIELDS
+    ORDER_CHANGE_ORDERS_FIELDS,
+    collect_payment_slots,
 )
 from src.utils.mappers.mapper_aux_functions import has_html, clean_html
 
@@ -39,8 +41,11 @@ def upsert_order(
     tech_field: str,
     hd_materials: float,
     notes: str,
+    payments: dict | None = None,
     dry_run: bool = False
 ):
+    # payments: {cuota(1..3): monto} — solo PAR. None = no tocar (QID/PTL);
+    # dict (aunque vacío) = Podio es la fuente de verdad y se pisan los 3 slots.
 
     existing_order = session.exec(
         select(Order).where(
@@ -77,6 +82,14 @@ def upsert_order(
             existing_order.Notes = notes
             changed = True
 
+        if payments is not None:
+            for slot in (1, 2, 3):
+                attr = f"Payment_{slot}"
+                new_value = payments.get(slot)
+                if getattr(existing_order, attr) != new_value:
+                    setattr(existing_order, attr, new_value)
+                    changed = True
+
         if changed and not dry_run:
             session.add(existing_order)
 
@@ -99,7 +112,10 @@ def upsert_order(
         tech_field=tech_field,
         Ptl_hd_materials=hd_materials,
         Notes=notes,
-        ID_Subcontractor=subcontractor_id
+        ID_Subcontractor=subcontractor_id,
+        Payment_1=(payments or {}).get(1),
+        Payment_2=(payments or {}).get(2),
+        Payment_3=(payments or {}).get(3),
     )
 
     if not dry_run:
@@ -374,6 +390,10 @@ def sync_job_orders_and_change_orders(
             # 2️⃣ UPSERT ORDERS
             # -----------------------------
 
+            # Cuotas de PAR (REG-001)
+            payments_by_tech = collect_payment_slots(fields, job_type)
+            has_payment_model = job_type in TECH_PAYMENT_FIELDS
+
             orders_map = {}
 
             for tech_index, data in tech_data.items():
@@ -385,7 +405,7 @@ def sync_job_orders_and_change_orders(
                 if not tech_field:
                     possible_fields = formula_map.get(tech_index, [])
                     tech_field = possible_fields[0] if possible_fields else None
-                
+
                 hd_materials = data.get("hd_materials")
                 notes = data.get("notes")
 
@@ -403,6 +423,7 @@ def sync_job_orders_and_change_orders(
                     tech_field=tech_field,
                     hd_materials=hd_materials,
                     notes=notes,
+                    payments=payments_by_tech.get(tech_index, {}) if has_payment_model else None,
                     dry_run=dry_run
                 )
 

@@ -16,8 +16,10 @@ from src.utils.mappers.from_podio.order_changeorder_mapper import (
     TECH_ADJ_FORMULA_FIELDS,
     TECH_HD_MATERIALS_FIELDS,
     TECH_NOTES_FIELDS,
+    TECH_PAYMENT_FIELDS,
     PROJECT_CHANGE_ORDER_FIELDS,
-    ORDER_CHANGE_ORDERS_FIELDS
+    ORDER_CHANGE_ORDERS_FIELDS,
+    collect_payment_slots,
 )
 from src.utils.middleware.logs.logs import logger
 
@@ -380,6 +382,10 @@ def add_job_orders_and_change_orders(
     # 2️⃣ UPSERT ORDERS
     # =============================
 
+    # Cuotas de PAR (REG-001): Podio es la fuente de verdad de los cheques
+    payments_by_tech = collect_payment_slots(fields, app_type)
+    has_payment_model = app_type in TECH_PAYMENT_FIELDS
+
     orders_map = {}
 
     for tech_index, data in tech_data.items():
@@ -399,7 +405,8 @@ def add_job_orders_and_change_orders(
             adj_formula=data.get("adj_formula"),
             tech_field=formula_field,
             hd_materials=data.get("hd_materials"),
-            notes=data.get("notes")
+            notes=data.get("notes"),
+            payments=payments_by_tech.get(tech_index, {}) if has_payment_model else None
         )
 
         orders_map[tech_index] = order
