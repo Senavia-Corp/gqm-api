@@ -114,6 +114,18 @@ def create_changeOr():
 
     with get_session() as session:
 
+        # REG-012 (decisión confirmada): PAR usa solo pagos parciales y NO
+        # admite Change Orders. Antes esto fallaba en silencio: el mapper
+        # devolvía None y el CO se guardaba solo en BD (divergencia BD↔Podio).
+        # Ahora se rechaza SIEMPRE (con o sin sync_podio), antes de tocar nada.
+        job_for_type = session.exec(
+            select(Job).where(Job.podio_item_id == obj.job_podio_id)
+        ).first()
+        if job_for_type and job_for_type.Job_type == "PAR":
+            raise AppException(
+                "Los jobs PAR no admiten Change Orders (usan pagos parciales).",
+                "par_change_orders_unsupported", 422)
+
         # ----------- 🔵 CREAR EN DB
         new_id = generate_custom_id(
             session, ChangeOrder, "ID_ChangeOrder", "ChO")
@@ -122,9 +134,7 @@ def create_changeOr():
         # ----------- 🟢 SINCRONIZAR EN PODIO (SI APLICA)
         if sync_podio:
 
-            job = session.exec(
-                select(Job).where(Job.podio_item_id == obj.job_podio_id)
-            ).first()
+            job = job_for_type
             if not job:
                 raise AppException("Job no encontrado", "job_not_found", 404)
 
@@ -149,14 +159,11 @@ def create_changeOr():
             payload = map_chorder_create_to_podio(
                 obj, job.Job_type, podio_job_fields, session)
 
-            if payload is None:
-                logger.info(
-                    "⚠️ Job type '%s' no soporta Change Orders en Podio, se omite sincronización",
-                    job.Job_type
-                )
-            elif not payload:
+            if not payload:
+                # Con PAR ya rechazado arriba, None solo puede significar
+                # "sin slots de CO disponibles" — jamás guardar solo en BD.
                 raise AppException(
-                    "No se encontró un campo disponible en Podio para la Order",
+                    "No se encontró un campo disponible en Podio para el Change Order",
                     "no_available_order_slot", 400
                 )
             else:
