@@ -32,14 +32,16 @@ def _record_failed_sync(session, job, error) -> None:
     )
 
 
-def sync_job_to_podio(job_id: str, session) -> None:
+def sync_job_to_podio(job_id: str, session) -> bool:
+    """Sincroniza el job a Podio. Devuelve True si sincronizó (o no había
+    nada que sincronizar) y False si falló — el /resync usa este valor."""
     if not job_id:
-        return
+        return False
     job = None
     try:
         job = session.get(Job, job_id)
         if not job or not job.podio_item_id:
-            return
+            return True  # nada que sincronizar
 
         podio_fields = None
         if job.Job_type == "QID":
@@ -50,7 +52,7 @@ def sync_job_to_podio(job_id: str, session) -> None:
             podio_fields = map_job_to_podio_par(job, session=session)
 
         if not podio_fields:
-            return
+            return True
 
         year = resolve_job_app_year(job)
         if year is None:
@@ -58,7 +60,7 @@ def sync_job_to_podio(job_id: str, session) -> None:
                 "Auto-sync de %s sin año de app resoluble (sin podio_app_year "
                 "ni Date_assigned) — no se sincroniza", job_id)
             _record_failed_sync(session, job, "año de app no resoluble")
-            return
+            return False
 
         podio_service = podio_jobs_router.get_service(job_type=job.Job_type, year=year)
 
@@ -70,8 +72,10 @@ def sync_job_to_podio(job_id: str, session) -> None:
 
         podio_service.update_item(int(job.podio_item_id), podio_fields)
         logger.info("Auto-sync de Job %s a Podio (año %s) OK", job_id, year)
+        return True
     except Exception as e:
         logger.error("Error en auto-sync de Job %s a Podio: %s", job_id, e)
         traceback.print_exc()
         if job is not None:
-            _record_failed_sync(session, job, str(e))
+            _record_failed_sync(session, job, e)
+        return False

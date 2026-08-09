@@ -222,6 +222,16 @@ def update_changeOr(id_change_order):
             raise AppException("Change Order not found",
                                "chorder_not_found", 404)
 
+        # REG-012: mismo guard que el POST — PAR no admite Change Orders
+        # (cubre COs legado pre-fix ligados a jobs PAR).
+        job_of_co = session.exec(
+            select(Job).where(Job.podio_item_id == change_order.job_podio_id)
+        ).first()
+        if job_of_co and job_of_co.Job_type == "PAR":
+            raise AppException(
+                "Los jobs PAR no admiten Change Orders (usan pagos parciales).",
+                "par_change_orders_unsupported", 422)
+
         update_changeOr = ChangeOrUpdate.model_validate(data)
         update_data_dict = update_changeOr.model_dump(exclude_unset=True)
         update_data_dict.pop("job_podio_id", None)

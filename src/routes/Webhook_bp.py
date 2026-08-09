@@ -506,13 +506,41 @@ def resync_failed_sync(id):
                             
                 elif event_type == "item.delete":
                     event_delete(session=session, Model=Job, item_unique_id=str(item_id))
-                    
+
                     orders = session.exec(select(Order).where(Order.job_podio_id == str(item_id))).all()
                     for order in orders: delete_with_retry(session, order)
-                    
+
                     ch_orders = session.exec(select(ChangeOrder).where(ChangeOrder.job_podio_id == str(item_id))).all()
                     for ch_order in ch_orders: delete_with_retry(session, ch_order)
-                
+
+            # Fallos generados por el propio API (B1): re-ejecutar de verdad,
+            # jamás marcar resuelto sin haber reintentado (hallazgo review B1).
+            elif failed_sync.hook_type in ("auto_sync_to_podio", "update_job_divergence"):
+                from src.utils.podio_job_sync import sync_job_to_podio
+                job_id = (failed_sync.payload or {}).get("job_id")
+                if not job_id:
+                    return jsonify({"error": "payload sin job_id, no se puede reintentar"}), 422
+                if not sync_job_to_podio(job_id, session):
+                    return jsonify({"error": "el re-sync a Podio volvió a fallar"}), 502
+
+            elif failed_sync.hook_type == "create_job_compensation":
+                # Compensación pendiente: borrar el item huérfano en Podio
+                from src.podio.services.job_services import podio_jobs_router
+                payload = failed_sync.payload or {}
+                job_type, year = payload.get("job_type"), payload.get("year")
+                if not (job_type and year and failed_sync.item_id):
+                    return jsonify({"error": "payload incompleto para compensar"}), 422
+                try:
+                    podio_jobs_router.get_service(
+                        job_type=job_type, year=int(year)).delete_item(int(failed_sync.item_id))
+                except Exception as del_err:
+                    if "404" not in str(del_err) and "410" not in str(del_err):
+                        return jsonify({"error": f"no se pudo borrar el item huérfano: {del_err}"}), 502
+
+            else:
+                return jsonify({
+                    "error": f"hook_type desconocido: {failed_sync.hook_type} — no se puede reintentar"}), 422
+
             # Solo si todo fue exitoso se marca como resuelto
             failed_sync.resolved = True
             session.add(failed_sync)

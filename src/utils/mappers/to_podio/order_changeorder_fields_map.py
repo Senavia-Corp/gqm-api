@@ -183,7 +183,12 @@ ORDER_CO_QID_FIELDS = {
     ],
     14: ["tech-14-change-order-1"],
     15: ["tech-15-change-order-1"],
-    16: ["tech-16-change-order-1"]
+    16: ["tech-16-change-order-1"],
+    # REG-076: paridad con el lector (ORDER_CHANGE_ORDERS_FIELDS) hasta 20
+    17: ["tech-17-change-order-1"],
+    18: ["tech-18-change-order-1"],
+    19: ["tech-19-change-order-1"],
+    20: ["tech-20-change-order-1"]
 }
 
 

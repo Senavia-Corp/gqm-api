@@ -1034,7 +1034,8 @@ def create_job():
                                 session,
                                 item_id=obj.podio_item_id,
                                 hook_type="create_job_compensation",
-                                payload={"job_id": obj.ID_Jobs, "job_type": obj.Job_type},
+                                payload={"job_id": obj.ID_Jobs, "job_type": obj.Job_type,
+                                         "year": year},
                                 error=e,
                             )
                     raise e
