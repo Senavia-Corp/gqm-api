@@ -89,6 +89,10 @@ def create_app():
         raise RuntimeError(
             "SECRET_KEY es obligatoria (sesión Flask para el state de QBO OAuth)")
     app.secret_key = secret_key
+
+    # REG-117: límite duro de tamaño de request (uploads) — 413 automático
+    app.config["MAX_CONTENT_LENGTH"] = _env(
+        "MAX_CONTENT_LENGTH_MB", default=25, cast=int) * 1024 * 1024
     # Orígenes permitidos por defecto para desarrollo
     allowed_origins = [
         "http://localhost:3000",

@@ -76,19 +76,28 @@ def upload_to_cloudinary(
     extension = filename.rsplit(".", 1)[-1] if "." in filename else ""
     clean_filename = clean_filename.replace(" ", "_").replace("/", "_")
 
+    # REG-116: con public_id explícito, unique_filename no hace nada — dos
+    # archivos con el mismo nombre en la misma carpeta se PISABAN. Sufijo
+    # único propio; el nombre original vive en Attachments.Document_name y
+    # el public_id real queda persistido (REG-058) para el borrado.
+    import uuid as _uuid
+    unique_name = f"{clean_filename}_{_uuid.uuid4().hex[:8]}"
+
     upload_params = {
         "resource_type":   resource_type,
         "folder":          folder,
         # ← con extensión
-        "public_id":       f"{clean_filename}.{extension}" if extension else clean_filename,
+        "public_id":       f"{unique_name}.{extension}" if extension else unique_name,
         "unique_filename": True,
     }
     if tags:
         upload_params["tags"] = tags
 
     if resource_type == "video":
+        # REG-115: upload_large espera un path/stream, no bytes crudos
+        import io as _io
         result = cloudinary.uploader.upload_large(
-            file_bytes,
+            _io.BytesIO(file_bytes),
             **upload_params,
             chunk_size=6_000_000
         )
