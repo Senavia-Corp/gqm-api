@@ -12,20 +12,27 @@ def get_job_field_value(fields: list, field_cfg: dict):
     else:
         field_ids = set(raw_field_ids)
 
-    external_ids = {
-        eid.lower() for eid in field_cfg.get("external_ids", [])
+    # El orden de declaración de external_ids es la prioridad: cuando dos
+    # campos de la app matchean aliases distintos del mismo BD-field
+    # (colisión project-name-2 / project-name), gana el alias declarado
+    # primero, no el orden de campos del item.
+    ext_priority = {
+        eid.lower(): idx
+        for idx, eid in enumerate(field_cfg.get("external_ids", []))
     }
 
     is_multi = field_cfg.get("multi", False)
 
     results = []
+    best_rank = None
+    best_value = None
 
     for f in fields:
         f_id = f.get("field_id")
         f_ext = f.get("external_id")
 
         match_id = (f_id in field_ids) if field_ids else False
-        match_ext = (f_ext and f_ext.lower() in external_ids) if external_ids else False
+        match_ext = (f_ext and f_ext.lower() in ext_priority) if ext_priority else False
 
         if not (match_id or match_ext):
             continue
@@ -135,9 +142,14 @@ def get_job_field_value(fields: list, field_cfg: dict):
         if is_multi:
             results.append(value)
         else:
-            return value
+            # match por field_id (id exacto de la app-año) = máxima prioridad;
+            # match por slug = prioridad según orden de declaración.
+            rank = -1 if match_id else ext_priority[f_ext.lower()]
+            if best_rank is None or rank < best_rank:
+                best_rank = rank
+                best_value = value
 
     if is_multi:
         return results or None
 
-    return None
+    return best_value

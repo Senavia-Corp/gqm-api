@@ -26,6 +26,24 @@ def test_qid_project_name_collision_app_order():
     assert mapped["Po_wtn_wo"] == "PO-4581"
 
 
+def test_qid_project_name_collision_is_order_independent():
+    # REG-072: aunque la app entregue project-name ANTES que project-name-2,
+    # Project_name debe preferir el alias declarado primero (project-name-2).
+    item = qid_item()
+    item["fields"].sort(key=lambda f: f["external_id"] == "project-name-2")
+    mapped = map_podio_item_to_job(item)
+    assert mapped["Project_name"] == "Vista Lagos Ph 2"
+    assert mapped["Po_wtn_wo"] == "PO-4581"
+
+
+def test_qid_2023_style_only_project_name():
+    # App 2023: solo existe project-name (es el nombre del proyecto).
+    item = qid_item()
+    item["fields"] = [f for f in item["fields"] if f["external_id"] != "project-name-2"]
+    mapped = map_podio_item_to_job(item)
+    assert mapped["Project_name"] == "PO-4581"
+
+
 def test_qid_missing_fields_are_omitted_not_nulled():
     item = qid_item()
     item["fields"] = [f for f in item["fields"] if f["external_id"] != "calculation-10"]

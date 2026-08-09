@@ -1,4 +1,10 @@
 # ========================== JOBS TIPO QID ========================== #
+# HUECO VERIFICADO (GET /app/28087463, 2026-08-09 — REG-071): la app QID 2023
+# NO tiene equivalentes de Gqm_paid_fees ni Bldg_dept_fees. `calculation-10` /
+# `bldg-fees-*` no existen; `bldg-dept` es la RELACIÓN al Building Dept (tipo
+# app, no money) y `paid-in-full` está borrado. En items 2023 esos campos no
+# sincronizan desde Podio: los gobierna el recálculo local (job_calculator).
+# NO aliasar `bldg-dept` ni `amount-paid-to-date` aquí — no son equivalentes.
 FIELD_ALIASES_QID = {
     "Project_location": {
         "field_id": [274767587, 268722156, 258250427, 246058264],
@@ -124,6 +130,12 @@ FIELD_ALIASES_QID = {
 }
 
 # ========================== JOBS TIPO PTL ========================== #
+# HUECO DOCUMENTADO (REG-011): la app PTL 2026 no tiene `deadline` ni
+# `date-received`; solo `estimated-start-date`, que NO es semánticamente la
+# fecha de completado → no se aliasa. En items 2026 esos dos campos quedan
+# sin mapear (warning en logs).
+# DECISIÓN (DECISIONES-CONFIRMADAS.md): PTL no usa pagos parciales —
+# `payment-received-1/2/3` y `payment-date-and-check-*` se ignoran a propósito.
 FIELD_ALIASES_PTL = {
     "Project_location": {
         "field_id": [275089542, 268722716, 259504198, 246476769],
