@@ -112,6 +112,16 @@ def test_tech_cannot_create_tasks_at_all(client, tech, world):
     assert resp.status_code == 403  # la política Technical no tiene tasks:create
 
 
+def test_portal_cannot_reassign_task_to_foreign_job(client, sub, world):
+    """Post-update re-check: mover la tarea propia a un job ajeno → 403."""
+    headers, _ = sub
+    resp = client.patch(f"/tasks/{world['t_mine']}", headers=headers,
+                        json={"ID_Jobs": world["other"]})
+    assert resp.status_code == 403
+    with get_session() as s:
+        assert s.get(Tasks, world["t_mine"]).ID_Jobs == world["mine"]
+
+
 def test_portal_cannot_update_foreign_task(client, sub, world):
     headers, _ = sub
     resp = client.patch(f"/tasks/{world['t_other']}", headers=headers,

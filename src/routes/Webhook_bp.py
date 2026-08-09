@@ -234,6 +234,60 @@ def podio_relations_webhook(app_type):
     return jsonify({"status": "ok"}), 200
 
 
+def _cascade_delete_job_from_podio(session, item_id):
+    """Cascada del delete de jobs venido de Podio — COMPARTIDA entre el webhook
+    y el resync de failed_syncs (antes el resync corría la cascada vieja y
+    reintroducía Bills huérfanas). Simétrica al DELETE por API (Job.py):
+    findocs fuera, EstimateCost/Opportunities desenlazados de las Orders (FK
+    sin ondelete) y links pre-borrados en bulk — sin esto el ORM lanza
+    StaleDataError con los pares (job, member) duplicados de los datos reales.
+    Devuelve (job_id, n_orders, n_change_orders) para el log."""
+    from sqlmodel import delete as sq_delete
+
+    from src.models.link_models.JobMember import JobMemberLink
+    from src.models.link_models.JobMultiplierR import JobMultiplierRLink
+    from src.models.link_models.JobPaymentU import JobPaymentULink
+    from src.models.link_models.JobSubcontractor import JobSubcontractorLink
+    from src.models.link_models.JobTechnician import JobTechnicianLink
+
+    job = session.exec(
+        select(Job).where(Job.podio_item_id == str(item_id))).first()
+    job_id = job.ID_Jobs if job else None
+
+    if job_id:
+        from src.models.FinancialDocModel import FinancialDocument
+        for fdoc in session.exec(select(FinancialDocument).where(
+                FinancialDocument.ID_Jobs == job_id)).all():
+            session.delete(fdoc)
+        for link_model in (JobMemberLink, JobMultiplierRLink, JobPaymentULink,
+                           JobSubcontractorLink, JobTechnicianLink):
+            session.exec(sq_delete(link_model).where(
+                link_model.job_id == job_id))
+
+    event_delete(session=session, Model=Job, item_unique_id=str(item_id))
+
+    orders = session.exec(
+        select(Order).where(Order.job_podio_id == str(item_id))).all()
+    order_ids = [o.ID_Order for o in orders if o.ID_Order]
+    if order_ids:
+        from src.models.EstimateCostModel import EstimateCost
+        from src.models.OpportunitiesModel import Opportunities
+        for _model in (EstimateCost, Opportunities):
+            for row in session.exec(select(_model).where(
+                    _model.ID_Order.in_(order_ids))).all():
+                row.ID_Order = None
+                session.add(row)
+    for order in orders:
+        delete_with_retry(session, order)
+
+    ch_orders = session.exec(select(ChangeOrder).where(
+        ChangeOrder.job_podio_id == str(item_id))).all()
+    for ch_order in ch_orders:
+        delete_with_retry(session, ch_order)
+
+    return job_id, len(orders), len(ch_orders)
+
+
 # ---------------------------------------------------------------------------------
 # Jobs webhook — con auditoría de timeline
 # ---------------------------------------------------------------------------------
@@ -325,56 +379,23 @@ def podio_jobs_webhook(app_type, year):
 
             # ── DELETE ────────────────────────────────────────────────────
             elif event_type == "item.delete":
-                job_to_delete = session.exec(
-                    select(Job).where(Job.podio_item_id == str(item_id))
-                ).first()
-                job_id_for_log = job_to_delete.ID_Jobs if job_to_delete else None
+                job_id_for_log, n_orders, n_cos = \
+                    _cascade_delete_job_from_podio(session, item_id)
+                if n_orders or n_cos:
+                    print(f"🗑️ {n_orders} Orders y {n_cos} Change Orders "
+                          f"eliminados para Job {item_id}")
 
-                # Cascada simétrica al DELETE por API (hallazgo cobertura B7):
-                # también FinancialDocuments, y desenlazar EstimateCost/
-                # Opportunities de las Orders antes de borrarlas (FK sin
-                # ondelete). Antes este camino dejaba Bills huérfanas.
-                if job_id_for_log:
-                    from src.models.FinancialDocModel import FinancialDocument
-                    for fdoc in session.exec(select(FinancialDocument).where(
-                            FinancialDocument.ID_Jobs == job_id_for_log)).all():
-                        session.delete(fdoc)
-
-                event_delete(session=session, Model=Job,
-                             item_unique_id=str(item_id))
-
-                orders = session.exec(
-                    select(Order).where(Order.job_podio_id == str(item_id))).all()
-                _order_ids = [o.ID_Order for o in orders if o.ID_Order]
-                if _order_ids:
-                    from src.models.EstimateCostModel import EstimateCost
-                    from src.models.OpportunitiesModel import Opportunities
-                    for _model in (EstimateCost, Opportunities):
-                        for row in session.exec(select(_model).where(
-                                _model.ID_Order.in_(_order_ids))).all():
-                            row.ID_Order = None
-                            session.add(row)
-                for order in orders:
-                    delete_with_retry(session, order)
-                if orders:
-                    print(
-                        f"🗑️ {len(orders)} Orders eliminados para Job {item_id}")
-
-                ch_orders = session.exec(
-                    select(ChangeOrder).where(ChangeOrder.job_podio_id == str(item_id))).all()
-                for ch_order in ch_orders:
-                    delete_with_retry(session, ch_order)
-                if ch_orders:
-                    print(
-                        f"🗑️ {len(ch_orders)} Change Orders eliminados para Job {item_id}")
-
+                # entity_id=None a propósito: el job ya no existe y la FK de
+                # tlactivity.ID_Jobs haría que el rastro jamás persistiera
+                # (el savepoint de audit se traga el IntegrityError).
                 log_activity(
                     session,
                     action="Job deleted from Podio",
-                    entity_id=job_id_for_log,
+                    entity_id=None,
                     entity_type="Job",
                     member_id=None,
-                    description=f"Podio item_id: {item_id} | Changed by: Unknown",
+                    description=(f"Job: {job_id_for_log or 'desconocido'} | "
+                                 f"Podio item_id: {item_id} | Changed by: Unknown"),
                     source=SOURCE_PODIO,
                 )
 
@@ -555,13 +576,9 @@ def resync_failed_sync(id):
                             process_job_to_commissions(updated_job, session)
                             
                 elif event_type == "item.delete":
-                    event_delete(session=session, Model=Job, item_unique_id=str(item_id))
-
-                    orders = session.exec(select(Order).where(Order.job_podio_id == str(item_id))).all()
-                    for order in orders: delete_with_retry(session, order)
-
-                    ch_orders = session.exec(select(ChangeOrder).where(ChangeOrder.job_podio_id == str(item_id))).all()
-                    for ch_order in ch_orders: delete_with_retry(session, ch_order)
+                    # Misma cascada que el webhook (antes esta rama era la
+                    # versión vieja y reintroducía Bills huérfanas al reintentar)
+                    _cascade_delete_job_from_podio(session, item_id)
 
             # Fallos generados por el propio API (B1): re-ejecutar de verdad,
             # jamás marcar resuelto sin haber reintentado (hallazgo review B1).

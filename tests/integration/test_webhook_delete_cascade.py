@@ -11,7 +11,10 @@ from src.models.ChangeOrderModel import ChangeOrder
 from src.models.EstimateCostModel import EstimateCost
 from src.models.FinancialDocModel import FinancialDocument
 from src.models.JobModel import Job
+from src.models.MemberModel import Member
 from src.models.OrderModel import Order
+from src.models.TLActivityModel import TLActivity
+from src.models.link_models.JobMember import JobMemberLink
 
 
 def test_webhook_item_delete_cascades(client):
@@ -33,6 +36,12 @@ def test_webhook_item_delete_cascades(client):
         # sin el unlink previo, el DELETE de la Order viola la FK.
         s.add(EstimateCost(ID_EstimateCost=est_id, ID_Jobs=survivor,
                            ID_Order=order_id))
+        # Link a member: ejercita el pre-borrado bulk de links (workaround
+        # StaleDataError, mismo patrón que delete_job del API)
+        member = s.exec(select(Member)).first()
+        if member:
+            s.add(JobMemberLink(job_id=tracking, member_id=member.ID_Member,
+                                rol="PM"))
         s.commit()
 
     try:
@@ -54,8 +63,16 @@ def test_webhook_item_delete_cascades(client):
             est = s.exec(select(EstimateCost).where(
                 EstimateCost.ID_EstimateCost == est_id)).first()
             assert est is not None and est.ID_Order is None
+            # El rastro del delete SÍ persiste (sin FK al job borrado)
+            tl = s.exec(select(TLActivity).where(
+                TLActivity.Action == "Job deleted from Podio",
+                TLActivity.Description.contains(tracking))).first()
+            assert tl is not None, "el timeline del delete no persistió"
     finally:
         with get_session() as s:
+            for tl in s.exec(select(TLActivity).where(
+                    TLActivity.Description.contains(tracking))).all():
+                s.delete(tl)
             for model, pk, val in (
                 (EstimateCost, EstimateCost.ID_EstimateCost, est_id),
                 (FinancialDocument, FinancialDocument.ID_FinancialDoc, fdoc_id),

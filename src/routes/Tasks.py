@@ -215,6 +215,13 @@ def update_tasks(task_id):
             data).model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(obj, key, value)
+        # Re-chequeo POST-update: sin esto un rol de portal podía REASIGNAR
+        # ID_Jobs/ID_Technician/ID_Subcontractor y mover su tarea a un job
+        # ajeno (el guard de arriba solo mira el estado previo).
+        if not task_belongs_to_portal_user(session, obj):
+            raise AppException(
+                "Forbidden: no puedes reasignar la tarea fuera de tus jobs.",
+                "forbidden", 403)
         save_with_retry(session, obj)
         logger.info("🔄 Task actualizada | task_id=%s", task_id)
         return obj.model_dump(), 200

@@ -62,6 +62,11 @@ def log_activity(
     # Import aquí para evitar circular imports
     from ..models.TLActivityModel import TLActivity
 
+    # Fuera del try: si una excepción saltara antes del import, el propio
+    # `except IntegrityError` sería un NameError y el log SÍ rompería la
+    # operación principal (hallazgo latente del review).
+    from sqlalchemy.exc import IntegrityError
+
     try:
         new_id = generate_custom_id(
             session, TLActivity, "ID_TLActivity", "TLA")
@@ -100,9 +105,7 @@ def log_activity(
             activity_data["ID_Jobs"] = job_id
 
         entry = TLActivity(**activity_data)
-        
-        # pyrefly: ignore [missing-import]
-        from sqlalchemy.exc import IntegrityError
+
         # Usamos un SAVEPOINT para aislar el log de auditoría.
         # Si falla por ID duplicado, no destruye la transacción completa del webhook.
         with session.begin_nested():
