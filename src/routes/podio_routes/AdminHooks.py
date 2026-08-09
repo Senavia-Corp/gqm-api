@@ -4,8 +4,10 @@ from src.podio.webhook.func_hooks import (
     JOB_APP_TYPES,
     clear_existing_webhooks,
     list_webhooks,
+    redact_hook_url,
     register_podio_webhooks,
 )
+from src.utils.middleware.exceptions_handler import handle_exceptions
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin/webhooks")
 
@@ -20,15 +22,21 @@ def _year_or_error(app_type):
 
 
 @admin_bp.get("/<app_type>")
+@handle_exceptions()
 def get_hooks(app_type):
     year, err = _year_or_error(app_type)
     if err:
         return err
     resp = list_webhooks(app_type, year=year)
+    # Los hooks propios llevan ?token= en la URL: redactar antes de responder
+    for hook in resp if isinstance(resp, list) else []:
+        if isinstance(hook, dict) and hook.get("url"):
+            hook["url"] = redact_hook_url(hook["url"])
     return jsonify(resp), 200
 
 
 @admin_bp.post("/<app_type>/register")
+@handle_exceptions()
 def register_hooks(app_type):
     year, err = _year_or_error(app_type)
     if err:
@@ -38,6 +46,7 @@ def register_hooks(app_type):
 
 
 @admin_bp.delete("/<app_type>/clear")
+@handle_exceptions()
 def clear_hooks(app_type):
     year, err = _year_or_error(app_type)
     if err:

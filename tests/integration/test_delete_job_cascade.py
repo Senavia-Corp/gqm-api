@@ -24,6 +24,12 @@ def _seed_job_with_children():
         session.add(FinancialDocument(
             ID_FinancialDoc=f"FDT{suffix}", ID_Jobs=tracking,
             Type_of_document="Invoice"))
+        # EstimateCost colgando de la Order: sin desenlace previo, el DELETE
+        # de la Order violaría la FK (hallazgo del database-reviewer).
+        from src.models.EstimateCostModel import EstimateCost
+        session.add(EstimateCost(
+            ID_EstimateCost=f"ESTD{suffix}", ID_Jobs=tracking,
+            ID_Order=f"ORDT{suffix}", Cost_type="Labor", Title="EC test"))
         session.commit()
     return tracking, podio_id
 

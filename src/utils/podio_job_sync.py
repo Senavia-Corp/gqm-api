@@ -21,17 +21,15 @@ def resolve_job_app_year(job) -> int | None:
     return None
 
 
-def _record_failed_sync(session, job, error: str) -> None:
-    try:
-        session.add(PodioFailedSync(
-            item_id=str(job.podio_item_id) if job.podio_item_id else None,
-            hook_type="auto_sync_to_podio",
-            payload={"job_id": job.ID_Jobs, "job_type": job.Job_type},
-            error_message=error[:2000],
-        ))
-        session.commit()
-    except Exception:
-        logger.exception("No se pudo registrar PodioFailedSync para %s", job.ID_Jobs)
+def _record_failed_sync(session, job, error) -> None:
+    from src.utils.failed_sync import record_failed_sync
+    record_failed_sync(
+        session,
+        item_id=job.podio_item_id,
+        hook_type="auto_sync_to_podio",
+        payload={"job_id": job.ID_Jobs, "job_type": job.Job_type},
+        error=error,
+    )
 
 
 def sync_job_to_podio(job_id: str, session) -> None:

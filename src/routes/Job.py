@@ -1029,18 +1029,14 @@ def create_job():
                             logger.exception(
                                 "Compensación fallida: item %s queda huérfano en Podio",
                                 obj.podio_item_id)
-                            try:
-                                from src.models.PodioFailedSyncModel import PodioFailedSync
-                                session.rollback()
-                                session.add(PodioFailedSync(
-                                    item_id=str(obj.podio_item_id),
-                                    hook_type="create_job_compensation",
-                                    payload={"job_id": obj.ID_Jobs, "job_type": obj.Job_type},
-                                    error_message=str(e)[:2000],
-                                ))
-                                session.commit()
-                            except Exception:
-                                logger.exception("No se pudo registrar PodioFailedSync")
+                            from src.utils.failed_sync import record_failed_sync
+                            record_failed_sync(
+                                session,
+                                item_id=obj.podio_item_id,
+                                hook_type="create_job_compensation",
+                                payload={"job_id": obj.ID_Jobs, "job_type": obj.Job_type},
+                                error=e,
+                            )
                     raise e
         logger.info("✅ Job creado | job_id=%s | podio_item_id=%s",
                     obj.ID_Jobs, obj.podio_item_id)
@@ -1123,18 +1119,15 @@ def update_job(id_job):
                 # y decirlo explícitamente en la respuesta, no un 502 opaco.
                 logger.exception("❌ Error actualizando Job en Podio | job_id=%s | podio_item_id=%s",
                                  id_job, obj.podio_item_id)
-                try:
-                    from src.models.PodioFailedSyncModel import PodioFailedSync
-                    session.add(PodioFailedSync(
-                        item_id=str(obj.podio_item_id),
-                        hook_type="update_job_divergence",
-                        payload={"job_id": id_job, "job_type": obj.Job_type,
-                                 "year": year},
-                        error_message=str(podio_err)[:2000],
-                    ))
-                    session.commit()
-                except Exception:
-                    logger.exception("No se pudo registrar PodioFailedSync")
+                from src.utils.failed_sync import record_failed_sync
+                record_failed_sync(
+                    session,
+                    item_id=obj.podio_item_id,
+                    hook_type="update_job_divergence",
+                    payload={"job_id": id_job, "job_type": obj.Job_type,
+                             "year": year},
+                    error=podio_err,
+                )
                 raise AppException(
                     "El Job se guardó localmente pero NO se sincronizó a Podio "
                     "(divergencia registrada en failed_syncs; reintenta el "
@@ -1187,6 +1180,19 @@ def delete_job(id_job):
                 raise AppException(
                     "?force=true requiere el permiso job:force_delete.",
                     "forbidden", 403)
+
+            # EstimateCost/Opportunities referencian order.ID_Order sin
+            # ondelete: desenlazar primero o el DELETE de la Order viola FK.
+            # (Los EstimateCost del propio job caen luego con su cascade.)
+            order_ids = [o.ID_Order for o in orders if o.ID_Order]
+            if order_ids:
+                from src.models.EstimateCostModel import EstimateCost
+                from src.models.OpportunitiesModel import Opportunities
+                for model in (EstimateCost, Opportunities):
+                    for row in session.exec(
+                            select(model).where(model.ID_Order.in_(order_ids))).all():
+                        row.ID_Order = None
+                        session.add(row)
 
             for row in change_orders + orders + fin_docs:
                 session.delete(row)

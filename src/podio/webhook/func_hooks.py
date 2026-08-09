@@ -1,9 +1,17 @@
+import re
+
 import requests
 from decouple import config as env_config
 
 from src.podio.podio_auth import get_podio_headers
 from src.config import PUBLIC_URL, get_podio_app_credentials, get_job_app_credentials
+from src.utils.middleware.logs.logs import logger
 from src.utils.middleware.retries.retries import retry_api
+
+
+def redact_hook_url(url: str) -> str:
+    """El token del webhook es un secreto: jamás a logs ni a respuestas."""
+    return re.sub(r"(token=)[^&]+", r"\1***", url or "")
 
 # Apps de Jobs: una app por año → el hook necesita year (REG-002/REG-010)
 JOB_APP_TYPES = {"QID", "PTL", "PAR"}
@@ -47,6 +55,10 @@ def build_webhook_target(app_type: str, year: int | None = None) -> str:
     token = env_config("PODIO_WEBHOOK_TOKEN", default="")
     if token:
         target = f"{target}?token={token}"
+    else:
+        logger.warning(
+            "PODIO_WEBHOOK_TOKEN no configurado: el webhook de %s se registra "
+            "SIN token de autenticación", app_type)
     return target
 
 
@@ -88,9 +100,10 @@ def clear_existing_webhooks(app_type: str, year: int | None = None, only_own: bo
             continue
 
         hook_url = hook.get("url") or ""
-        if only_own and not hook_url.startswith(own_prefix):
+        is_own = hook_url == own_prefix or hook_url.startswith((own_prefix + "/", own_prefix + "?"))
+        if only_own and not is_own:
             skipped += 1
-            print(f"⏭️ Webhook {hook_id} ajeno ({hook_url[:60]}) — no se toca")
+            print(f"⏭️ Webhook {hook_id} ajeno ({redact_hook_url(hook_url)[:60]}) — no se toca")
             continue
 
         delete_url = f"https://api.podio.com/hook/{hook_id}"
@@ -129,14 +142,15 @@ def register_podio_webhooks(app_type: str, year: int | None = None):
     if app_type in FILE_CHANGE_APP_TYPES:
         events.append("file.change")
 
-    results = {"target": target, "created": [], "skipped": [], "errors": []}
+    # target redactado: el token no sale ni por logs ni por la respuesta HTTP
+    results = {"target": redact_hook_url(target), "created": [], "skipped": [], "errors": []}
 
     for ev in events:
         payload = {"url": target, "type": ev}
         resp = requests.post(base_url, headers=headers, json=payload)
 
         if resp.status_code == 200:
-            print(f"✅ Webhook '{ev}' registrado en {app_type} → {target}")
+            print(f"✅ Webhook '{ev}' registrado en {app_type} → {redact_hook_url(target)}")
             results["created"].append(resp.json())
         elif resp.status_code == 409:
             print(f"ℹ️ Webhook '{ev}' ya existía en {app_type}")
