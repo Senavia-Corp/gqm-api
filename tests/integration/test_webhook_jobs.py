@@ -41,8 +41,11 @@ def _cleanup(tracking_id, podio_item_id):
 
 
 def _post(client, app_type, year, item, event="item.create"):
+    from decouple import config
+
+    token = config("PODIO_WEBHOOK_TOKEN", default="")
     return client.post(
-        f"/webhook/podio/jobs/{app_type}/{year}",
+        f"/webhook/podio/jobs/{app_type}/{year}?token={token}",
         json={"type": event, "item_id": item["item_id"], "item": item},
     )
 

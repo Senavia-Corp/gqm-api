@@ -27,11 +27,38 @@ from src.utils.mappers.qbo_aux_functions import MODEL_MAP, QBO_API_NAME
 from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event_delete_qbo
 from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
 from src.utils.audit import log_activity, SOURCE_PODIO
+from src.utils.middleware.logs.logs import logger
 from src.utils.job_calculator import recalculate_and_apply
 from src.services.commission_service import process_job_to_commissions
 
 
 webhook_bp = Blueprint("webhook", __name__)
+
+
+@webhook_bp.before_request
+def _validate_podio_webhook_token():
+    """REG-018: Podio no firma sus webhooks — el ?token= registrado en la URL
+    del hook (func_hooks) es la autenticación. Solo aplica a los receptores;
+    si PODIO_WEBHOOK_TOKEN no está configurado se acepta con WARNING (hooks
+    legado registrados sin token; el cierre definitivo es del cutover)."""
+    import hmac as _hmac
+
+    from decouple import config as _env
+    from flask import request as _request
+
+    path = _request.path
+    if not (path.startswith("/webhook/podio/jobs") or path.startswith("/webhook/podio/others")):
+        return None
+
+    expected = _env("PODIO_WEBHOOK_TOKEN", default="")
+    if not expected:
+        logger.warning("PODIO_WEBHOOK_TOKEN no configurado: webhook %s aceptado sin validar", path)
+        return None
+
+    provided = _request.args.get("token", "")
+    if not _hmac.compare_digest(provided, expected):
+        return jsonify({"error": "invalid webhook token"}), 403
+    return None
 
 
 # ----------------------------------------

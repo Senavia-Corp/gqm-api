@@ -80,6 +80,15 @@ def create_app():
     app.url_map.strict_slashes = False  # Accept URLs with or without trailing slash (prevents 308 redirect that strips Authorization header)
 
     import os
+
+    # REG-007: sin secret_key la sesión de Flask es NullSession y el flujo
+    # OAuth de QBO (/qbo/connect ↔ /callback con state anti-CSRF) revienta.
+    from decouple import config as _env
+    secret_key = _env("SECRET_KEY", default=None)
+    if not secret_key:
+        raise RuntimeError(
+            "SECRET_KEY es obligatoria (sesión Flask para el state de QBO OAuth)")
+    app.secret_key = secret_key
     # Orígenes permitidos por defecto para desarrollo
     allowed_origins = [
         "http://localhost:3000",
@@ -108,17 +117,21 @@ def create_app():
         if request.method == "OPTIONS":
             return None
 
-        # Lista de prefijos de rutas públicas permitidas sin auth (Whitelist)
+        # Whitelist de rutas públicas (REG-019/032/096): SOLO receptores de
+        # webhooks (con su propia validación de token/firma), el retorno
+        # OAuth de QBO (state anti-CSRF) y el ciclo de login/reset.
+        # Fuera: /qbo/connect (solo Full Admin), /admin/hooks (muerta),
+        # /sync, /podio (exponía el dump de debug), /test, /debug y
+        # /webhook/podio/failed_syncs (gestión, no receptor).
         public_prefixes = [
-            "/auth",            # Rutas de login
-            "/webhook",         # Webhooks (Podio, etc.)
-            "/qbo/connect",     # QuickBooks OAuth inicio
-            "/callback",        # QuickBooks OAuth retorno
-            "/admin/hooks",     # Admin hooks podio
-            "/sync",            # Sincronización podio
-            "/podio",           # Rutas podio helper
-            "/test",            # Rutas test
-            "/debug"            # Rutas debug
+            "/auth/login",
+            "/auth/refresh",
+            "/auth/forgot-password",
+            "/auth/reset-password",
+            "/webhook/podio/jobs",
+            "/webhook/podio/others",
+            "/webhook/qbo",
+            "/callback",
         ]
 
         # Permitir root
@@ -216,7 +229,9 @@ def create_app():
     # Para crear o eliminar los hooks de Podio
     app.register_blueprint(admin_bp)
 
-    app.register_blueprint(debug_bp)  # test
+    # debug_bp expone items de Podio: SOLO en entorno de pruebas (REG-032/082)
+    if _env("APP_ENV", default="production") == "test":
+        app.register_blueprint(debug_bp)
 
     # Para conexión con Quickbooks
     app.register_blueprint(qbo_bp)

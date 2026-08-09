@@ -20,9 +20,10 @@ def qbo_callback():
     realmId = request.args.get("realmId")
     state = request.args.get("state")
 
-    # Validar state para prevenir CSRF
+    # Validar state para prevenir CSRF (comparación en tiempo constante)
+    import hmac
     expected_state = session.get("qbo_state")
-    if not state or state != expected_state:
+    if not state or not expected_state or not hmac.compare_digest(state, expected_state):
         return "Invalid state parameter, possible CSRF attack", 400
 
     if not code or not realmId:
@@ -33,9 +34,9 @@ def qbo_callback():
 
     tokens = exchange_code_for_tokens(code)
 
-    # Guardar tokens en PostgreSQL
-    with get_session() as session:
-        existing = session.exec(
+    # Guardar tokens en PostgreSQL (db_session: no sombrear la session de Flask)
+    with get_session() as db_session:
+        existing = db_session.exec(
             select(QuickBooksToken).where(QuickBooksToken.realm_id == realmId)
         ).first()
 
@@ -57,9 +58,9 @@ def qbo_callback():
                 refresh_token_expires_in=tokens.get(
                     "x_refresh_token_expires_in")
             )
-            session.add(new_entry)
+            db_session.add(new_entry)
 
-        session.commit()
+        db_session.commit()
 
     return "QuickBooks Connected Successfully", 200
 
