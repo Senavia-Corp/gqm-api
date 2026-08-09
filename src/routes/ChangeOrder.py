@@ -184,6 +184,23 @@ def create_changeOr():
             obj.ID_ChangeOrder, obj.job_podio_id
         )
 
+        # REG-142: notificar el nuevo CO al subcontratista de la orden (no bloqueante)
+        try:
+            from src.models.SubcontractorModel import Subcontractor
+            from src.services.email_service import send_new_order_or_co
+            if obj.ID_Order:
+                _order = session.get(Order, obj.ID_Order)
+                if _order and _order.ID_Subcontractor:
+                    _sub = session.get(Subcontractor, _order.ID_Subcontractor)
+                    if _sub and _sub.Email_Address:
+                        send_new_order_or_co(
+                            _sub.Email_Address,
+                            _sub.Name or _sub.Organization or "Subcontractor",
+                            "change order", obj.Name or obj.ID_ChangeOrder,
+                            job_for_type.ID_Jobs if job_for_type else None)
+        except Exception:
+            logger.exception("No se pudo notificar el nuevo change order")
+
         # ── Si el CO está vinculado a una Order, actualizar su Adj_formula ──
         # Esto debe ocurrir ANTES del recálculo del Job para que el calculador
         # lea el Adj_formula correcto al sumar los Adj_formula de las Orders.

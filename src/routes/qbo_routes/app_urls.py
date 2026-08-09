@@ -296,3 +296,30 @@ def fetch_vendors(realm_id):
         limit=limit
     )
     return data, 200
+
+
+# ── Refresco proactivo de tokens (REG-114) ───────────────────────────────
+# El refresh token de Intuit muere si el realm pasa ~100 días inactivo.
+# Este endpoint (protegido por qbo:manage) refresca todos los realms; el
+# cron real que lo invoque periódicamente es del cutover.
+@qbo_bp.post("/refresh_tokens")
+def refresh_all_qbo_tokens():
+    from flask import jsonify
+
+    from ...database.db_sqlmodel import get_session
+    from ...models.QBOTokensModel import QuickBooksToken
+    from ...quickbooks.qbo_auth import get_valid_access_token
+
+    with get_session() as db_session:
+        realms = [t.realm_id for t in db_session.exec(select(QuickBooksToken)).all()]
+
+    results = {}
+    for realm in realms:
+        try:
+            get_valid_access_token(realm)
+            results[realm] = "ok"
+        except Exception as exc:
+            results[realm] = f"error: {exc}"
+
+    status = 200 if all(v == "ok" for v in results.values()) or not results else 207
+    return jsonify(results), status

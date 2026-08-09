@@ -16,6 +16,8 @@ def get_invoices(realm_id, start=1, limit=200):
 # Obtener Invoice por Job
 def get_invoices_by_job(realm_id, job_code, start=1, limit=100):
 
+    from src.quickbooks.services.qbo_validation import validate_job_code
+    job_code = validate_job_code(job_code)
     query = (
         f"SELECT * FROM Invoice WHERE DocNumber LIKE '{job_code}-%'"
     )

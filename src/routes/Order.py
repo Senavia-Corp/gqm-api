@@ -403,6 +403,19 @@ def create_order():
             )
             session.commit()
 
+            # REG-142: notificar la nueva orden al subcontratista (no bloqueante)
+            try:
+                from src.models.SubcontractorModel import Subcontractor
+                from src.services.email_service import send_new_order_or_co
+                sub = session.get(Subcontractor, obj.ID_Subcontractor)
+                if sub and sub.Email_Address:
+                    send_new_order_or_co(
+                        sub.Email_Address,
+                        sub.Name or sub.Organization or "Subcontractor",
+                        "order", obj.Title or obj.ID_Order, job_id_for_calc)
+            except Exception:
+                logger.exception("No se pudo notificar la nueva orden")
+
         return obj.model_dump(), 201
 
 

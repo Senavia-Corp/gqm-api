@@ -149,8 +149,11 @@ def send_message(id_job):
 @handle_exceptions()
 @require_role("member")
 def upload_chat_attachment(id_job):
-    current_user_id = g.current_user["id"] if hasattr(
-        g, "current_user") else "MEM60001"  # TODO: remove fallback
+    # REG-095/REG-079: sin fallback — el auth global fail-closed garantiza
+    # g.current_user; si no está, 401 (jamás atribuir a un ID fijo).
+    if not hasattr(g, "current_user") or not g.current_user.get("id"):
+        raise AppException("Not authenticated", "unauthorized", 401)
+    current_user_id = g.current_user["id"]
 
     file = request.files.get("file")
     if not file:

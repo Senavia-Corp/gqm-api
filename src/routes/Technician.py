@@ -113,6 +113,14 @@ def create_techician():
         response = obj.model_dump()
         response.pop("Password", None)
 
+        # REG-142: bienvenida/alta (no bloqueante)
+        try:
+            from src.services.email_service import send_welcome
+            if obj.Email_Address:
+                send_welcome(obj.Email_Address, obj.Name or "there")
+        except Exception:
+            pass
+
         return jsonify(response), 201
 
 

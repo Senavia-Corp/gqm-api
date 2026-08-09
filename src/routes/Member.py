@@ -201,6 +201,14 @@ def create_member():
         response = obj.model_dump()
         response.pop("Password", None)
 
+        # REG-142: bienvenida/alta (no bloqueante)
+        try:
+            from src.services.email_service import send_welcome
+            if obj.Email_Address:
+                send_welcome(obj.Email_Address, obj.Member_Name or "there")
+        except Exception:
+            pass
+
         return response, 201
 
 

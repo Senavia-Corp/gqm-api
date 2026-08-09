@@ -286,6 +286,18 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
         )
 
         session.commit()
+
+        # REG-142: notificación de asignación (no bloqueante)
+        try:
+            from src.services.email_service import send_assignment_notification
+            if subcontractor.Email_Address:
+                send_assignment_notification(
+                    subcontractor.Email_Address,
+                    subcontractor.Name or subcontractor.Organization or "Subcontractor",
+                    job_id, job.Project_name)
+        except Exception:
+            logger.exception("No se pudo notificar la asignación del subcontratista")
+
         return jsonify({"status": "Linked 🔗", "job_id": job_id, "subcontr_id": subcontr_id}), 201
 
 
@@ -437,6 +449,17 @@ def assign_technician_to_job(job_id, technician_id):
         )
         
         session.commit()
+
+        # REG-142: notificación de asignación (no bloqueante)
+        try:
+            from src.services.email_service import send_assignment_notification
+            if technician.Email_Address:
+                send_assignment_notification(
+                    technician.Email_Address, technician.Name or "Technician",
+                    job_id, job.Project_name)
+        except Exception:
+            logger.exception("No se pudo notificar la asignación del técnico")
+
         return jsonify({"status": "Linked 🔗", "job_id": job_id, "technician_id": technician_id}), 201
 
 @job_technician_bp.delete("/jobs/<job_id>/technicians/<technician_id>")

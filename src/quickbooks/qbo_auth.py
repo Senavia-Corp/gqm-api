@@ -33,7 +33,10 @@ def qbo_callback():
     # Clear state after validation
     session.pop("qbo_state", None)
 
-    tokens = exchange_code_for_tokens(code)
+    try:
+        tokens = exchange_code_for_tokens(code)
+    except RuntimeError as exc:
+        return f"QuickBooks connection failed: {exc}", 400
 
     # Guardar tokens en PostgreSQL (db_session: no sombrear la session de Flask)
     with get_session() as db_session:
@@ -93,7 +96,19 @@ def exchange_code_for_tokens(code):
     # Jamás loguear el cuerpo: contiene access/refresh tokens en claro
     print("QBO token exchange STATUS:", response.status_code)
 
-    return response.json()
+    # REG-148: manejar el fallo del intercambio (antes: KeyError críptico)
+    try:
+        tokens = response.json()
+    except ValueError:
+        tokens = {}
+    if response.status_code != 200 or "access_token" not in tokens:
+        from src.utils.middleware.logs.logs import logger
+        logger.error("QBO exchange falló: status=%s error=%s",
+                     response.status_code, tokens.get("error_description") or tokens.get("error"))
+        raise RuntimeError(
+            f"QuickBooks rechazó el intercambio de código "
+            f"({tokens.get('error_description') or response.status_code})")
+    return tokens
 
 
 # 3. REFRESH: obtiene nuevos tokens

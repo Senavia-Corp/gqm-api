@@ -115,6 +115,15 @@ def update_estimate(id_estimate):
             from src.utils.podio_job_sync import sync_job_to_podio
             sync_job_to_podio(job_id_for_calc, session)
             session.commit()
+
+        # REG-145: si el costo se reasignó a otro job, recalcular TAMBIÉN el
+        # nuevo (mismo patrón que Purchase.py) — antes solo se recalculaba el
+        # viejo y el nuevo quedaba con agregados desactualizados.
+        if obj.ID_Jobs and obj.ID_Jobs != job_id_for_calc:
+            recalculate_and_apply(obj.ID_Jobs, session)
+            from src.utils.podio_job_sync import sync_job_to_podio
+            sync_job_to_podio(obj.ID_Jobs, session)
+            session.commit()
         # ─────────────────────────────────────────────────────────────────
 
         session.refresh(obj)
