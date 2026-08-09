@@ -283,3 +283,72 @@ def require_permission(actions: list | str, resource: str = "*"):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+
+
+# Campos que el autoservicio de perfil NUNCA puede tocar (escalada REG-006).
+PROFILE_PRIVILEGED_FIELDS = {"ID_Role", "Active", "ID_Subcontractor"}
+
+
+def self_profile_guard(target_type: str, target_id: str, update_data: dict) -> dict:
+    """Autoservicio de perfil (hallazgo ALTO del review final): quien no tiene
+    el permiso {target_type}:update solo entra por profile:update_own — se
+    exige que el target sea su PROPIO registro y se filtran los campos
+    privilegiados. Con el permiso pleno, pasa intacto."""
+    from src.utils.middleware.exceptions_handler import AppException
+
+    policies = getattr(g, "user_policies", []) or []
+    if PolicyEvaluator.evaluate(policies, f"{target_type}:update", "*"):
+        return update_data
+
+    user = getattr(g, "current_user", None) or {}
+    if user.get("role") != target_type or user.get("id") != target_id:
+        raise AppException(
+            "Forbidden: solo puedes editar tu propio perfil.", "forbidden", 403)
+    return {k: v for k, v in update_data.items()
+            if k not in PROFILE_PRIVILEGED_FIELDS}
+
+
+def scope_tasks_statement(statement):
+    """REG (cobertura B7): los roles de portal solo ven SUS tareas —
+    técnico: las asignadas a él; subcontratista: las suyas directas o las de
+    sus jobs. Staff pasa sin filtro."""
+    role, uid = portal_scope()
+    if role is None:
+        return statement
+
+    from sqlalchemy import or_ as sa_or
+    from sqlmodel import select as sq_select
+
+    from src.models.TasksModel import Tasks
+    from src.models.link_models.JobSubcontractor import JobSubcontractorLink
+
+    if role == "technician":
+        return statement.where(Tasks.ID_Technician == uid)
+    return statement.where(sa_or(
+        Tasks.ID_Subcontractor == uid,
+        Tasks.ID_Jobs.in_(
+            sq_select(JobSubcontractorLink.job_id).where(
+                JobSubcontractorLink.subcontr_id == uid)),
+    ))
+
+
+def task_belongs_to_portal_user(session, task) -> bool:
+    """True si el usuario actual puede operar sobre la task (staff siempre)."""
+    role, uid = portal_scope()
+    if role is None:
+        return True
+
+    from sqlmodel import select as sq_select
+
+    from src.models.link_models.JobSubcontractor import JobSubcontractorLink
+
+    if role == "technician":
+        return task.ID_Technician == uid
+    if getattr(task, "ID_Subcontractor", None) == uid:
+        return True
+    if not task.ID_Jobs:
+        return False
+    return session.exec(sq_select(JobSubcontractorLink).where(
+        JobSubcontractorLink.job_id == task.ID_Jobs,
+        JobSubcontractorLink.subcontr_id == uid,
+    )).first() is not None

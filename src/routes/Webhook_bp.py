@@ -330,11 +330,30 @@ def podio_jobs_webhook(app_type, year):
                 ).first()
                 job_id_for_log = job_to_delete.ID_Jobs if job_to_delete else None
 
+                # Cascada simétrica al DELETE por API (hallazgo cobertura B7):
+                # también FinancialDocuments, y desenlazar EstimateCost/
+                # Opportunities de las Orders antes de borrarlas (FK sin
+                # ondelete). Antes este camino dejaba Bills huérfanas.
+                if job_id_for_log:
+                    from src.models.FinancialDocModel import FinancialDocument
+                    for fdoc in session.exec(select(FinancialDocument).where(
+                            FinancialDocument.ID_Jobs == job_id_for_log)).all():
+                        session.delete(fdoc)
+
                 event_delete(session=session, Model=Job,
                              item_unique_id=str(item_id))
 
                 orders = session.exec(
                     select(Order).where(Order.job_podio_id == str(item_id))).all()
+                _order_ids = [o.ID_Order for o in orders if o.ID_Order]
+                if _order_ids:
+                    from src.models.EstimateCostModel import EstimateCost
+                    from src.models.OpportunitiesModel import Opportunities
+                    for _model in (EstimateCost, Opportunities):
+                        for row in session.exec(select(_model).where(
+                                _model.ID_Order.in_(_order_ids))).all():
+                            row.ID_Order = None
+                            session.add(row)
                 for order in orders:
                     delete_with_retry(session, order)
                 if orders:

@@ -14,7 +14,11 @@ from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
-from ..utils.middleware.auth.routes_protection import require_permission
+from ..utils.middleware.auth.routes_protection import (
+    require_permission,
+    scope_tasks_statement,
+    task_belongs_to_portal_user,
+)
 from ..utils.middleware.logs.logs import logger
 from src.utils.audit import audit
 
@@ -29,10 +33,11 @@ tasks_bp = Blueprint("tasks_blueprint", __name__, url_prefix="/tasks")
 @paginate()
 def list_tasks():
     with get_session() as session:
-        results = session.exec(
-            select(Tasks).options(joinedload(Tasks.job),
-                                  joinedload(Tasks.technician))
-        ).unique().all()
+        statement = select(Tasks).options(
+            joinedload(Tasks.job), joinedload(Tasks.technician))
+        # Portal: solo SUS tareas (hallazgo crítico de cobertura B7)
+        statement = scope_tasks_statement(statement)
+        results = session.exec(statement).unique().all()
         if not results:
             return [], 200
         return [add_relationships(t, ["job", "technician"]) for t in results], 200
@@ -77,6 +82,7 @@ def get_weekly_tasks():
                 )
             )
         )
+        query = scope_tasks_statement(query)
 
         if member_id_param:
             query = query.where(
@@ -144,7 +150,7 @@ def get_tasks(id_tasks):
             .options(joinedload(Tasks.job), joinedload(Tasks.technician))
             .where(Tasks.ID_Tasks == id_tasks)
         ).unique().first()
-        if not obj:
+        if not obj or not task_belongs_to_portal_user(session, obj):
             raise AppException("Task no encontrado.", "task_not_found", 404)
         return add_relationships(obj, ["job", "technician"]), 200
 
@@ -163,6 +169,7 @@ def get_tasks_by_job(id_jobs, id_tech):
         # "ALL" = comodín del proxy del panel: todas las tareas del job
         if id_tech and id_tech.upper() != "ALL":
             statement = statement.where(Tasks.ID_Technician == id_tech)
+        statement = scope_tasks_statement(statement)
         results = session.exec(statement).unique().all()
         if not results:
             return [], 200
@@ -182,6 +189,10 @@ def create_tasks():
         **create_tasks.model_dump(exclude_unset=False, exclude_none=False))
 
     with get_session() as session:
+        # Portal: un sub solo crea tareas dentro de lo suyo (IDOR de cobertura B7)
+        if not task_belongs_to_portal_user(session, obj):
+            raise AppException(
+                "Forbidden: la tarea no pertenece a tus jobs.", "forbidden", 403)
         obj.ID_Tasks = generate_custom_id(session, Tasks, "ID_Tasks", "TSK")
         save_with_retry(session, obj)
         logger.info("✅ Task creada | task_id=%s", obj.ID_Tasks)
@@ -197,7 +208,7 @@ def update_tasks(task_id):
     with get_session() as session:
         obj = session.exec(select(Tasks).where(
             Tasks.ID_Tasks == task_id)).first()
-        if not obj:
+        if not obj or not task_belongs_to_portal_user(session, obj):
             raise AppException("Task no encontrado.", "task_not_found", 404)
 
         update_data = TasksUpdate.model_validate(
@@ -217,7 +228,7 @@ def delete_tasks(task_id):
     with get_session() as session:
         obj = session.exec(select(Tasks).where(
             Tasks.ID_Tasks == task_id)).first()
-        if not obj:
+        if not obj or not task_belongs_to_portal_user(session, obj):
             raise AppException("Task no encontrado.", "task_not_found", 404)
 
         delete_with_retry(session, obj)
