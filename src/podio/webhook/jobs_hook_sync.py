@@ -22,9 +22,12 @@ from src.utils.mappers.from_podio.order_changeorder_mapper import (
 from src.utils.middleware.logs.logs import logger
 
 
-def upsert_job_from_item(session, item, app_type):
+def upsert_job_from_item(session, item, app_type, year=None):
 
     mapped = map_podio_item_to_job(item)
+    if year:
+        # La ruta del webhook conoce la app-año: persistirla (REG-015)
+        mapped["podio_app_year"] = year
 
     podio_item_id = mapped.get("podio_item_id")
     tracking_id = mapped.get("ID_Jobs")
@@ -658,7 +661,7 @@ def sync_ptl_gc_fee_from_podio(session, job):
 
 # -------- FUNCIÓN PARA UNIFICAR JOB FASE 1 Y 2
 def process_jobs_podio(session, item, app_type, year):
-    job = upsert_job_from_item(session, item, app_type)
+    job = upsert_job_from_item(session, item, app_type, year=year)
 
     if not job:
         return

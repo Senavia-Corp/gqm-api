@@ -72,6 +72,7 @@ def test_qid_webhook_creates_job_and_bdf(client, qid_ids):
         assert job.Job_type == "QID"
         assert job.Job_status == "In Progress"
         assert job.Project_name == "Vista Lagos Ph 2"
+        assert job.podio_app_year == 2026  # REG-015: año de app persistido
         # Los agregados (Estimated_material/rent, Gqm_*) los reescribe
         # recalculate_and_apply desde los EstimateCost locales — el mapeo
         # crudo ya está congelado en tests/unit. Bldg_dept_fees sí es

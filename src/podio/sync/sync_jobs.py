@@ -52,6 +52,8 @@ def sync_jobs(job_type: str, year: int, limit: int = 30, offset: int = 0, dry_ru
                         f"[DATE FIELD] external_id={f.get('external_id')} values={f.get('values')}")
 
             mapped = map_podio_item_to_job(item)
+            # El batch conoce la app-año de origen: persistirla (REG-015)
+            mapped["podio_app_year"] = year
 
             podio_item_id = mapped.get("podio_item_id")
             tracking_id = mapped.get("ID_Jobs")
@@ -289,8 +291,6 @@ def sync_job_related_members(
     if not config:
         logger.warning(
             "No hay configuración de miembros para job_type=%s year=%s", job_type, year)
-        logger.warning(
-            "Job podio_item_id=%s no existe en DB, se omite", podio_item_id)
         return {"processed": 0}
 
     service = podio_jobs_router.get_service(

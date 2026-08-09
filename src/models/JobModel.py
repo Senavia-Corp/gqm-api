@@ -85,6 +85,10 @@ class Job(JobBase, table=True):
     # Referencias a Podio
     podio_item_id: Optional[str] = Field(
         default=None, index=True)
+    # Año de la app Podio a la que pertenece el item (las apps de Jobs son
+    # una por año). Se persiste al crear/sincronizar; el auto-sync lo usa en
+    # vez de inferirlo de Date_assigned/now() (REG-015).
+    podio_app_year: Optional[int] = Field(default=None)
 
     # Relaciones foráneas M:1
     ID_Client: Optional[str] = Field(

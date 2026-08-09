@@ -947,6 +947,7 @@ def create_job():
                         "No se pudo crear el item en Podio (respuesta vacía).", "podio_creation_failed", 502)
 
                 obj.podio_item_id = podio_response["item_id"]
+                obj.podio_app_year = year
                 item = podio_service.get_item(obj.podio_item_id)
                 formatted_id = item.get("app_item_id_formatted")
 
@@ -1067,6 +1068,10 @@ def update_job(id_job):
         # ─────────────────────────────────────────────────────────────────
 
         if (sync_podio or dry_run) and obj.podio_item_id:
+            if year is None:
+                # Sin ?year explícito: usar el año persistido del job (REG-015)
+                from src.utils.podio_job_sync import resolve_job_app_year
+                year = resolve_job_app_year(obj)
             if obj.Job_type == "QID":
                 podio_fields = map_job_to_podio_qid(obj, session=session, year=year)
             elif obj.Job_type == "PTL":
