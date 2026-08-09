@@ -1016,6 +1016,31 @@ def create_job():
                     save_with_retry(session, existing_after)
                     obj = existing_after
                 else:
+                    # Compensación (REG-013): el item ya existe en Podio pero el
+                    # guardado local falló de verdad → borrar el item remoto
+                    # para no dejar un huérfano (mismo patrón que Order.py).
+                    if sync_podio and obj.podio_item_id:
+                        try:
+                            podio_service.delete_item(obj.podio_item_id)
+                            logger.warning(
+                                "Compensación: item %s eliminado de Podio tras fallo del guardado local",
+                                obj.podio_item_id)
+                        except Exception:
+                            logger.exception(
+                                "Compensación fallida: item %s queda huérfano en Podio",
+                                obj.podio_item_id)
+                            try:
+                                from src.models.PodioFailedSyncModel import PodioFailedSync
+                                session.rollback()
+                                session.add(PodioFailedSync(
+                                    item_id=str(obj.podio_item_id),
+                                    hook_type="create_job_compensation",
+                                    payload={"job_id": obj.ID_Jobs, "job_type": obj.Job_type},
+                                    error_message=str(e)[:2000],
+                                ))
+                                session.commit()
+                            except Exception:
+                                logger.exception("No se pudo registrar PodioFailedSync")
                     raise e
         logger.info("✅ Job creado | job_id=%s | podio_item_id=%s",
                     obj.ID_Jobs, obj.podio_item_id)
@@ -1107,13 +1132,54 @@ def update_job(id_job):
 def delete_job(id_job):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
+    force = request.args.get("force", "false").lower() == "true"
+
+    from src.models.ChangeOrderModel import ChangeOrder
+    from src.models.FinancialDocModel import FinancialDocument
+    from src.models.OrderModel import Order
 
     with get_session() as session:
         obj = session.exec(select(Job).where(Job.ID_Jobs == id_job)).first()
         if not obj:
             raise AppException("Job no encontrado.", "job_not_found", 404)
 
+        # REG-014: el delete por API dejaba Orders/COs/FinancialDocs huérfanos
+        # (Order ni siquiera tiene FK a Job — solo job_podio_id).
+        podio_ref = str(obj.podio_item_id) if obj.podio_item_id else None
+        orders = session.exec(select(Order).where(
+            Order.job_podio_id == podio_ref)).all() if podio_ref else []
+        change_orders = session.exec(select(ChangeOrder).where(
+            ChangeOrder.job_podio_id == podio_ref)).all() if podio_ref else []
+        fin_docs = session.exec(select(FinancialDocument).where(
+            FinancialDocument.ID_Jobs == id_job)).all()
+
+        if orders or change_orders or fin_docs:
+            if not force:
+                raise AppException(
+                    f"El job tiene registros vinculados: {len(orders)} orders, "
+                    f"{len(change_orders)} change orders, {len(fin_docs)} documentos "
+                    "financieros. Repite con ?force=true (requiere permiso "
+                    "job:force_delete) para borrarlos en cascada.",
+                    "job_has_children", 409)
+
+            from src.utils.middleware.auth.routes_protection import get_user_context
+            from src.utils.policy_evaluator import PolicyEvaluator
+            _, _, policies = get_user_context()
+            if not PolicyEvaluator.evaluate(policies, "job:force_delete", "*"):
+                raise AppException(
+                    "?force=true requiere el permiso job:force_delete.",
+                    "forbidden", 403)
+
+            for row in change_orders + orders + fin_docs:
+                session.delete(row)
+            logger.warning(
+                "🗑️ Cascada forzada de Job %s: %s orders, %s COs, %s findocs",
+                id_job, len(orders), len(change_orders), len(fin_docs))
+
         if sync_podio and obj.podio_item_id:
+            if year is None:
+                from src.utils.podio_job_sync import resolve_job_app_year
+                year = resolve_job_app_year(obj)
             podio_service = podio_jobs_router.get_service(
                 job_type=obj.Job_type, year=year)
             import requests

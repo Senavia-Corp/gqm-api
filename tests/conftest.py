@@ -34,3 +34,16 @@ def db_session():
 
     with get_session() as session:
         yield session
+
+
+@pytest.fixture(scope="session")
+def admin_headers(app):
+    """JWT del admin dev sembrado por scripts/seed_rbac.py."""
+    password = config("SEED_DEV_PASSWORD", default="")
+    assert password, "falta SEED_DEV_PASSWORD en el .env de dev"
+    resp = app.test_client().post(
+        "/auth/login",
+        json={"Email_Address": "admin-dev@senavia-test.com", "Password": password},
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    return {"Authorization": f"Bearer {resp.get_json()['access_token']}"}
