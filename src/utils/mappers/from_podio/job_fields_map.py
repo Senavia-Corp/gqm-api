@@ -1,10 +1,12 @@
 # ========================== JOBS TIPO QID ========================== #
-# HUECO VERIFICADO (GET /app/28087463, 2026-08-09 — REG-071): la app QID 2023
-# NO tiene equivalentes de Gqm_paid_fees ni Bldg_dept_fees. `calculation-10` /
-# `bldg-fees-*` no existen; `bldg-dept` es la RELACIÓN al Building Dept (tipo
-# app, no money) y `paid-in-full` está borrado. En items 2023 esos campos no
-# sincronizan desde Podio: los gobierna el recálculo local (job_calculator).
-# NO aliasar `bldg-dept` ni `amount-paid-to-date` aquí — no son equivalentes.
+# HUECO VERIFICADO (GET a las 12 apps reales, 2026-08-09 — REG-071/073; ver
+# ~/outputs/gqm-entrega/reports/REG-073-mapper-vs-apps.md): las apps QID 2023
+# (28087463) y 2024 (29157876) NO tienen equivalentes de Gqm_paid_fees ni
+# Bldg_dept_fees. `calculation-10` / `bldg-fees-*` no existen; `bldg-dept` es
+# la RELACIÓN al Building Dept (tipo app, no money) y `paid-in-full` está
+# borrado. En items 2023/2024 esos campos no sincronizan desde Podio: los
+# gobierna el recálculo local (job_calculator). NO aliasar `bldg-dept` ni
+# `amount-paid-to-date` aquí — no son equivalentes.
 FIELD_ALIASES_QID = {
     "Project_location": {
         "field_id": [274767587, 268722156, 258250427, 246058264],
@@ -130,10 +132,12 @@ FIELD_ALIASES_QID = {
 }
 
 # ========================== JOBS TIPO PTL ========================== #
-# HUECO DOCUMENTADO (REG-011): la app PTL 2026 no tiene `deadline` ni
-# `date-received`; solo `estimated-start-date`, que NO es semánticamente la
-# fecha de completado → no se aliasa. En items 2026 esos dos campos quedan
-# sin mapear (warning en logs).
+# HUECO DOCUMENTADO (REG-011/073): las apps PTL 2025 y 2026 no tienen
+# `deadline` ni `date-received`; solo `estimated-start-date`, que NO es
+# semánticamente la fecha de completado → no se aliasa. En items 2025/2026
+# esos dos campos quedan sin mapear (warning en logs). Además `Acc_receivable`
+# (`acc-receivable`) solo existe en las apps 2025/2026 — en 2023/2024 no
+# resuelve (verificado contra las 12 apps reales).
 # DECISIÓN (DECISIONES-CONFIRMADAS.md): PTL no usa pagos parciales —
 # `payment-received-1/2/3` y `payment-date-and-check-*` se ignoran a propósito.
 FIELD_ALIASES_PTL = {
