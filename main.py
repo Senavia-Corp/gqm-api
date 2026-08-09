@@ -342,7 +342,10 @@ if __name__ == "__main__":
     try:
         validate_public_url()
 
-        app.run(debug=True, host="0.0.0.0", port=80)
+        # REG-129: debug solo si se pide explícitamente (jamás por defecto)
+        from decouple import config as _run_env
+        app.run(debug=_run_env("FLASK_DEBUG", default="false").lower() == "true",
+                host="0.0.0.0", port=80)
 
     except RuntimeError as e:
         print(f"\n[ERROR CRÍTICO] La aplicación no pudo iniciar: {e}")

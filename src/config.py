@@ -163,6 +163,14 @@ _missing = [k for k, v in {
 }.items() if not v]
 
 if _missing:
+    # REG-081: en producción, arrancar sin las credenciales REALES es
+    # fail-fast. Las *_TAP se excluyen a propósito: deben estar AUSENTES en
+    # prod (si se definieran, el registro de hooks apuntaría a apps de
+    # prueba). En test/local solo se avisa.
+    _prod_missing = [k for k in _missing if "_TAP_" not in k]
+    if APP_ENV == "production" and _prod_missing:
+        raise RuntimeError(
+            f"Faltan variables de entorno obligatorias: {', '.join(_prod_missing)}")
     print(f"[WARN] Faltan variables en .env: {', '.join(_missing)}")
 
 
