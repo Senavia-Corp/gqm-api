@@ -155,12 +155,15 @@ def get_tasks(id_tasks):
 @paginate()
 def get_tasks_by_job(id_jobs, id_tech):
     with get_session() as session:
-        results = session.exec(
+        statement = (
             select(Tasks)
             .options(joinedload(Tasks.job), joinedload(Tasks.technician))
             .where(Tasks.ID_Jobs == id_jobs)
-            .where(Tasks.ID_Technician == id_tech)
-        ).unique().all()
+        )
+        # "ALL" = comodín del proxy del panel: todas las tareas del job
+        if id_tech and id_tech.upper() != "ALL":
+            statement = statement.where(Tasks.ID_Technician == id_tech)
+        results = session.exec(statement).unique().all()
         if not results:
             return [], 200
         return [add_relationships(t, ["job", "technician"]) for t in results], 200

@@ -21,11 +21,16 @@ estimate_bp = Blueprint("estimate_blueprint", __name__, url_prefix="/estimate")
 @handle_exceptions()
 @paginate()
 def list_estimates():
+    job_id = request.args.get("job_id") or request.args.get("jobId")
+    unassigned = request.args.get("unassigned", "false").lower() == "true"
     with get_session() as session:
-        results = session.exec(
-            select(EstimateCost).options(joinedload(
-                EstimateCost.job), joinedload(EstimateCost.order))
-        ).unique().all()
+        statement = select(EstimateCost).options(
+            joinedload(EstimateCost.job), joinedload(EstimateCost.order))
+        if job_id:
+            statement = statement.where(EstimateCost.ID_Jobs == job_id)
+        if unassigned:
+            statement = statement.where(EstimateCost.ID_Order.is_(None))
+        results = session.exec(statement).unique().all()
         if not results:
             return [], 200
         return [add_relationships(e, ["job", "order"]) for e in results], 200

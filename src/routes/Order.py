@@ -47,6 +47,8 @@ def _scope_orders_statement(statement):
 @handle_exceptions()
 @paginate()
 def list_orders():
+    subc_filter = (request.args.get("subcontractor_id")
+                   or request.args.get("subcontractorId"))
     with get_session() as session:
         statement = (
             select(Order)
@@ -56,6 +58,8 @@ def list_orders():
                 joinedload(Order.financial_docs),
             )
         )
+        if subc_filter:
+            statement = statement.where(Order.ID_Subcontractor == subc_filter)
         statement = _scope_orders_statement(statement)
         results = session.exec(statement).unique().all()
 
