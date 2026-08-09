@@ -1,8 +1,9 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from .link_models.FinancialLink import FinancialLink
+from sqlalchemy import Column, TIMESTAMP, func
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
@@ -37,6 +38,17 @@ class FinancialTransaction(FTransBase, table=True):
         link_model=FinancialLink
     )
 
+    # Timestamps automáticos (REG-042/REG-101)
+    created_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True),
+                         server_default=func.now(), nullable=False)
+    )
+    updated_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(),
+                         onupdate=func.now(), nullable=False)
+    )
 
 class FTransactionCreate(FTransBase):
     pass

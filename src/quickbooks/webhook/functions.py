@@ -79,10 +79,21 @@ def recalculate_document_from_db(session, qbo_id):
         print(f"⚠️ No se encontró el documento {qbo_id} para recalcular.")
         return
 
+    # REG-043 capa 2: SIEMPRE sumar amount_applied del link por documento.
+    # Sumar el Total_Amount de la transacción restaba el cheque COMPLETO a
+    # CADA bill de un pago por lote (balances negativos / >100% pagado).
+    from src.models.link_models.FinancialLink import FinancialLink
+    links = session.exec(
+        select(FinancialLink).where(
+            FinancialLink.fdocument_id == doc.ID_FinancialDoc)
+    ).all()
+    voided_ids = {
+        t.ID_FTransaction for t in doc.financial_transactions if t.is_voided
+    }
     total_paid = sum(
-        trans.Total_Amount
-        for trans in doc.financial_transactions
-        if trans.Total_Amount is not None and not trans.is_voided
+        (link.amount_applied or 0.0)
+        for link in links
+        if link.ftransaction_id not in voided_ids
     )
 
     # Actualizamos los campos del documento

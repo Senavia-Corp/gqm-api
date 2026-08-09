@@ -4,6 +4,8 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from .SubcontractorModel import Subcontractor
+from datetime import datetime
+from sqlalchemy import Column, TIMESTAMP, func
 
 
 class OrderBase(SQLModel):
@@ -47,6 +49,17 @@ class Order(OrderBase, table=True):
     opportunities: List["Opportunities"] = Relationship(  # type: ignore
         back_populates="order")
 
+    # Timestamps automáticos (REG-042/REG-101)
+    created_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True),
+                         server_default=func.now(), nullable=False)
+    )
+    updated_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(),
+                         onupdate=func.now(), nullable=False)
+    )
 
 class OrderCreate(OrderBase):
     ID_Subcontractor: Optional[str] = None

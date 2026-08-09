@@ -1,11 +1,12 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from .FinancialTransModel import FinancialTransaction
 from .link_models.FinancialLink import FinancialLink
 from .JobModel import Job
 from .OrderModel import Order
+from sqlalchemy import Column, TIMESTAMP, func
 
 
 # ==================================== Modelos para PostgreSQL ====================================#
@@ -58,6 +59,17 @@ class FinancialDocument(FDocBase, table=True):
         default=None, foreign_key="order.ID_Order")
     order: Optional[Order] = Relationship(back_populates="financial_docs")
 
+    # Timestamps automáticos (REG-042/REG-101)
+    created_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True),
+                         server_default=func.now(), nullable=False)
+    )
+    updated_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True), server_default=func.now(),
+                         onupdate=func.now(), nullable=False)
+    )
 
 class FDocCreate(FDocBase):
     ID_Jobs: Optional[str] = None
