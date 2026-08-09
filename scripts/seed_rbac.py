@@ -208,6 +208,17 @@ def main() -> None:
             upsert_member(session, email, name, roles[role_name])
         upsert_subcontractor(session, *SUBCONTRACTOR_USER, roles["Subcontractor"])
         upsert_technician(session, *TECHNICIAN_USER, policies["Technical"])
+
+        # REG-040 (dev): desactivar la cuenta insider — password irrecuperable
+        # y sin rol → cero políticas. En prod lo ejecuta el cutover.
+        import secrets
+        insider = session.get(Member, "MEM60011")
+        if insider is not None:
+            insider.Password = hash_password(secrets.token_urlsafe(32))
+            insider.ID_Role = None
+            session.add(insider)
+            session.commit()
+            print("  ! insider MEM60011 desactivado en develop")
     print("✅ seed RBAC dev completado")
 
 

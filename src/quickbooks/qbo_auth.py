@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.QBOTokensModel import QuickBooksToken
+from src.utils.crypto import decrypt_token, encrypt_token
 
 
 # Blueprint
@@ -41,8 +42,8 @@ def qbo_callback():
         ).first()
 
         if existing:
-            existing.access_token = tokens["access_token"]
-            existing.refresh_token = tokens["refresh_token"]
+            existing.access_token = encrypt_token(tokens["access_token"])
+            existing.refresh_token = encrypt_token(tokens["refresh_token"])
             existing.token_type = tokens.get("token_type")
             existing.expires_in = tokens["expires_in"]
             existing.refresh_token_expires_in = tokens.get(
@@ -51,8 +52,8 @@ def qbo_callback():
         else:
             new_entry = QuickBooksToken(
                 realm_id=realmId,
-                access_token=tokens["access_token"],
-                refresh_token=tokens["refresh_token"],
+                access_token=encrypt_token(tokens["access_token"]),
+                refresh_token=encrypt_token(tokens["refresh_token"]),
                 token_type=tokens.get("token_type"),
                 expires_in=tokens["expires_in"],
                 refresh_token_expires_in=tokens.get(
@@ -138,11 +139,11 @@ def get_valid_access_token(realm_id):
 
         # Si NO expiró → se devuelve el token
         if datetime.now() < (expires_at - buffer_time):
-            return token_record.access_token
+            return decrypt_token(token_record.access_token)
 
         # Si expiró → se genera uno nuevo
         print(f"Refrescando token para realm: {realm_id}...")
-        new_tokens = refresh_access_token(token_record.refresh_token)
+        new_tokens = refresh_access_token(decrypt_token(token_record.refresh_token))
 
         # Validación de respuesta exitosa antes de guardar
         if "error" in new_tokens:
@@ -151,8 +152,8 @@ def get_valid_access_token(realm_id):
                 f"Error de Intuit: {new_tokens.get('error_description')}")
 
         # Guardamos nuevos tokens
-        token_record.access_token = new_tokens["access_token"]
-        token_record.refresh_token = new_tokens["refresh_token"]
+        token_record.access_token = encrypt_token(new_tokens["access_token"])
+        token_record.refresh_token = encrypt_token(new_tokens["refresh_token"])
         token_record.expires_in = new_tokens["expires_in"]
         token_record.refresh_token_expires_in = new_tokens.get(
             "x_refresh_token_expires_in", token_record.refresh_token_expires_in)
@@ -162,7 +163,7 @@ def get_valid_access_token(realm_id):
         session.commit()
         session.refresh(token_record)
 
-        return token_record.access_token
+        return decrypt_token(token_record.access_token)
 
 
 # Helper que construye la cabecera Basic Authorization requerida por Intuit

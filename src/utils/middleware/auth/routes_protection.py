@@ -124,6 +124,31 @@ def protect_blueprint(bp, resource: str, fixed_action: str | None = None,
     return bp
 
 
+def portal_scope():
+    """(tipo, id) si el usuario autenticado es de portal (sub/técnico)."""
+    user = getattr(g, "current_user", None) or {}
+    role = user.get("role")
+    if role in ("subcontractor", "technician"):
+        return role, user.get("id")
+    return None, None
+
+
+def scope_jobs_statement(statement):
+    """REG-037/110/111: los roles de portal solo ven SUS jobs asignados."""
+    role, uid = portal_scope()
+    if role == "subcontractor":
+        from src.models.JobModel import Job
+        from src.models.SubcontractorModel import Subcontractor
+        return statement.where(
+            Job.subcontractors.any(Subcontractor.ID_Subcontractor == uid))
+    if role == "technician":
+        from src.models.JobModel import Job
+        from src.models.TechnicianModel import Technician
+        return statement.where(
+            Job.technicians.any(Technician.ID_Technician == uid))
+    return statement
+
+
 def require_role(*allowed_roles):
     """
     allowed_roles = lista de roles permitidos para la ruta.

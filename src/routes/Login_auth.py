@@ -187,6 +187,11 @@ def refresh():
             if not user:
                 return jsonify({"error": "User no longer exists"}), 404
 
+            # REG-100: si el rol del usuario fue desactivado, no renovar
+            user_role = getattr(user, "role", None)
+            if user_role is not None and user_role.Active is False:
+                return jsonify({"error": "User role deactivated"}), 401
+
         # 4. Crear nuevo access token
         new_access = create_access_token({
             "sub": user_id,

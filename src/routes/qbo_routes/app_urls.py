@@ -77,8 +77,9 @@ def disconnect_qbo(realm_id):
             "Authorization": f"Basic {get_qbo_basic_auth()}"
         }
 
+        from src.utils.crypto import decrypt_token
         payload = {
-            "token": token_record.refresh_token
+            "token": decrypt_token(token_record.refresh_token)
         }
 
         response = requests.post(url, json=payload, headers=headers)

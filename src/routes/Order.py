@@ -93,6 +93,12 @@ def get_order(id_order):
 @paginate()
 def get_orders_by_subc_and_job(id_subcontractor, id_job):
 
+    # Portal: un subcontratista solo puede consultar SUS orders (REG-110)
+    from src.utils.middleware.auth.routes_protection import portal_scope
+    p_role, p_id = portal_scope()
+    if p_role == "subcontractor" and id_subcontractor != p_id:
+        raise AppException("Forbidden", "forbidden", 403)
+
     with get_session() as session:
 
         job = session.exec(

@@ -36,7 +36,11 @@ from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
 from ..utils.job_calculator import recalculate_and_apply
 from src.services.commission_service import process_job_to_commissions
-from src.utils.middleware.auth.routes_protection import require_permission
+from src.utils.middleware.auth.routes_protection import (
+    portal_scope,
+    require_permission,
+    scope_jobs_statement,
+)
 from src.utils.policy_evaluator import PolicyEvaluator
 from src.models.JobModel import JobReadBasic
 from src.models.ComDetailModel import CommissionDetail
@@ -111,10 +115,13 @@ def list_jobs():
 
         if job_type:
             statement = statement.where(Job.Job_type == job_type)
+        # Portal (sub/tech): solo sus jobs (REG-037)
+        statement = scope_jobs_statement(statement)
 
         count_stmt = select(func.count()).select_from(Job)
         if job_type:
             count_stmt = count_stmt.where(Job.Job_type == job_type)
+        count_stmt = scope_jobs_statement(count_stmt)
         total = session.exec(count_stmt).one()
 
         offset = (page - 1) * limit
@@ -312,8 +319,12 @@ def list_jobs_table():
                              Job.Date_assigned.is_not(None),
                              extract("year", Job.Date_assigned) == year_int)))
 
+            # Portal (sub/tech): solo sus jobs (REG-037)
+            statement = scope_jobs_statement(statement)
+
             # --- Preparar count_stmt con EXACTAMENTE los mismos filtros ---
             count_stmt = select(func.count()).select_from(Job)
+            count_stmt = scope_jobs_statement(count_stmt)
             if job_type:
                 count_stmt = count_stmt.where(Job.Job_type == job_type)
             if status:
@@ -550,6 +561,16 @@ def get_job_by_id(id_job):
         )
         obj = session.exec(statement).unique().first()
         if not obj:
+            raise AppException("Job no encontrado.", "job_not_found", 404)
+
+        # Portal (sub/tech): solo sus jobs asignados — 404 para no filtrar
+        # existencia (REG-037/110/111)
+        p_role, p_id = portal_scope()
+        if p_role == "subcontractor" and not any(
+                s.ID_Subcontractor == p_id for s in obj.subcontractors):
+            raise AppException("Job no encontrado.", "job_not_found", 404)
+        if p_role == "technician" and not any(
+                t.ID_Technician == p_id for t in obj.technicians):
             raise AppException("Job no encontrado.", "job_not_found", 404)
 
         roles_statement = select(JobMemberLink).where(
