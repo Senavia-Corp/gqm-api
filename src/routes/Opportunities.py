@@ -19,7 +19,7 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 
 # Blueprint de Opportunities
 opportunities_bp = Blueprint(
-    "oppotunities_blueprint", __name__, url_prefix="/oppotunities")
+    "oppotunities_blueprint", __name__, url_prefix="/opportunities")
 
 # -------------------RUTAS CRUD-------------------#
 

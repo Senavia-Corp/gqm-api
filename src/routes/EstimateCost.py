@@ -57,7 +57,11 @@ def get_estimates(id_estimate):
 @handle_exceptions()
 @audit("Estimate Cost created", entity_type="EstimateCost", id_from="response", job_id_from="body")
 def create_estimate():
-    data = request.get_json()
+    data = request.get_json() or {}
+    # REG-094: alias temporal — el API acepta Quantity y lo mapea a la
+    # columna histórica Quatity (rename real de columna = fase 2)
+    if "Quantity" in data and "Quatity" not in data:
+        data["Quatity"] = data.pop("Quantity")
     create_estimate = EstimateCreate.model_validate(data)
     obj = EstimateCost(
         **create_estimate.model_dump(exclude_unset=False, exclude_none=False))
@@ -87,7 +91,9 @@ def create_estimate():
 @handle_exceptions()
 @audit("Estimate Cost updated", entity_type="EstimateCost", id_param="id_estimate", job_id_from="body")
 def update_estimate(id_estimate):
-    data = request.get_json()
+    data = request.get_json() or {}
+    if "Quantity" in data and "Quatity" not in data:  # REG-094 alias
+        data["Quatity"] = data.pop("Quantity")
     with get_session() as session:
         obj = session.get(EstimateCost, id_estimate)
         if not obj:

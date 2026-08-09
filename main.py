@@ -249,6 +249,10 @@ def create_app():
     app.register_blueprint(member_bp)
     app.register_blueprint(multiplier_bp)
     app.register_blueprint(opportunities_bp)
+    # REG-077: alias temporal del typo histórico /oppotunities (los clientes
+    # migran a /opportunities; retirar el alias en fase 2)
+    app.register_blueprint(opportunities_bp, url_prefix="/oppotunities",
+                           name="oppotunities_legacy")
     app.register_blueprint(opportunities_skills_bp)
     app.register_blueprint(opportunities_subcontractors_bp)
     app.register_blueprint(order_bp)
