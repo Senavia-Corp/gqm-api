@@ -32,20 +32,63 @@ from src.utils.middleware.auth.password_hashing import hash_password  # noqa: E4
 
 ROLES = ["Full Admin", "GQM Member", "Subcontractor", "Technical"]
 
-# Documentos de política por rol. Se completan en el Bloque 2 (RBAC):
-# GQM Member / Subcontractor / Technical reciben aquí sus documentos definitivos.
+# Documentos de política por rol (modelo de 4 roles aprobado, B2).
+# Vocabulario: {resource}:{read|create|update|delete} + fijos iam:manage,
+# qbo:manage, admin:sync, job:force_delete (ver protect_blueprint).
 ROLE_POLICIES = {
     "Full Admin": {
         "Name": "full-admin-all",
         "Description": "Acceso total",
         "Document": {"Statement": [{"Effect": "Allow", "Action": ["*"], "Resource": ["*"]}]},
     },
+    "GQM Member": {
+        "Name": "gqm-member-operativo",
+        "Description": "CRUD operativo; sin gestión de roles/usuarios, QBO ni admin",
+        "Document": {"Statement": [
+            {"Effect": "Allow", "Action": ["*"], "Resource": ["*"]},
+            {"Effect": "Deny", "Action": [
+                "iam:*", "qbo:*", "admin:*",
+                "role:create", "role:update", "role:delete",
+                "permission:create", "permission:update", "permission:delete",
+                "member:create", "member:update", "member:delete",
+                "job:force_delete",
+            ], "Resource": ["*"]},
+        ]},
+    },
+    "Subcontractor": {
+        "Name": "subcontractor-portal",
+        "Description": "Portal de subcontratista: solo lo suyo (scoping en API)",
+        "Document": {"Statement": [{"Effect": "Allow", "Action": [
+            "job:read", "job:read_basics",
+            "finance:read",
+            "tasks:read", "tasks:read_own", "tasks:create", "tasks:update",
+            "subcontractor:read", "technician:read", "skill:read",
+            "attachment:read", "attachment:read_technicians",
+            "certificate:read",
+        ], "Resource": ["*"]}]},
+    },
+    "Technical": {
+        "Name": "technical-portal",
+        "Description": "Portal de técnico: solo lo asignado (scoping en API)",
+        "Document": {"Statement": [{"Effect": "Allow", "Action": [
+            "job:read_basics",
+            "tasks:read", "tasks:read_own", "tasks:update",
+            "technician:read", "skill:read",
+            "attachment:read", "attachment:read_technicians",
+        ], "Resource": ["*"]}]},
+    },
 }
 
-# (email, nombre, rol) — usuarios Member de prueba; sub/tech se siembran en B2.
+# (email, nombre, rol) — usuarios Member de prueba.
 MEMBERS = [
     ("admin-dev@senavia-test.com", "DEV Admin", "Full Admin"),
+    ("member-dev@senavia-test.com", "DEV Member", "GQM Member"),
 ]
+
+# Portal: el sub usa rol (Subcontractor.ID_Role); el técnico no tiene rol en
+# el modelo — su política se enlaza directa vía permission_tech.
+SUBCONTRACTOR_USER = ("sub-dev@senavia-test.com", "DEV Subcontractor")
+TECHNICIAN_USER = ("tech-dev@senavia-test.com", "DEV Technician")
 
 
 def seed_password() -> str:
@@ -104,13 +147,67 @@ def upsert_member(session, email: str, name: str, role: Role) -> None:
     session.commit()
 
 
+def upsert_subcontractor(session, email: str, name: str, role: Role) -> None:
+    from src.models.SubcontractorModel import Subcontractor
+
+    sub = session.exec(select(Subcontractor).where(
+        Subcontractor.Email_Address == email)).first()
+    if not sub:
+        sub = Subcontractor(Name=name, Organization=name, Email_Address=email)
+        sub.ID_Subcontractor = generate_custom_id(
+            session, Subcontractor, "ID_Subcontractor", "SUBC")
+        print(f"  + subcontractor {email}")
+    sub.Password = hash_password(seed_password())
+    sub.ID_Role = role.ID_Role
+    session.add(sub)
+    session.commit()
+
+
+def upsert_technician(session, email: str, name: str, policy: "Permission") -> None:
+    from src.models.TechnicianModel import Technician
+    from src.models.link_models.PermissionLinks import PermissionTechLink
+
+    tech = session.exec(select(Technician).where(
+        Technician.Email_Address == email)).first()
+    if not tech:
+        tech = Technician(Name=name, Email_Address=email,
+                          Password=hash_password(seed_password()))
+        tech.ID_Technician = generate_custom_id(
+            session, Technician, "ID_Technician", "TEC")
+        print(f"  + technician {email}")
+    else:
+        tech.Password = hash_password(seed_password())
+    session.add(tech)
+    session.commit()
+    session.refresh(tech)
+    # El técnico no tiene rol: política directa vía permission_tech
+    if not session.get(PermissionTechLink, (policy.ID_Permission, tech.ID_Technician)):
+        session.add(PermissionTechLink(
+            permission_id=policy.ID_Permission, tech_id=tech.ID_Technician))
+        session.commit()
+
+
 def main() -> None:
     with get_session() as session:
         roles = {name: upsert_role(session, name) for name in ROLES}
+        policies = {}
         for role_name, spec in ROLE_POLICIES.items():
-            upsert_policy(session, roles[role_name], spec)
+            policies[role_name] = upsert_policy(session, roles[role_name], spec)
+
+        # REG-098: los 4 roles del modelo llevan SOLO su política — despegar
+        # cualquier permiso legacy colgado (p.ej. «Basic Subcontractor»).
+        for role_name, role in roles.items():
+            keep = policies[role_name].ID_Permission
+            for link in session.exec(select(PermissionRoleLink).where(
+                    PermissionRoleLink.role_id == role.ID_Role)).all():
+                if link.permission_id != keep:
+                    session.delete(link)
+                    print(f"  - despegado permiso legacy {link.permission_id} de «{role_name}»")
+        session.commit()
         for email, name, role_name in MEMBERS:
             upsert_member(session, email, name, roles[role_name])
+        upsert_subcontractor(session, *SUBCONTRACTOR_USER, roles["Subcontractor"])
+        upsert_technician(session, *TECHNICIAN_USER, policies["Technical"])
     print("✅ seed RBAC dev completado")
 
 

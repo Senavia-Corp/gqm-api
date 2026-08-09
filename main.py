@@ -160,6 +160,51 @@ def create_app():
             "role": payload.get("role")
         }
 
+    # ── RBAC por blueprint (REG-004/REG-006/REG-020) ──────────────────────
+    # Autorización por defecto para los blueprints que estaban SIN guard
+    # (~190 endpoints). Convención: {resource}:{read|create|update|delete}.
+    # Los archivos que ya traían @require_permission conservan sus decoradores.
+    from src.utils.middleware.auth.routes_protection import protect_blueprint
+
+    # Gestión IAM = solo Full Admin (REG-006: aquí estaba la escalada)
+    for _bp in (permission_role_bp, permission_member_bp, permission_tech_bp):
+        protect_blueprint(_bp, "iam", fixed_action="iam:manage")
+
+    # QBO = solo Full Admin (decisión confirmada)
+    protect_blueprint(qbo_bp, "qbo", fixed_action="qbo:manage")
+
+    # Sync/administración Podio
+    for _bp in (sync_phase1_bp, sync_phase2_bp, admin_bp):
+        protect_blueprint(_bp, "admin", fixed_action="admin:sync")
+
+    # Financiero
+    for _bp in (order_bp, change_order_bp, estimate_bp, purchase_order_bp,
+                purchase_order_item_bp, reimbursement_bp, fdocument_bp,
+                purchase_supplier_bp, financial_metrics_bp, financial_jobs_bp):
+        protect_blueprint(_bp, "finance")
+
+    # Catálogos
+    for _bp in (bldg_dept_bp, manager_bp, supplier_bp, standard_ps_bp,
+                inventory_bp, multiplier_bp, payment_unit_bp):
+        protect_blueprint(_bp, "catalog")
+
+    # Links de Job
+    for _bp in (job_member_bp, job_multiplier_bp, job_subcontractor_bp,
+                job_payment_unit_bp, job_technician_bp):
+        protect_blueprint(_bp, "job")
+
+    # Clientes / oportunidades
+    for _bp in (opportunities_bp, client_manager_bp, client_member_bp):
+        protect_blueprint(_bp, "client")
+
+    # Actividad (timeline de tareas)
+    protect_blueprint(tlactivity_bp, "tasks")
+
+    # Dashboards / métricas (solo lectura en la práctica)
+    for _bp in (job_metrics_bp, member_metrics_bp, subcontractor_metrics_bp,
+                communities_bp, timeline_metrics_bp, podio_filter_bp):
+        protect_blueprint(_bp, "dashboard")
+
     # Registrar blueprints
     app.register_blueprint(attachments_bp)
     app.register_blueprint(bldg_dept_bp)

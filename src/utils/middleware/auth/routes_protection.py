@@ -78,6 +78,52 @@ def get_user_context():
 
     return user_id, user_type, policies
 
+def protect_blueprint(bp, resource: str, fixed_action: str | None = None,
+                      overrides: dict | None = None):
+    """Autorización por defecto para TODAS las rutas de un blueprint (REG-004).
+
+    Convención de acciones (la misma de los @require_permission existentes):
+    GET/HEAD → {resource}:read · POST → :create · PUT/PATCH → :update ·
+    DELETE → :delete. `fixed_action` fuerza una única acción para todo el
+    blueprint (p.ej. "iam:manage", "qbo:manage", "admin:sync"). `overrides`
+    mapea nombre de view-function → acción (o None = sin chequeo extra).
+    """
+
+    def _authorize():
+        if request.method == "OPTIONS":
+            return None
+
+        endpoint = (request.endpoint or "").split(".")[-1]
+        if overrides and endpoint in overrides:
+            action = overrides[endpoint]
+            if action is None:
+                return None
+        elif fixed_action:
+            action = fixed_action
+        else:
+            method = request.method.upper()
+            if method in ("GET", "HEAD"):
+                action = f"{resource}:read"
+            elif method == "DELETE":
+                action = f"{resource}:delete"
+            elif method == "POST":
+                action = f"{resource}:create"
+            else:
+                action = f"{resource}:update"
+
+        user_id, user_type, policies = get_user_context()
+        if not user_id:
+            return jsonify({"error": "Missing or invalid Authorization header"}), 401
+        if not PolicyEvaluator.evaluate(policies, action, "*"):
+            return jsonify({"error": f"Forbidden: requiere permiso {action}"}), 403
+
+        g.current_user = {"id": user_id, "role": user_type}
+        return None
+
+    bp.before_request(_authorize)
+    return bp
+
+
 def require_role(*allowed_roles):
     """
     allowed_roles = lista de roles permitidos para la ruta.

@@ -28,6 +28,7 @@ from src.quickbooks.webhook.events import event_email_qbo, event_void_qbo, event
 from src.quickbooks.webhook.functions import validate_qbo_signature, process_single_entity_qbo
 from src.utils.audit import log_activity, SOURCE_PODIO
 from src.utils.middleware.logs.logs import logger
+from src.utils.middleware.auth.routes_protection import require_permission
 from src.utils.job_calculator import recalculate_and_apply
 from src.services.commission_service import process_job_to_commissions
 
@@ -473,6 +474,7 @@ def qbo_webhook():
 
 
 @webhook_bp.route("/webhook/podio/failed_syncs", methods=["GET"])
+@require_permission("admin:sync")
 def get_failed_syncs():
     try:
         from src.models.PodioFailedSyncModel import PodioFailedSync
@@ -483,6 +485,7 @@ def get_failed_syncs():
         return jsonify({"error": str(e)}), 500
 
 @webhook_bp.route("/webhook/podio/failed_syncs/count", methods=["GET"])
+@require_permission("admin:sync")
 def count_failed_syncs():
     try:
         from src.models.PodioFailedSyncModel import PodioFailedSync
@@ -494,6 +497,7 @@ def count_failed_syncs():
         return jsonify({"error": str(e)}), 500
 
 @webhook_bp.route("/webhook/podio/failed_syncs/<int:id>/resync", methods=["POST"])
+@require_permission("admin:sync")
 def resync_failed_sync(id):
     try:
         from src.models.PodioFailedSyncModel import PodioFailedSync
@@ -580,6 +584,7 @@ def resync_failed_sync(id):
         return jsonify({"error": str(e)}), 500
 
 @webhook_bp.route("/webhook/podio/failed_syncs/<int:id>", methods=["DELETE"])
+@require_permission("admin:sync")
 def delete_failed_sync(id):
     try:
         from src.models.PodioFailedSyncModel import PodioFailedSync

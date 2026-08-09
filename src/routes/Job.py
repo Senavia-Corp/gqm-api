@@ -1248,7 +1248,7 @@ job_excel_bp = Blueprint("job_excel_blueprint",
 
 
 @job_excel_bp.post("/export")
-# @require_permission(["job:read", "job:read_basics"])
+@require_permission(["job:read", "job:read_basics"])  # REG-021: reactivado
 @handle_exceptions()
 def export_jobs_excel():
     data = request.get_json(force=True) or {}

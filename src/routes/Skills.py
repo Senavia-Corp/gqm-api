@@ -26,6 +26,7 @@ skills_bp = Blueprint("skills_blueprint", __name__, url_prefix="/skills")
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todas las habilidades
 @skills_bp.get("/")
+@require_permission("skill:read")
 @handle_exceptions()
 @paginate(default_limit=200, max_limit=1000)  # Aumentar límite para filtros
 def list_skills():
@@ -52,6 +53,7 @@ def list_skills():
 
 # Ruta para conseguir una habilidad por ID_Skills
 @skills_bp.get("/<id_skill>")
+@require_permission("skill:read")
 @handle_exceptions()
 def get_skill_by_id(id_skill):
     with get_session() as session:
