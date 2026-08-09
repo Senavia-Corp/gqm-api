@@ -315,6 +315,8 @@ def upload_attachment():
             Attachment_descr=description,
             Link=cloudinary_result["secure_url"],
             Document_type=cloudinary_result["format"].lower() or mimetype,
+            cloudinary_public_id=cloudinary_result["public_id"],
+            cloudinary_resource_type=cloudinary_result["resource_type"],
             podio_file_id=podio_file_id,
             access_level=access_level or None,
             **fk_kwargs
@@ -397,12 +399,18 @@ def delete_attachment(id_attachment):
         # ----------- 🔴 BORRAR EN CLOUDINARY
         if obj.Link:
             try:
-                # Extraer public_id de la URL de Cloudinary
-                # URL: https://res.cloudinary.com/cloud/image/upload/v123/Jobs/QID/QID51894/archivo.pdf
-                # public_id: Jobs/QID/QID51894/archivo
-                parts = obj.Link.split("/upload/")
-                public_id = parts[1].split("/", 1)[1].rsplit(".", 1)[0]
-                resource_type = get_resource_type(obj.Document_type or "")
+                # REG-058: usar la identidad persistida al subir. El parseo de
+                # la URL quitaba la extensión, pero en resource_type=raw el
+                # public_id SÍ la lleva → destroy() devolvía "not found" y el
+                # archivo quedaba huérfano para siempre.
+                if obj.cloudinary_public_id:
+                    public_id = obj.cloudinary_public_id
+                    resource_type = obj.cloudinary_resource_type or "image"
+                else:
+                    # Legacy (filas previas a REG-058): derivar de la URL
+                    parts = obj.Link.split("/upload/")
+                    public_id = parts[1].split("/", 1)[1].rsplit(".", 1)[0]
+                    resource_type = get_resource_type(obj.Document_type or "")
                 deleted = delete_from_cloudinary(public_id, resource_type)
 
                 if deleted:

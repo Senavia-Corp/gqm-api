@@ -35,6 +35,7 @@ from src.models.TasksModel import Tasks
 from src.models.TechnicianModel import Technician
 from src.models.TLActivityModel import TLActivity
 from src.models.PodioFailedSyncModel import PodioFailedSync
+from src.models.QboFailedEventModel import QboFailedEvent
 
 # Modelos de links de las relaciones N:M
 from src.models.link_models.ClientLinks import ClientMemberLink, ClientManagerLink

@@ -230,6 +230,8 @@ def process_file_change_event(
                     Link=cloudinary_result["secure_url"],
                     Document_type=cloudinary_result["format"].lower(
                     ) or mimetype,
+                    cloudinary_public_id=cloudinary_result["public_id"],
+                    cloudinary_resource_type=cloudinary_result["resource_type"],
                     podio_file_id=file_id,
                     **{_fk_field: _fk_value}
                 )
@@ -395,6 +397,8 @@ def process_item_attachments(
                 Attachment_descr=description,
                 Link=cloudinary_result["secure_url"],
                 Document_type=cloudinary_result["format"].lower() or mimetype,
+                cloudinary_public_id=cloudinary_result["public_id"],
+                cloudinary_resource_type=cloudinary_result["resource_type"],
                 podio_file_id=file_id,
                 **{fk_field: fk_value}
             )

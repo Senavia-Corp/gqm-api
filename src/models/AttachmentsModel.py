@@ -21,6 +21,12 @@ class AttachmentsBase(SQLModel):
     podio_file_id: Optional[str] = Field(default=None, index=True)
     # "members" | "technicians" | None
     access_level: Optional[str] = Field(default=None, index=True)
+    # REG-058: identidad real en Cloudinary persistida al subir. Antes el
+    # delete re-derivaba el public_id quitando la extensión de la URL — para
+    # resource_type=raw (PDF/Office) el id SÍ lleva extensión y el borrado
+    # fallaba en silencio para siempre.
+    cloudinary_public_id: Optional[str] = Field(default=None)
+    cloudinary_resource_type: Optional[str] = Field(default=None)
 
 
 class Attachments(AttachmentsBase, table=True):

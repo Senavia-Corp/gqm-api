@@ -199,6 +199,8 @@ def upload_chat_attachment(id_job):
             Document_name=cloudinary_result["original_name"],
             Link=cloudinary_result["secure_url"],
             Document_type=cloudinary_result["format"].lower() or mimetype,
+            cloudinary_public_id=cloudinary_result["public_id"],
+            cloudinary_resource_type=cloudinary_result["resource_type"],
             access_level="logbook",
             ID_Jobs=id_job,
             ID_ChatMessage=msg.ID_ChatMessage,

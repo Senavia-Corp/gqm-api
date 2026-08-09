@@ -598,7 +598,9 @@ def delete_failed_sync(id):
         return jsonify({"error": str(e)}), 500
 
 
-def _process_event(realm_id, entity_name, entity_id, operation):
+def _process_event(realm_id, entity_name, entity_id, operation) -> bool:
+    """Devuelve True si procesó; en fallo persiste el evento en la dead-letter
+    (REG-057/REG-118) — Intuit recibe 200 y no reintenta jamás."""
     print(
         f"📩 Procesando: {entity_name} | ID: {entity_id} | Op: {operation}", flush=True)
 
@@ -622,4 +624,80 @@ def _process_event(realm_id, entity_name, entity_id, operation):
                 qbo_id=entity_id,
             )
     except Exception as e:
-        print(f"❌ Error en ruteo: {e}")
+        logger.exception("Error procesando evento QBO %s %s %s", entity_name, entity_id, operation)
+        try:
+            from src.models.QboFailedEventModel import QboFailedEvent
+            from src.utils.error_sanitizer import sanitize_error
+            with get_session() as dl_session:
+                dl_session.add(QboFailedEvent(
+                    realm_id=realm_id, entity_name=entity_name,
+                    entity_id=str(entity_id), operation=operation,
+                    error_message=sanitize_error(e),
+                ))
+                dl_session.commit()
+        except Exception:
+            logger.exception("No se pudo registrar QboFailedEvent")
+        return False
+    return True
+
+
+# ── Dead-letter QBO (REG-057/REG-118) ────────────────────────────────────
+@webhook_bp.route("/webhook/qbo/failed_events", methods=["GET"])
+@require_permission("admin:sync")
+def get_qbo_failed_events():
+    from src.models.QboFailedEventModel import QboFailedEvent
+    with get_session() as session:
+        rows = session.exec(
+            select(QboFailedEvent).where(QboFailedEvent.resolved == False)  # noqa: E712
+            .order_by(QboFailedEvent.created_at.desc())
+        ).all()
+        return jsonify([r.model_dump(mode="json") for r in rows]), 200
+
+
+@webhook_bp.route("/webhook/qbo/failed_events/count", methods=["GET"])
+@require_permission("admin:sync")
+def get_qbo_failed_events_count():
+    from sqlalchemy import func as sa_func
+    from src.models.QboFailedEventModel import QboFailedEvent
+    with get_session() as session:
+        count = session.exec(
+            select(sa_func.count()).select_from(QboFailedEvent)
+            .where(QboFailedEvent.resolved == False)  # noqa: E712
+        ).one()
+        return jsonify({"count": int(count[0] if isinstance(count, tuple) else count)}), 200
+
+
+@webhook_bp.route("/webhook/qbo/failed_events/<int:id>/retry", methods=["POST"])
+@require_permission("admin:sync")
+def retry_qbo_failed_event(id):
+    from src.models.QboFailedEventModel import QboFailedEvent
+    with get_session() as session:
+        failed = session.get(QboFailedEvent, id)
+        if not failed:
+            return jsonify({"error": "Failed event not found"}), 404
+        if failed.resolved:
+            return jsonify({"status": "Already resolved"}), 200
+
+    # Reprocesar fuera de la sesión (el handler abre las suyas)
+    if not _process_event(failed.realm_id, failed.entity_name,
+                          failed.entity_id, failed.operation):
+        return jsonify({"error": "El reproceso volvió a fallar"}), 502
+
+    with get_session() as session:
+        failed = session.get(QboFailedEvent, id)
+        failed.resolved = True
+        session.add(failed)
+        session.commit()
+    return jsonify({"status": "ok", "message": "Evento reprocesado"}), 200
+
+
+@webhook_bp.route("/webhook/qbo/failed_events/<int:id>", methods=["DELETE"])
+@require_permission("admin:sync")
+def delete_qbo_failed_event(id):
+    from src.models.QboFailedEventModel import QboFailedEvent
+    with get_session() as session:
+        failed = session.get(QboFailedEvent, id)
+        if failed:
+            session.delete(failed)
+            session.commit()
+        return jsonify({"status": "ok"}), 200
