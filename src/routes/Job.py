@@ -1117,11 +1117,29 @@ def update_job(id_job):
                 register_event(obj.podio_item_id)
                 logger.info("🔄 Job actualizado en Podio | job_id=%s | podio_item_id=%s",
                             id_job, obj.podio_item_id)
-            except Exception:
+            except Exception as podio_err:
+                # REG-070: el cambio local YA está commiteado — registrar la
+                # divergencia para reconciliar (lista/resync de failed_syncs)
+                # y decirlo explícitamente en la respuesta, no un 502 opaco.
                 logger.exception("❌ Error actualizando Job en Podio | job_id=%s | podio_item_id=%s",
                                  id_job, obj.podio_item_id)
+                try:
+                    from src.models.PodioFailedSyncModel import PodioFailedSync
+                    session.add(PodioFailedSync(
+                        item_id=str(obj.podio_item_id),
+                        hook_type="update_job_divergence",
+                        payload={"job_id": id_job, "job_type": obj.Job_type,
+                                 "year": year},
+                        error_message=str(podio_err)[:2000],
+                    ))
+                    session.commit()
+                except Exception:
+                    logger.exception("No se pudo registrar PodioFailedSync")
                 raise AppException(
-                    "Error al actualizar el Job en Podio.", "podio_update_failed", 502)
+                    "El Job se guardó localmente pero NO se sincronizó a Podio "
+                    "(divergencia registrada en failed_syncs; reintenta el "
+                    "update o usa el resync).",
+                    "podio_update_failed_local_saved", 502)
 
         return obj.model_dump(), 200
 

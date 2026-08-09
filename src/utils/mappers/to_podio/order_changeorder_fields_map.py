@@ -18,7 +18,13 @@ ORDER_QID_FIELDS = {
         13: "tech-13-formula",
         14: "tech-14-formula",
         15: "tech-15-formula",
-        16: "tech-16-formula"
+        16: "tech-16-formula",
+        # REG-076: el lector (from_podio) cubre hasta 20; el writer llegaba
+        # solo a 16 → subs en 17..20 sin destino de fórmula.
+        17: "tech-17-formula",
+        18: "tech-18-formula",
+        19: "tech-19-formula",
+        20: "tech-20-formula"
     },
     "ID_Subcontractor": {
         1: "technician-2",
@@ -36,7 +42,11 @@ ORDER_QID_FIELDS = {
         13: "technician-13",
         14: "technician-14",
         15: "technician-15",
-        16: "technician-16"
+        16: "technician-16",
+        17: "technician-17",
+        18: "technician-18",
+        19: "technician-19",
+        20: "technician-20"
     }
 }
 
