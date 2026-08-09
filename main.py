@@ -180,8 +180,13 @@ def create_app():
     # Financiero
     for _bp in (order_bp, change_order_bp, estimate_bp, purchase_order_bp,
                 purchase_order_item_bp, reimbursement_bp, fdocument_bp,
-                purchase_supplier_bp, financial_metrics_bp, financial_jobs_bp):
+                purchase_supplier_bp, financial_metrics_bp, financial_jobs_bp,
+                fdocument_ftransaction_bp):
         protect_blueprint(_bp, "finance")
+
+    # Comisiones (archivos sin decoradores propios)
+    for _bp in (commission_group_bp, commission_detail_bp):
+        protect_blueprint(_bp, "commission")
 
     # Catálogos
     for _bp in (bldg_dept_bp, manager_bp, supplier_bp, standard_ps_bp,
@@ -194,8 +199,18 @@ def create_app():
         protect_blueprint(_bp, "job")
 
     # Clientes / oportunidades
-    for _bp in (opportunities_bp, client_manager_bp, client_member_bp):
+    for _bp in (opportunities_bp, client_manager_bp, client_member_bp,
+                opportunities_skills_bp, opportunities_subcontractors_bp):
         protect_blueprint(_bp, "client")
+
+    # Links de skills (dispara escritura a Podio con sync_podio=true)
+    protect_blueprint(skills_subcontractors_bp, "catalog")
+
+    # Sync de revisión Podio: escritura arbitraria en BD → solo admin
+    protect_blueprint(sync_revision_bp, "admin", fixed_action="admin:sync")
+
+    # Reportes PDF de métricas
+    protect_blueprint(metrics_bp, "dashboard")
 
     # Actividad (timeline de tareas)
     protect_blueprint(tlactivity_bp, "tasks")

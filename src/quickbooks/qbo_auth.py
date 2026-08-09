@@ -90,8 +90,8 @@ def exchange_code_for_tokens(code):
     url = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
     response = requests.post(url, headers=headers, data=data)
 
-    print("STATUS:", response.status_code)
-    print("RAW RESPONSE:", response.text)
+    # Jamás loguear el cuerpo: contiene access/refresh tokens en claro
+    print("QBO token exchange STATUS:", response.status_code)
 
     return response.json()
 

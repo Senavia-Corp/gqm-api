@@ -181,7 +181,15 @@ def audit(
         def wrapper(*args, **kwargs):
             method = flask_request.method.upper()
             body: dict = flask_request.get_json(silent=True) or {}
-            member_id = flask_request.headers.get("X-User-Id") or None
+            # Atribución de auditoría: la identidad viene del JWT (g.current_user),
+            # jamás del header X-User-Id (falsificable por el cliente). Solo se
+            # atribuye a member_id cuando el actor ES un member (FK a member).
+            from flask import g as flask_g
+            _actor = getattr(flask_g, "current_user", None) or {}
+            if _actor:
+                member_id = _actor.get("id") if _actor.get("role") == "member" else None
+            else:
+                member_id = flask_request.headers.get("X-User-Id") or None
 
             # Mapeo automático de qué ID buscar en el JSON (ID_Jobs, ID_Client, etc.)
             if entity_type == "Job":

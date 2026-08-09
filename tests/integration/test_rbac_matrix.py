@@ -53,6 +53,15 @@ MATRIX = [
     # Members: staff solamente
     ("GET", "/member/member_table",
      dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    # Blueprints que se escaparon de la matriz inicial (hallazgo security-review B2)
+    ("GET", "/commission_detail/",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    ("POST", "/sync_revision/podio",
+     dict(full_admin=True, gqm_member=False, subcontractor=False, technical=False)),
+    ("POST", "/fdocument_ftransaction/fdocument/FD-NO/ftransaction/FT-NO",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    ("GET", "/metrics/reports/jobs",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
     # Dashboard: staff solamente (antes /job_metrics/summary era público)
     ("GET", "/job_metrics/summary",
      dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),

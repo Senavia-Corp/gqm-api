@@ -13,6 +13,10 @@ _key = config("FERNET_KEY", default="")
 _fernet = Fernet(_key.encode()) if _key else None
 
 if not _fernet:
+    if config("APP_ENV", default="production") == "production":
+        # Fail-closed en producción: desplegar sin cifrado activo no es
+        # aceptable (mismo criterio que SECRET_KEY en main.py).
+        raise RuntimeError("FERNET_KEY es obligatoria en producción (cifrado de tokens QBO)")
     logger.warning("FERNET_KEY no configurada: los tokens se guardan SIN cifrar")
 
 

@@ -34,6 +34,14 @@ order_bp = Blueprint("order_blueprint", __name__, url_prefix="/order")
 
 
 # --------------------RUTAS GET-------------------#
+def _scope_orders_statement(statement):
+    """Portal: un subcontratista solo ve SUS orders (REG-110)."""
+    from src.utils.middleware.auth.routes_protection import portal_scope
+    p_role, p_id = portal_scope()
+    if p_role == "subcontractor":
+        return statement.where(Order.ID_Subcontractor == p_id)
+    return statement
+
 
 @order_bp.get("/")
 @handle_exceptions()
@@ -48,6 +56,7 @@ def list_orders():
                 joinedload(Order.financial_docs),
             )
         )
+        statement = _scope_orders_statement(statement)
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -77,6 +86,7 @@ def get_order(id_order):
             .where(Order.ID_Order == id_order)
         )
 
+        statement = _scope_orders_statement(statement)
         obj = session.exec(statement).unique().first()
 
         if not obj:
@@ -163,6 +173,7 @@ def get_orders_by_job(job_podio_id):
             )
             .where(Order.job_podio_id == job_podio_id)
         )
+        statement = _scope_orders_statement(statement)
 
         if subc_id:
             statement = statement.where(Order.ID_Subcontractor == subc_id)
@@ -196,6 +207,7 @@ def get_orders_by_job_id(id_job):
             )
             .where(EstimateCost.ID_Jobs == id_job)
         )
+        statement = _scope_orders_statement(statement)
 
         results = session.exec(statement).unique().all()
         if not results:
