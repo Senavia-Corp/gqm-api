@@ -18,6 +18,36 @@ from sqlalchemy.orm import joinedload
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
+# ── Rate limit (REG-051/REG-086) ─────────────────────────────────────────
+# Ventana fija en memoria por (IP, email). Suficiente para dev y para el
+# proceso único; en serverless multi-instancia el límite es por instancia
+# (endurecer con storage compartido es tarea del cutover, igual que con
+# flask-limiter en memoria).
+import time as _time
+
+from decouple import config as _env
+
+_ATTEMPTS: dict = {}
+_WINDOW_SECONDS = _env("LOGIN_RATE_WINDOW_SECONDS", default=60, cast=int)
+_MAX_ATTEMPTS = _env("LOGIN_RATE_MAX_ATTEMPTS", default=5, cast=int)
+
+
+def _rate_limited(key: str) -> bool:
+    now = _time.time()
+    hits = [t for t in _ATTEMPTS.get(key, []) if now - t < _WINDOW_SECONDS]
+    if len(hits) >= _MAX_ATTEMPTS:
+        _ATTEMPTS[key] = hits
+        return True
+    hits.append(now)
+    _ATTEMPTS[key] = hits
+    return False
+
+
+def _client_key(email: str) -> str:
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    return f"{ip}|{(email or '').lower()}"
+
+
 # Ruta de inicio de sesión
 @auth_bp.post("/login")
 def login():
@@ -28,6 +58,9 @@ def login():
 
     if not email or not password:
         return jsonify({"error": "Email_Address and Password are required"}), 400
+
+    if _rate_limited(_client_key(email)):
+        return jsonify({"error": "Too many attempts, try again in a minute"}), 429
 
     with get_session() as session:
 
@@ -82,10 +115,15 @@ def login():
                 user_data["policies"] = policies
             else:
                 # Buscar en Subcontractor
+                # REG-036/REG-050: igualdad exacta (case-insensitive), jamás
+                # substring — .contains hacía LIKE y podía resolver a OTRO
+                # subcontratista cuyo email contuviera el buscado.
+                from sqlalchemy import func as sa_func
                 stmt = select(Subcontractor).options(
                     joinedload(Subcontractor.role).joinedload(Role.permissions),
                     joinedload(Subcontractor.permissions)
-                ).where(Subcontractor.Email_Address.contains(email))
+                ).where(sa_func.lower(Subcontractor.Email_Address)
+                        == (email or "").strip().lower())
                 subcontractor = session.exec(stmt).unique().first()
                 
                 if subcontractor and subcontractor.Password and verify_password(password, subcontractor.Password):
@@ -225,3 +263,101 @@ def check_can():
 
     results = {action: PolicyEvaluator.evaluate(policies, action) for action in actions_list}
     return jsonify({"results": results}), 200
+
+
+# ── Forgot / Reset password (REG-047/REG-049) ────────────────────────────
+# Token stateless firmado con SECRET_KEY (itsdangerous, 30 min). Lleva un
+# fragmento del hash actual de la contraseña: al cambiarla, el token muere
+# → un solo uso sin tabla nueva.
+
+_USER_TABLES = {
+    "member": (Member, "ID_Member"),
+    "technician": (Technician, "ID_Technician"),
+    "subcontractor": (Subcontractor, "ID_Subcontractor"),
+}
+
+
+def _reset_serializer():
+    from decouple import config as env_config
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(env_config("SECRET_KEY"), salt="gqm-password-reset")
+
+
+def _find_user_by_email(session, email: str):
+    from sqlalchemy import func as sa_func
+    normalized = (email or "").strip().lower()
+    for user_type, (Model, _pk) in _USER_TABLES.items():
+        user = session.exec(
+            select(Model).where(sa_func.lower(Model.Email_Address) == normalized)
+        ).first()
+        if user:
+            return user_type, user
+    return None, None
+
+
+@auth_bp.post("/forgot-password")
+def forgot_password():
+    data = request.get_json() or {}
+    email = data.get("Email_Address")
+    if not email:
+        return jsonify({"error": "Email_Address is required"}), 400
+
+    if _rate_limited(_client_key(f"forgot|{email}")):
+        return jsonify({"error": "Too many attempts, try again in a minute"}), 429
+
+    with get_session() as session:
+        user_type, user = _find_user_by_email(session, email)
+        if user and user.Password:
+            _pk_field = _USER_TABLES[user_type][1]
+            token = _reset_serializer().dumps({
+                "uid": getattr(user, _pk_field),
+                "ut": user_type,
+                "ph": user.Password[-12:],  # fragmento → un solo uso
+            })
+            from decouple import config as env_config
+            panel = env_config("PANEL_BASE_URL", default="http://localhost:3100").rstrip("/")
+            from src.services.email_service import send_password_reset
+            send_password_reset(user.Email_Address, f"{panel}/reset-password?token={token}")
+
+    # Siempre 200: no filtrar si el email existe
+    return jsonify({"message": "If the email exists, a reset link was sent"}), 200
+
+
+@auth_bp.post("/reset-password")
+def reset_password():
+    from itsdangerous import BadSignature, SignatureExpired
+
+    data = request.get_json() or {}
+    token = data.get("token")
+    new_password = data.get("Password")
+    if not token or not new_password:
+        return jsonify({"error": "token and Password are required"}), 400
+    if len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+
+    try:
+        payload = _reset_serializer().loads(token, max_age=1800)
+    except SignatureExpired:
+        return jsonify({"error": "Reset link expired"}), 400
+    except BadSignature:
+        return jsonify({"error": "Invalid reset link"}), 400
+
+    entry = _USER_TABLES.get(payload.get("ut"))
+    if not entry:
+        return jsonify({"error": "Invalid reset link"}), 400
+    Model, pk_field = entry
+
+    with get_session() as session:
+        user = session.exec(
+            select(Model).where(getattr(Model, pk_field) == payload.get("uid"))
+        ).first()
+        if not user or not user.Password or user.Password[-12:] != payload.get("ph"):
+            # ya usado (el hash cambió) o usuario inexistente
+            return jsonify({"error": "Invalid or already used reset link"}), 400
+
+        from src.utils.middleware.auth.password_hashing import hash_password
+        user.Password = hash_password(new_password)
+        session.add(user)
+        session.commit()
+
+    return jsonify({"message": "Password updated"}), 200
