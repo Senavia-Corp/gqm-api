@@ -22,7 +22,7 @@ from ..utils.mappers.to_podio.subcontractor_mapper import map_subc_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
-from src.utils.middleware.auth.routes_protection import require_permission
+from src.utils.middleware.auth.routes_protection import require_permission, self_profile_guard
 from src.utils.middleware.auth.password_hashing import hash_password
 
 
@@ -377,7 +377,7 @@ def create_subcontractor():
 
 # Ruta para actualizar un subcontratista
 @subcontractor_bp.patch("/<subc_id>")
-@require_permission("subcontractor:update")
+@require_permission(["subcontractor:update", "profile:update_own"])
 @handle_exceptions()
 @audit("Subcontractor updated", entity_type="Subcontractor", id_param="subc_id")
 def update_subcontractor(subc_id):
@@ -396,6 +396,10 @@ def update_subcontractor(subc_id):
 
         update_subcontractor = SubcontractorUpdate.model_validate(data)
         update_data_dict = update_subcontractor.model_dump(exclude_unset=True)
+        # Autoservicio: sin subcontractor:update solo su propio registro,
+        # sin campos privilegiados (ID_Role/Active).
+        update_data_dict = self_profile_guard(
+            "subcontractor", subc_id, update_data_dict)
 
         if "Password" in update_data_dict and update_data_dict["Password"]:
             update_data_dict["Password"] = hash_password(update_data_dict["Password"])

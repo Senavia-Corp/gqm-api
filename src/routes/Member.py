@@ -15,7 +15,7 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
-from src.utils.middleware.auth.routes_protection import require_permission
+from src.utils.middleware.auth.routes_protection import require_permission, self_profile_guard
 
 # Blueprint de Member:
 member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
@@ -214,7 +214,7 @@ def create_member():
 
 # Ruta para actualizar un miembro GQM
 @member_bp.patch("/<id_member>")
-@require_permission("member:update")
+@require_permission(["member:update", "profile:update_own"])
 @handle_exceptions()
 @audit("Member updated", entity_type="Member", id_param="id_member")
 def update_member(id_member):
@@ -229,6 +229,10 @@ def update_member(id_member):
 
         update_member = MemberUpdate.model_validate(data)
         update_data_dict = update_member.model_dump(exclude_unset=True)
+        # Autoservicio: sin member:update solo puede editarse a sí mismo
+        # y sin tocar campos privilegiados (ID_Role/Active).
+        update_data_dict = self_profile_guard(
+            "member", id_member, update_data_dict)
 
         # Hash al passsword si se actualiza
         if "Password" in update_data_dict:

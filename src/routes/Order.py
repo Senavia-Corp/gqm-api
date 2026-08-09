@@ -24,7 +24,7 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
 )
 from ..utils.mappers.mapper_aux_functions import register_event
 from sqlalchemy import or_
-from src.utils.audit import audit, log_activity, SOURCE_APP
+from src.utils.audit import actor_member_id, audit, log_activity, SOURCE_APP
 from src.utils.job_calculator import recalculate_and_apply, recalculate_order_formulas  # ← MODIFIED
 
 # Blueprint de Order:
@@ -394,7 +394,7 @@ def create_order():
 
         # Log en timeline del Subcontractor si la orden tiene uno asignado
         if obj.ID_Subcontractor:
-            member_id = request.headers.get("X-User-Id") or None
+            member_id = actor_member_id()
             log_activity(
                 session,
                 action="Order created",
@@ -641,7 +641,7 @@ def delete_order(id_order):
 
         # Log en timeline del Subcontractor si la orden tenía uno asignado
         if subc_id_for_log:
-            member_id = request.headers.get("X-User-Id") or None
+            member_id = actor_member_id()
             log_activity(
                 session,
                 action="Order deleted",

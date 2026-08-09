@@ -14,7 +14,7 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.auth.password_hashing import hash_password
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
-from ..utils.middleware.auth.routes_protection import require_permission
+from ..utils.middleware.auth.routes_protection import require_permission, self_profile_guard
 from ..utils.audit import audit
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 
@@ -126,7 +126,7 @@ def create_techician():
 
 # Ruta para actualizar un técnico
 @technician_bp.patch("/<id_technician>")
-@require_permission("technician:update")
+@require_permission(["technician:update", "profile:update_own"])
 @handle_exceptions()
 @audit("Technician updated", entity_type="Technician", id_param="id_technician")
 def update_technician(id_technician):
@@ -139,6 +139,10 @@ def update_technician(id_technician):
         update_technician = TechnicianUpdate.model_validate(data)
         update_data_dict = update_technician.model_dump(
             exclude_unset=True)  # Crea dict limpio
+        # Autoservicio: sin technician:update solo su propio registro,
+        # sin campos privilegiados (Active/ID_Subcontractor).
+        update_data_dict = self_profile_guard(
+            "technician", id_technician, update_data_dict)
 
         # Hash al passsword si se actualiza
         if "Password" in update_data_dict:

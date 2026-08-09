@@ -16,7 +16,7 @@ from src.utils.mappers.convert_value_podio import convert_value_for_podio
 from src.utils.mappers.mapper_aux_functions import register_event
 from src.utils.mappers.to_podio.job_relationships import JOB_MEMBER_PODIO_MAP, get_technician_fields
 from src.utils.middleware.logs.logs import logger
-from src.utils.audit import log_activity, SOURCE_APP
+from src.utils.audit import actor_member_id, log_activity, SOURCE_APP
 from src.utils.job_calculator import recalculate_and_apply
 from sqlmodel import select
 
@@ -31,7 +31,7 @@ def assign_member_to_job(job_id, member_id):
     rol = data.get("rol")
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
-    member_id_header = request.headers.get("X-User-Id") or None
+    member_id_header = actor_member_id()
 
     if not rol:
         return jsonify({"error": "'rol' is required in the request body"}), 400
@@ -90,7 +90,7 @@ def remove_member_from_job(job_id, member_id):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
     rol = request.args.get("rol") or None
-    member_id_header = request.headers.get("X-User-Id") or None
+    member_id_header = actor_member_id()
 
     with get_session() as session:
         query = select(JobMemberLink).where(
@@ -221,7 +221,7 @@ job_subcontractor_bp = Blueprint(
 def assign_subcontractor_to_job(job_id, subcontr_id):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
-    member_id_header = request.headers.get("X-User-Id") or None
+    member_id_header = actor_member_id()
 
     with get_session() as session:
         job = session.get(Job,           job_id)
@@ -305,7 +305,7 @@ def assign_subcontractor_to_job(job_id, subcontr_id):
 def remove_subcontractor_from_job(job_id, subcontr_id):
     sync_podio = request.args.get("sync_podio", "false").lower() == "true"
     year = request.args.get("year", type=int)
-    member_id_header = request.headers.get("X-User-Id") or None
+    member_id_header = actor_member_id()
 
     with get_session() as session:
         link = session.get(JobSubcontractorLink, (job_id, subcontr_id))
@@ -423,7 +423,7 @@ job_technician_bp = Blueprint(
 
 @job_technician_bp.post("/jobs/<job_id>/technicians/<technician_id>")
 def assign_technician_to_job(job_id, technician_id):
-    member_id_header = request.headers.get("X-User-Id") or None
+    member_id_header = actor_member_id()
     with get_session() as session:
         job = session.get(Job, job_id)
         technician = session.get(Technician, technician_id)
@@ -464,7 +464,7 @@ def assign_technician_to_job(job_id, technician_id):
 
 @job_technician_bp.delete("/jobs/<job_id>/technicians/<technician_id>")
 def remove_technician_from_job(job_id, technician_id):
-    member_id_header = request.headers.get("X-User-Id") or None
+    member_id_header = actor_member_id()
     with get_session() as session:
         link = session.get(JobTechnicianLink, (job_id, technician_id))
         if not link:

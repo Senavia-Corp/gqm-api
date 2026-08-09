@@ -7,7 +7,7 @@ from ...models.link_models.SkillsSubcontractor import SkillsSubcLink
 from ...podio.services.subcontractor_services import podio_subc_router
 from src.utils.mappers.convert_value_podio import convert_value_for_podio
 from src.utils.mappers.mapper_aux_functions import register_event
-from src.utils.audit import log_activity, SOURCE_APP
+from src.utils.audit import actor_member_id, log_activity, SOURCE_APP
 
 
 # ------------------- Link entre Skills y Subcontractor -------------------
@@ -42,7 +42,7 @@ def assign_skill_to_subc(subcon_id, skills_id):
 
         session.add(link)
 
-        member_id_header = request.headers.get("X-User-Id") or None
+        member_id_header = actor_member_id()
         log_activity(
             session,
             action="Skill linked to Subcontractor",
@@ -118,7 +118,7 @@ def remove_skill_from_subc(subcon_id, skills_id):
         skill = session.get(Skills, skills_id)
         session.delete(link)
 
-        member_id_header = request.headers.get("X-User-Id") or None
+        member_id_header = actor_member_id()
         log_activity(
             session,
             action="Skill unlinked from Subcontractor",

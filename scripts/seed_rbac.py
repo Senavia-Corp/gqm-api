@@ -64,7 +64,9 @@ ROLE_POLICIES = {
             "tasks:read", "tasks:read_own", "tasks:create", "tasks:update",
             "subcontractor:read", "technician:read", "skill:read",
             "attachment:read", "attachment:read_technicians",
+            "attachment:create",  # certificados propios (review final)
             "certificate:read",
+            "profile:update_own",  # editar SU registro vía self_profile_guard
         ], "Resource": ["*"]}]},
     },
     "Technical": {
@@ -75,6 +77,7 @@ ROLE_POLICIES = {
             "tasks:read", "tasks:read_own", "tasks:update",
             "technician:read", "skill:read",
             "attachment:read", "attachment:read_technicians",
+            "profile:update_own",  # editar SU registro vía self_profile_guard
         ], "Resource": ["*"]}]},
     },
 }
