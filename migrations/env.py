@@ -63,6 +63,13 @@ def run_migrations_online():
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            # Una transacción POR revisión. Sin esto, un `upgrade head` con
+            # varias revisiones corre en una sola transacción que el
+            # autocommit_block de los índices CONCURRENTLY commitea a mitad:
+            # si falla una revisión posterior, la base queda parcialmente
+            # migrada y sin rollback. Con esto, el fallo solo revierte SU
+            # revisión y alembic_version marca exactamente dónde se quedó.
+            transaction_per_migration=True,
         )
 
         with context.begin_transaction():

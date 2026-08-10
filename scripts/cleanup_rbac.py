@@ -23,10 +23,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from decouple import config  # noqa: E402
 
-if "ep-sparkling-sound" not in config("DATABASE_URL", default=""):
-    sys.exit("⛔ DATABASE_URL no apunta a Neon develop — abortado")
-if config("APP_ENV", default="") != "test":
-    sys.exit("⛔ APP_ENV != test — abortado")
+# Producción exige el flag EXPLÍCITO --produccion (el cutover). Sin él, solo
+# corre contra Neon develop. Antes había que editar estas guardas a mano el
+# día del cutover, que es justo cuando no se deben tocar guardas.
+PRODUCCION = "--produccion" in sys.argv
+
+if not PRODUCCION:
+    if "ep-sparkling-sound" not in config("DATABASE_URL", default=""):
+        sys.exit("⛔ DATABASE_URL no apunta a Neon develop — abortado "
+                 "(para el cutover: --produccion, tras leer RUNBOOK-CUTOVER.md)")
+    if config("APP_ENV", default="") != "test":
+        sys.exit("⛔ APP_ENV != test — abortado "
+                 "(para el cutover: --produccion, tras leer RUNBOOK-CUTOVER.md)")
 
 from sqlmodel import select  # noqa: E402
 
@@ -57,6 +65,13 @@ FULL_ADMIN_EMAILS = {
     "sebastian@senaviacorp.com",                           # Técnico SENAVIA
     "jeferson@senaviacorp.com",                            # Técnico SENAVIA
     "admin-dev@senavia-test.com",                          # seed dev
+}
+# Cuentas que NO deben recibir rol: quedan con CERO políticas a propósito.
+# Sin esta lista, el preflight abortaba por MEM60011 y la «solución» obvia
+# —añadirlo a los mapeos— le habría CONCEDIDO acceso al insider.
+EXCLUIDOS_SIN_ROL = {
+    "juan-block@senaviacorp.com",   # MEM60011 — cuenta insider, desactivada
+    "juanjj272001@gmail.com",       # TEC60001 — technician ligado al insider
 }
 GQM_MEMBER_EMAILS = {
     "sreed@gqmservice.com", "kramirez@gqmservice.com",
@@ -94,6 +109,7 @@ def preflight(s) -> dict:
         for m in s.exec(select(Member)).all()
         if (m.Email_Address or "").strip().lower() not in FULL_ADMIN_EMAILS
         and (m.Email_Address or "").strip().lower() not in GQM_MEMBER_EMAILS
+        and (m.Email_Address or "").strip().lower() not in EXCLUIDOS_SIN_ROL
     ]
     if sin_mapeo:
         problemas.append(
@@ -133,6 +149,9 @@ def backfill_portal(s, roles) -> None:
         sys.exit("⛔ falta la política technical-portal — corre seed_rbac.py --roles-only")
     n = 0
     for tech in s.exec(select(Technician)).all():
+        if (getattr(tech, "Email_Address", "") or "").strip().lower() in EXCLUIDOS_SIN_ROL:
+            print(f"  ⛔ excluido del portal: {tech.ID_Technician}")
+            continue
         if not s.get(PermissionTechLink,
                      (tech_policy.ID_Permission, tech.ID_Technician)):
             s.add(PermissionTechLink(permission_id=tech_policy.ID_Permission,
@@ -151,6 +170,12 @@ def main() -> None:
         # ── 1. Asignación de roles por email confirmado ──────────────────
         for m in s.exec(select(Member)).all():
             email = (m.Email_Address or "").strip().lower()
+            if email in EXCLUIDOS_SIN_ROL:
+                if m.ID_Role is not None:
+                    print(f"  ⛔ excluida: {m.ID_Member} {email} → sin rol")
+                    m.ID_Role = None
+                    s.add(m)
+                continue
             target = full_admin if email in FULL_ADMIN_EMAILS else gqm_member
             if m.ID_Role != target.ID_Role:
                 print(f"  rol → {target.Name}: {m.ID_Member} {email}")
