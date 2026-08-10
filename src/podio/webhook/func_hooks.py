@@ -19,7 +19,14 @@ JOB_APP_TYPES = {"QID", "PTL", "PAR"}
 RELATION_APP_TYPES = {"CLI", "SUBC"}
 NO_RELATION_APP_TYPES = {"PMC", "BDEP"}
 # Apps cuyos adjuntos procesa process_file_change_event (ATTACHMENT_MODEL_MAP)
-FILE_CHANGE_APP_TYPES = {"CLI", "SUBC", "PMC", "BDEP"}
+#
+# QID/PTL/PAR estaban FUERA de este conjunto, asi que register_podio_webhooks
+# no registraba file.change para ellas... pero el receptor de jobs SI lo
+# implementa (Webhook_bp.py, rama "file.change" de podio_jobs_webhook) y las
+# apps reales YA tienen ese hook puesto a mano. Resultado: re-registrar los
+# hooks perdia la sincronizacion de adjuntos de los jobs sin avisar. El runbook
+# lo llevaba anotado como trampa del cutover; esto lo arregla en el origen.
+FILE_CHANGE_APP_TYPES = {"CLI", "SUBC", "PMC", "BDEP", "QID", "PTL", "PAR"}
 
 ITEM_EVENTS = ["item.create", "item.update", "item.delete"]
 
