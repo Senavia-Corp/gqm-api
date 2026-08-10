@@ -15,7 +15,10 @@ from src.database.db_sqlmodel import get_session  # noqa: E402
 from src.models.JobModel import Job  # noqa: E402
 from src.podio.services.job_services import podio_jobs_router  # noqa: E402
 
-API = "http://localhost:8000"
+# Por defecto la pila local; para validar el entorno desplegado (el criterio
+# de aceptación antes de que lo pruebe el cliente):
+#   E2E_API=https://<api-desplegado> python scripts/e2e_podio_sync.py
+API = os.environ.get("E2E_API", "http://localhost:8000").rstrip("/")
 # Campo de texto que va y vuelve, por tipo. VERIFICADO contra el esquema real
 # de las apps TEST (no asumido): PTL y PAR NO tienen campo de nombre de
 # proyecto — su 'title' es 'Property ID' y 'RES/IND' respectivamente — así que
