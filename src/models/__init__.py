@@ -51,3 +51,6 @@ from src.models.link_models.SkillsSubcontractor import SkillsSubcLink
 
 # Modelo para guardar autenticación de QBO
 from src.models.QBOTokensModel import QuickBooksToken
+
+# Ventana del rate limit de login, compartida entre instancias serverless
+from src.models.LoginAttemptModel import LoginAttempt

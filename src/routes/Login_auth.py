@@ -19,20 +19,37 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
 # ── Rate limit (REG-051/REG-086) ─────────────────────────────────────────
-# Ventana fija en memoria por (IP, email). Suficiente para dev y para el
-# proceso único; en serverless multi-instancia el límite es por instancia
-# (endurecer con storage compartido es tarea del cutover, igual que con
-# flask-limiter en memoria).
+# Ventana fija por (IP, email), COMPARTIDA en la base de datos.
+#
+# Antes era un dict en memoria del proceso. En serverless eso no frena nada:
+# cada peticion puede caer en otra instancia y ninguna acumula. Medido el
+# 10-ago-2026 contra gqm-api-dev: 12 logins fallidos seguidos -> 12x 401, ni un
+# 429. El mismo bucle en local (proceso unico) frenaba en el intento 21.
+#
+# Se usa la BD que ya hay en vez de meter Redis/Upstash: el volumen de logins es
+# minusculo y asi no se añade infraestructura ni dependencias.
+import logging as _logging
 import time as _time
+from datetime import datetime, timedelta, timezone
 
 from decouple import config as _env
+from sqlalchemy import delete as _sa_delete
+from sqlalchemy import func as _sa_func
+from sqlmodel import select as _sa_select
 
-_ATTEMPTS: dict = {}
+from src.models.LoginAttemptModel import LoginAttempt
+
+_logger = _logging.getLogger(__name__)
+
 _WINDOW_SECONDS = _env("LOGIN_RATE_WINDOW_SECONDS", default=60, cast=int)
 _MAX_ATTEMPTS = _env("LOGIN_RATE_MAX_ATTEMPTS", default=5, cast=int)
 
+# Respaldo en memoria: SOLO se usa si la BD falla al consultar la ventana. No es
+# el camino normal, y si se usa el limite vuelve a ser por instancia.
+_ATTEMPTS: dict = {}
 
-def _rate_limited(key: str) -> bool:
+
+def _rate_limited_memoria(key: str) -> bool:
     now = _time.time()
     hits = [t for t in _ATTEMPTS.get(key, []) if now - t < _WINDOW_SECONDS]
     if len(hits) >= _MAX_ATTEMPTS:
@@ -41,6 +58,38 @@ def _rate_limited(key: str) -> bool:
     hits.append(now)
     _ATTEMPTS[key] = hits
     return False
+
+
+def _rate_limited(key: str) -> bool:
+    """True si `key` ya gasto su cupo en la ventana. Cuenta en la BD."""
+    ahora = datetime.now(timezone.utc)
+    corte = ahora - timedelta(seconds=_WINDOW_SECONDS)
+    try:
+        with get_session() as session:
+            # Limpieza oportunista: las filas fuera de ventana no sirven a nadie.
+            session.exec(_sa_delete(LoginAttempt).where(LoginAttempt.created_at < corte))
+
+            usados = session.exec(
+                _sa_select(_sa_func.count())
+                .select_from(LoginAttempt)
+                .where(LoginAttempt.attempt_key == key)
+                .where(LoginAttempt.created_at >= corte)
+            ).one()
+            usados = usados[0] if isinstance(usados, tuple) else usados
+
+            if usados >= _MAX_ATTEMPTS:
+                session.commit()
+                return True
+
+            session.add(LoginAttempt(attempt_key=key, created_at=ahora))
+            session.commit()
+            return False
+    except Exception as e:  # noqa: BLE001
+        # Fail-open a proposito: si la BD no responde el login tampoco puede
+        # funcionar (necesita consultar Member), asi que no tiene sentido dejar
+        # a todo el mundo fuera por no poder contar intentos.
+        _logger.warning(f"rate limit: fallo el conteo en BD, uso el respaldo en memoria ({e})")
+        return _rate_limited_memoria(key)
 
 
 def _client_key(email: str) -> str:
