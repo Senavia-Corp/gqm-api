@@ -502,6 +502,12 @@ def podio_jobs_webhook(app_type, year):
         except Exception:
             pass
 
+        # Petición malformada (sin item_id: body no-JSON, sonda, escaneo…):
+        # es un 400 del cliente, no una falla de sincronización — no ensuciar
+        # la dead-letter que el cliente ve en el panel.
+        if not ('item_id' in locals() and item_id):
+            return jsonify({"error": "payload de webhook inválido"}), 400
+
         # Guardar en base de datos para sincronización manual
         try:
             from src.models.PodioFailedSyncModel import PodioFailedSync

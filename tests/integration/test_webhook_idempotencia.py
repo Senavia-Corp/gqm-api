@@ -96,3 +96,22 @@ def test_delete_duplicado(client, item_ids):
     with get_session() as s:
         assert s.exec(select(Job).where(
             Job.podio_item_id == str(item_id))).first() is None
+
+
+def test_payload_malformado_no_ensucia_dead_letter(client):
+    """Una sonda/escaneo con body inválido es 400 del cliente, no una falla
+    de sincronización: no debe aparecer en la dead-letter del panel."""
+    from src.models.PodioFailedSyncModel import PodioFailedSync
+
+    with get_session() as s:
+        antes = len(s.exec(select(PodioFailedSync).where(
+            PodioFailedSync.resolved == False)).all())  # noqa: E712
+
+    resp = client.post(_url(), data="no soy json",
+                       content_type="text/plain")
+    assert resp.status_code == 400, resp.status_code
+
+    with get_session() as s:
+        despues = len(s.exec(select(PodioFailedSync).where(
+            PodioFailedSync.resolved == False)).all())  # noqa: E712
+    assert despues == antes, "la sonda malformada ensució la dead-letter"
