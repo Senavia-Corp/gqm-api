@@ -48,10 +48,24 @@ def _client_key(email: str) -> str:
     return f"{ip}|{(email or '').lower()}"
 
 
+def _json_object():
+    """Cuerpo JSON solo si es un objeto; None en cualquier otro caso.
+
+    `request.get_json() or {}` solo cubre el body vacío. Un JSON *válido* que no
+    sea objeto ("texto", [1,2], 42) pasaba el `or {}` y reventaba en el .get()
+    siguiente con AttributeError → 500 sin autenticar en las tres rutas públicas
+    de este blueprint. Verificado en las 9 combinaciones el 10-ago-2026.
+    """
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else None
+
+
 # Ruta de inicio de sesión
 @auth_bp.post("/login")
 def login():
-    data = request.get_json() or {}
+    data = _json_object()
+    if data is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
 
     email = data.get("Email_Address")
     password = data.get("Password")
@@ -178,7 +192,9 @@ def login():
 def refresh():
     try:
         # 1. Obtener token desde JSON o Header
-        json_data = request.get_json(silent=True) or {}
+        # Un body que no sea objeto NO invalida la petición: esta ruta también
+        # acepta el token por cabecera, así que se ignora y se sigue por ahí.
+        json_data = _json_object() or {}
         token = json_data.get("refresh_token")
 
         if not token:
@@ -297,7 +313,9 @@ def _find_user_by_email(session, email: str):
 
 @auth_bp.post("/forgot-password")
 def forgot_password():
-    data = request.get_json() or {}
+    data = _json_object()
+    if data is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
     email = data.get("Email_Address")
     if not email:
         return jsonify({"error": "Email_Address is required"}), 400
@@ -327,7 +345,9 @@ def forgot_password():
 def reset_password():
     from itsdangerous import BadSignature, SignatureExpired
 
-    data = request.get_json() or {}
+    data = _json_object()
+    if data is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
     token = data.get("token")
     new_password = data.get("Password")
     if not token or not new_password:
