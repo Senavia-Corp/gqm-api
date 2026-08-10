@@ -95,6 +95,44 @@ def _validate_podio_webhook_token():
     return None
 
 
+def _fallo_receptor_others(app_type, data, event_type, error):
+    """Cierre de los receptores /others: registra y elige el código de estado.
+
+    Los dos contestaban `500` a pelo sin registrar NADA. Dos consecuencias, las
+    dos medidas: Podio reintenta las entregas 5xx (y desactiva los hooks que
+    fallan de forma persistente, así que un solo item inaplicable puede tumbar
+    la sync de toda la app), y el fallo no aparecía en `podio_failed_syncs`, que
+    es justo lo que el panel enseña al cliente. El receptor de Jobs ya lo hacía
+    bien; esto le da a /others el mismo trato.
+
+    IntegrityError → 200. Una PK o UNIQUE duplicada es determinista: el reintento
+    de Podio fallará igual, así que pedirlo solo gasta entregas y arriesga el
+    hook. Queda en la dead-letter, que es donde se reconcilia a mano.
+    Cualquier otro error → 500, para que Podio SÍ reintente (un corte de red o
+    un hipo de la BD sí se arregla solo).
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from src.utils.failed_sync import record_failed_sync
+
+    determinista = isinstance(error, IntegrityError)
+    item_id = (data or {}).get("item_id")
+    try:
+        with get_session() as s:
+            record_failed_sync(
+                s, item_id=item_id,
+                hook_type=f"podio.others.{app_type}.{event_type or 'unknown'}",
+                payload=data or {}, error=error)
+    except Exception:
+        logger.exception("no se pudo registrar el fallo del receptor others")
+
+    if determinista:
+        logger.error("webhook others/%s item=%s inaplicable (%s) → 200 + dead-letter",
+                     app_type, item_id, type(error).__name__)
+        return jsonify({"status": "dead_letter", "reason": "inaplicable"}), 200
+    return jsonify({"error": str(error)}), 500
+
+
 # ----------------------------------------
 # ---- Webhook de PODIO
 # ----------------------------------------
@@ -187,7 +225,9 @@ def podio_general_webhook(app_type, token=None):
 
     except Exception as e:
         print(f"❌ Error procesando webhook: {e}")
-        return jsonify({"error": str(e)}), 500
+        traceback.print_exc()
+        return _fallo_receptor_others(
+            app_type, locals().get("data"), locals().get("event_type"), e)
 
     return jsonify({"status": "ok"}), 200
 
@@ -264,7 +304,9 @@ def podio_relations_webhook(app_type, token=None):
 
     except Exception as e:
         print(f"❌ Error procesando webhook: {e}")
-        return jsonify({"error": str(e)}), 500
+        traceback.print_exc()
+        return _fallo_receptor_others(
+            app_type, locals().get("data"), locals().get("event_type"), e)
 
     return jsonify({"status": "ok"}), 200
 
