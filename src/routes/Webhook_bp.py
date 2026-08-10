@@ -566,11 +566,59 @@ def qbo_webhook():
         return jsonify({"error": "Internal server error"}), 500
 
 
+_ERRORES_DE_CARRERA = (
+    "duplicate key", "UniqueViolation", "IntegrityError",
+    "StaleDataError", "expected to update 1 row",
+)
+
+
+def auto_resolver_convergidos() -> int:
+    """Cierra las fallas cuyo estado deseado YA se cumple.
+
+    Podio reintenta y una app puede tener varios suscriptores; el perdedor de
+    la carrera registra una falla aunque el ganador dejara la BD correcta. Sin
+    esto, el panel del cliente muestra «errores de sincronización» que no lo
+    son (y que el botón Resync cerraría igualmente). Se aplica SOLO a errores
+    típicos de carrera y SOLO si se verifica la convergencia; cualquier otra
+    falla se respeta y sigue visible. Deja rastro en el mensaje.
+    """
+    from src.models.PodioFailedSyncModel import PodioFailedSync
+
+    cerradas = 0
+    try:
+        with get_session() as session:
+            pendientes = session.exec(select(PodioFailedSync).where(
+                PodioFailedSync.resolved == False)).all()  # noqa: E712
+            for fs in pendientes:
+                partes = (fs.hook_type or "").split(".")
+                if len(partes) < 5 or partes[1] != "jobs":
+                    continue
+                event_type = ".".join(partes[4:])
+                msg = fs.error_message or ""
+                if not any(p in msg for p in _ERRORES_DE_CARRERA):
+                    continue
+                if not _webhook_state_converged(event_type, fs.item_id):
+                    continue
+                fs.resolved = True
+                fs.error_message = ("[auto-resuelta: entrega duplicada, el "
+                                    "estado ya era el correcto] " + msg)[:2000]
+                session.add(fs)
+                cerradas += 1
+            if cerradas:
+                session.commit()
+                logger.info("🧹 %s fallas de sincronización auto-resueltas "
+                            "(entregas duplicadas ya convergidas)", cerradas)
+    except Exception as e:  # nunca romper la lectura del panel por esto
+        logger.warning("no se pudieron auto-resolver fallas convergidas: %s", e)
+    return cerradas
+
+
 @webhook_bp.route("/webhook/podio/failed_syncs", methods=["GET"])
 @require_permission("admin:sync")
 def get_failed_syncs():
     try:
         from src.models.PodioFailedSyncModel import PodioFailedSync
+        auto_resolver_convergidos()
         with get_session() as session:
             failed_syncs = session.exec(select(PodioFailedSync).order_by(PodioFailedSync.created_at.desc())).all()
             return jsonify([f.model_dump() for f in failed_syncs]), 200
@@ -583,6 +631,7 @@ def count_failed_syncs():
     try:
         from src.models.PodioFailedSyncModel import PodioFailedSync
         from sqlalchemy import func
+        auto_resolver_convergidos()
         with get_session() as session:
             count = session.exec(select(func.count(PodioFailedSync.id)).where(PodioFailedSync.resolved == False)).one()
             return jsonify({"count": count}), 200

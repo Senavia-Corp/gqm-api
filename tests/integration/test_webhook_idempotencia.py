@@ -115,3 +115,57 @@ def test_payload_malformado_no_ensucia_dead_letter(client):
         despues = len(s.exec(select(PodioFailedSync).where(
             PodioFailedSync.resolved == False)).all())  # noqa: E712
     assert despues == antes, "la sonda malformada ensució la dead-letter"
+
+
+def test_falla_de_carrera_ajena_se_auto_resuelve(client, admin_headers, item_ids):
+    """Otro suscriptor (o un reintento de Podio) registra una falla por
+    carrera cuando el estado YA es correcto: el panel del cliente no debe
+    contarla como error pendiente."""
+    from src.models.PodioFailedSyncModel import PodioFailedSync
+
+    item_id, tracking = item_ids
+    assert client.post(_url(), json=_payload(item_id, tracking)).status_code == 200
+
+    # Falla escrita por un tercero con código antiguo (misma BD)
+    with get_session() as s:
+        s.add(PodioFailedSync(
+            item_id=str(item_id),
+            hook_type="podio.jobs.QID.2026.item.create",
+            payload={"type": "item.create", "item_id": item_id},
+            error_message='(psycopg2.errors.UniqueViolation) duplicate key value '
+                          'violates unique constraint "jobs_pkey"'))
+        s.commit()
+
+    resp = client.get("/webhook/podio/failed_syncs/count", headers=admin_headers)
+    assert resp.status_code == 200
+    with get_session() as s:
+        fs = s.exec(select(PodioFailedSync).where(
+            PodioFailedSync.item_id == str(item_id))).first()
+        assert fs is not None and fs.resolved is True, "no se auto-resolvió"
+        assert "auto-resuelta" in (fs.error_message or ""), "sin rastro del motivo"
+        s.delete(fs)
+        s.commit()
+
+
+def test_falla_real_sigue_visible(client, admin_headers):
+    """Una falla que NO es de carrera (o cuyo estado no convergió) se respeta:
+    el cliente tiene que seguir viéndola."""
+    from src.models.PodioFailedSyncModel import PodioFailedSync
+
+    with get_session() as s:
+        fs = PodioFailedSync(
+            item_id="999000111",
+            hook_type="podio.jobs.QID.2026.item.create",
+            payload={"type": "item.create", "item_id": 999000111},
+            error_message="ConnectionError: Podio no responde")
+        s.add(fs)
+        s.commit()
+        fid = fs.id
+
+    assert client.get("/webhook/podio/failed_syncs/count",
+                      headers=admin_headers).status_code == 200
+    with get_session() as s:
+        fs = s.get(PodioFailedSync, fid)
+        assert fs.resolved is False, "se ocultó una falla REAL"
+        s.delete(fs)
+        s.commit()
