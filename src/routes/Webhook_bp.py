@@ -1,3 +1,4 @@
+import time
 import traceback
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
@@ -311,19 +312,33 @@ def podio_relations_webhook(app_type, token=None):
     return jsonify({"status": "ok"}), 200
 
 
-def _webhook_state_converged(event_type, item_id) -> bool:
+def _webhook_state_converged(event_type, item_id, intentos=1, espera=0.0) -> bool:
     """¿El estado deseado del evento ya se cumple pese al error?
 
     Podio reintenta y una app puede tener varios hooks activos, así que el
     mismo evento llega duplicado y en paralelo: el perdedor de la carrera
     revienta con UniqueViolation aunque el ganador ya dejó la BD como debía.
-    Se consulta en una sesión NUEVA (la del request quedó abortada)."""
+    Se consulta en una sesión NUEVA (la del request quedó abortada).
+
+    `intentos` existe porque una sola consulta pierde la carrera al revés: el
+    perdedor puede comprobar ANTES de que el ganador haga commit, ver que no
+    está, y mandar a la dead-letter un evento que sí acabó bien. Pasó de verdad
+    —failed_sync #47, jobs_pkey QID60096 duplicada— y le deja al cliente un
+    fallo visible en el panel por algo que no es un fallo. El anti-bucle
+    (`is_recent_event`) no lo evita: es un dict EN MEMORIA y en Vercel cada
+    entrega concurrente cae en otra lambda, igual que le pasaba al limitador
+    de login."""
     if not item_id or event_type not in ("item.create", "item.update", "item.delete"):
         return False
-    with get_session() as check:
-        exists = check.exec(
-            select(Job).where(Job.podio_item_id == str(item_id))).first() is not None
-    return not exists if event_type == "item.delete" else exists
+    for i in range(max(1, intentos)):
+        if i:
+            time.sleep(espera)
+        with get_session() as check:
+            exists = check.exec(
+                select(Job).where(Job.podio_item_id == str(item_id))).first() is not None
+        if (not exists if event_type == "item.delete" else exists):
+            return True
+    return False
 
 
 def _cascade_delete_job_from_podio(session, item_id):
@@ -574,11 +589,17 @@ def podio_jobs_webhook(app_type, year, token=None):
         # cumple, así que es un ÉXITO idempotente — nada de 500 (Podio
         # reintentaría) ni de dead-letter (ruido para el cliente).
         try:
-            if _webhook_state_converged(event_type, item_id):
+            # Una PK duplicada es la firma de la carrera entre entregas: se le
+            # dan 3 intentos con 1 s para que el ganador haga commit. Cualquier
+            # otro error se comprueba una vez y sigue.
+            from sqlalchemy.exc import IntegrityError as _IntegrityError
+            reintentos = 3 if isinstance(e, _IntegrityError) else 1
+            if _webhook_state_converged(event_type, item_id,
+                                        intentos=reintentos, espera=1.0):
                 print("✅ Estado ya convergido (entrega duplicada) — 200")
                 return jsonify({"status": "ok", "note": "duplicate_delivery"}), 200
         except Exception:
-            pass
+            logger.exception("fallo la comprobacion de convergencia del webhook")
 
         # Petición malformada (sin item_id: body no-JSON, sonda, escaneo…):
         # es un 400 del cliente, no una falla de sincronización — no ensuciar
