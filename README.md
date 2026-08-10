@@ -169,7 +169,6 @@ Used for hook management and admin operations:
 | PTL Test | `PTL_TAP_APP_ID`, `PTL_TAP_APP_TOKEN` |
 | PAR Test | `PAR_TAP_APP_ID`, `PAR_TAP_APP_TOKEN` |
 | Clients Test | `CLI_TAP_APP_ID`, `CLI_TAP_APP_TOKEN` |
-| Tasks Test | `TAS_TAP_APP_ID`, `TAS_TAP_APP_TOKEN` |
 
 > Total: ~50 environment variables. See `.env.example` for the full template.
 

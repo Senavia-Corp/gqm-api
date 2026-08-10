@@ -2,13 +2,10 @@
 
 from src.podio.services.job_services import podio_jobs_router
 from src.podio.services.client_services import podio_clients_router
-from src.podio.services.tasks_services import podio_tasks_router
 from src.utils.mappers.from_podio.job_mapper import map_podio_item_to_job
 from src.utils.mappers.from_podio.client_mapper import map_podio_item_to_client
-from src.utils.mappers.from_podio.tasks_mapper import map_podio_item_to_task
 from src.models.JobModel import Job
 from src.models.ClientModel import Client
-from src.models.TasksModel import Tasks
 from src.database.db_sqlmodel import get_session
 from sqlmodel import select
 from src.utils.middleware.retries.retries import retry_db
@@ -201,94 +198,6 @@ def sync_clients():
     print("\n✅ Sincronización completa de TODOS los Clients.")
 
 
-# ======================
-#   SINCRONIZACIÓN TASKS
-# ======================
-
-@retry_db(max_retries=3, delay=1)
-def sync_tasks():
-
-    print("\n🚀 Iniciando sincronización de Tasks")
-
-    with get_session() as session:
-
-        # Obtener items desde Podio usando el router
-        task_service = podio_tasks_router.get_service()
-        items = task_service.get_items()
-        print(f"📥 Recibidos {len(items)} items desde Podio (TASK)")
-
-        for item in items:
-            # ------------------------------------------------
-            # ID del item en Podio
-            # ------------------------------------------------
-            podio_item_id = str(item.get("item_id") or item.get("id"))
-            if not podio_item_id:
-                print(f"⚠️ Task sin ID encontrado, se omite: {item}")
-                continue
-
-            # Mapear item de Podio → dict listo para Tasks
-            mapped = map_podio_item_to_task(item, session)
-
-            job_ref = mapped.get("ID_Jobs")
-            print(f"Related Job: {job_ref}")
-
-            # ------------------------------------------------
-            # Buscar si ya existe por podio_item_id
-            # ------------------------------------------------
-            existing = session.exec(
-                select(Tasks).where(Tasks.podio_item_id == podio_item_id)
-            ).first()
-
-            if existing:
-                changes = {}
-                for field, new_value in mapped.items():
-                    old_value = getattr(existing, field, None)
-                    if old_value != new_value and new_value is not None:
-                        changes[field] = new_value
-                if not changes:
-                    print(
-                        f"⚪ Item {existing.ID_Tasks} ya existe — sin cambios")
-                    continue
-
-                # Aplicar cambios
-                for field, value in changes.items():
-                    setattr(existing, field, value)
-                print(
-                    f"🟡 Actualizado {existing.ID_Tasks} → Campos cambiados: {list(changes.keys())}")
-
-                continue
-
-            else:  # Crear nuevo registro
-                # ------------------------------------------------
-                # Generar ID interno si no existe
-                # ------------------------------------------------
-                id_field = "ID_Tasks"  # Ajusta según tu modelo
-                Model = Tasks
-
-                if not mapped.get(id_field):
-                    prefix = "TASK"
-                    new_id = generate_custom_id(
-                        session, Model, id_field, prefix)
-                    mapped[id_field] = str(new_id)
-                    print(f"🆔 ID generado para Task: {mapped[id_field]}")
-                else:
-                    mapped[id_field] = str(mapped[id_field])
-
-                try:
-                    mapped["podio_item_id"] = podio_item_id
-                    new_task = Tasks(**mapped)
-                    session.add(new_task)
-                    print(
-                        f"🟢 Insertado: {mapped.get('Name') or mapped.get('ID_Tasks')}")
-                except Exception as e:
-                    print(
-                        f"❌ Error creando Task para podio_item_id={podio_item_id}: {e}")
-                    continue
-
-        session.commit()
-
-    print("\n✅ Sincronización completa de TODAS las Tasks.")
-
 
 # =========================
 #  Punto de entrada global
@@ -299,6 +208,5 @@ def sync_podio_to_db():
 
     sync_clients()
     sync_jobs()
-    sync_tasks()
 
     print("✅ Sincronización completa.")

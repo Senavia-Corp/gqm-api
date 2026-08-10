@@ -29,7 +29,7 @@ def test_relation_and_no_relation_targets():
 
 def test_unknown_app_type_raises():
     with pytest.raises(ValueError):
-        build_webhook_target("TASK")
+        build_webhook_target("NOPE")
 
 
 def test_target_carries_auth_token_when_configured():

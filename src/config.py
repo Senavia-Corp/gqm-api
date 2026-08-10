@@ -45,8 +45,6 @@ PAR_TAP_APP_TOKEN = os.getenv("PAR_TAP_APP_TOKEN")
 CLI_TAP_APP_ID = os.getenv("CLI_TAP_APP_ID")
 CLI_TAP_APP_TOKEN = os.getenv("CLI_TAP_APP_TOKEN")
 # Credenciales del App Test Admin 5 Tasks
-TAS_TAP_APP_ID = os.getenv("TAS_TAP_APP_ID")
-TAS_TAP_APP_TOKEN = os.getenv("TAS_TAP_APP_TOKEN")
 
 # CREDENCIALES REALES:
 # Credenciales de la App Clients
@@ -118,8 +116,6 @@ _missing = [k for k, v in {
     "PAR_TAP_APP_TOKEN": PAR_TAP_APP_TOKEN,
     "CLI_TAP_APP_ID": CLI_TAP_APP_ID,
     "CLI_TAP_APP_TOKEN": CLI_TAP_APP_TOKEN,
-    "TAS_TAP_APP_ID": TAS_TAP_APP_ID,
-    "TAS_TAP_APP_TOKEN": TAS_TAP_APP_TOKEN,
 
     "PODIO_CLIENTS_APP_ID": PODIO_CLIENTS_APP_ID,
     "PODIO_CLIENTS_APP_TOKEN": PODIO_CLIENTS_APP_TOKEN,
@@ -182,7 +178,6 @@ PODIO_APPS = {
     "PTL": {"APP_ID": PTL_TAP_APP_ID, "APP_TOKEN": PTL_TAP_APP_TOKEN},
     "PAR": {"APP_ID": PAR_TAP_APP_ID, "APP_TOKEN": PAR_TAP_APP_TOKEN},
     # Test de Tasks
-    "TASK": {"APP_ID": TAS_TAP_APP_ID, "APP_TOKEN": TAS_TAP_APP_TOKEN},
 
     # Credencials reales
     "CLI": {
