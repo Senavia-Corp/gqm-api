@@ -119,6 +119,14 @@ def create_role():
         create_role = RoleCreate.model_validate(data)
         obj = Role.model_validate(create_role)
 
+        # RoleBase tiene TODOS los campos opcionales, asi que un POST con {} se
+        # validaba y creaba un rol con Name/Active/Description a NULL. Esos
+        # roles fantasma se acumulan (develop llego a tener 4), salen en el
+        # panel como «Inactive / — / 0 permissions» y cleanup_rbac.py tiene un
+        # paso 4 solo para barrerlos. Un rol sin nombre no es utilizable.
+        if not (obj.Name or "").strip():
+            return jsonify({"detail": "Name es obligatorio para crear un role."}), 400
+
     except ValidationError as e:
         if 'JSON' in str(e):
             return jsonify({"detail": "La solicitud debe contener un JSON válido."}), 400

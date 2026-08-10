@@ -262,6 +262,14 @@ def create_client():
 
     data = request.get_json()
     create_client = ClientCreate.model_validate(data)
+
+    # Mismo caso que en Role: ClientBase tiene todos los campos opcionales, asi
+    # que un POST con {} creaba un client con todo a NULL. Verificado el
+    # 10-ago-2026: devolvia 201 con CLI60539 vacio. El nombre de la comunidad es
+    # el minimo para que la ficha sea identificable.
+    if not (create_client.Client_Community or "").strip():
+        return jsonify({"detail": "Client_Community es obligatorio para crear un client."}), 400
+
     obj = Client(
         **create_client.model_dump(exclude_unset=False, exclude_none=False))
 
