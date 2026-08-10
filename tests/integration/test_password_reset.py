@@ -2,6 +2,7 @@
 import uuid
 
 import pytest
+from decouple import config as _env
 from sqlmodel import select
 
 from src.database.db_sqlmodel import get_session
@@ -72,9 +73,15 @@ def test_reset_rejects_garbage_token(client):
 
 
 def test_login_rate_limit_429(client):
-    """REG-051: 6º intento en la ventana → 429."""
+    """REG-051: el intento que pasa el cap configurado → 429.
+
+    El cap se lee del entorno (LOGIN_RATE_MAX_ATTEMPTS, por defecto 5) en vez de
+    estar fijo en 5/6: asi el test sigue probando el limitador aunque se suba el
+    valor en dev, en vez de romperse o —peor— quedarse verde sin comprobar nada.
+    """
+    cap = _env("LOGIN_RATE_MAX_ATTEMPTS", default=5, cast=int)
     email = "ratelimit-test@senavia-test.com"
-    for _ in range(5):
+    for _ in range(cap):
         resp = client.post("/auth/login", json={"Email_Address": email, "Password": "mala"})
         assert resp.status_code == 401
     resp = client.post("/auth/login", json={"Email_Address": email, "Password": "mala"})
