@@ -253,6 +253,24 @@ def get_podio_app_credentials(app_type: str):
     return PODIO_APPS[app_type]
 
 
+def app_ids_configurados() -> set[str]:
+    """Los app_id de Podio que ESTA configuración puede tocar.
+
+    Con `APP_ENV=test` son exactamente las apps TAP (de prueba); en producción,
+    las reales. Sirve de lista blanca para la guarda de escritura saliente: ver
+    `PodioBaseService._exigir_app_permitida`.
+    """
+    ids = set()
+    for cred in PODIO_APPS.values():
+        if cred.get("APP_ID"):
+            ids.add(str(cred["APP_ID"]))
+    for por_tipo in PODIO_JOB_APPS.values():
+        for cred in por_tipo.values():
+            if cred.get("APP_ID"):
+                ids.add(str(cred["APP_ID"]))
+    return ids
+
+
 # Para apps dinámicas (Jobs)
 def get_job_app_credentials(year: int, job_type: str):
     """

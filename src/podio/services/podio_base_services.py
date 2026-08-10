@@ -1,9 +1,13 @@
 from src.utils.middleware.logs.logs import logger
 import requests
 from src.podio.podio_auth import get_podio_headers
-from src.config import BASE_URL
+from src.config import APP_ENV, BASE_URL, app_ids_configurados
 from src.utils.mappers.clean_podio_fields import clean_podio_fields
 from src.utils.middleware.retries.retries import retry_api
+
+
+class EscrituraFueraDeEntorno(Exception):
+    """Se intentó escribir en un item de Podio que no pertenece a este entorno."""
 
 
 class PodioBaseService:
@@ -19,6 +23,54 @@ class PodioBaseService:
             return get_podio_headers(self.app_type, self.year)
 
         return get_podio_headers(self.app_type)
+
+    # ------------- GUARDA DE ENTORNO (A-9) -------------
+
+    def _exigir_app_permitida(self, item_id, operacion: str):
+        """Impide escribir en items que no son de este entorno.
+
+        El 10-ago-2026 se descubrió que la BD de develop está llena de
+        `podio_item_id` de PRODUCCIÓN: 97 de 100 clientes y 22 de 57 communities
+        apuntan a la app real `22192695`. Y las apps TEST comparten el espacio de
+        Podio 6405055 con las reales, así que el token de prueba **alcanza
+        producción** (lectura comprobada con HTTP 200).
+
+        Con eso, un solo `PATCH /clients/<id>?sync_podio=true` desde desarrollo
+        escribía sobre la ficha real del cliente. La compuerta
+        `verificar-aislamiento.sh` no lo veía: solo mira el `.env`.
+
+        Aquí se corta en el único sitio por el que salen todas las escrituras:
+        se resuelve a qué app pertenece el item y se exige que esté entre las
+        que esta configuración puede tocar (en `APP_ENV=test`, las TAP).
+
+        Cuesta un GET extra por escritura y SOLO en test: en producción la
+        lista blanca son las apps reales y no hay nada que impedir, así que se
+        sale sin llamar a Podio.
+        """
+        if APP_ENV != "test":
+            return
+
+        permitidas = app_ids_configurados()
+        try:
+            resp = requests.get(
+                f"{BASE_URL}/item/{item_id}/basic", headers=self._headers(), timeout=30)
+            resp.raise_for_status()
+            app_id = str((resp.json().get("app") or {}).get("app_id") or "")
+        except requests.exceptions.RequestException as e:
+            # Fail-closed a propósito: si no se puede comprobar de qué entorno es
+            # el item, NO se escribe. Perder una sincronización en dev es
+            # barato; escribir en producción no.
+            raise EscrituraFueraDeEntorno(
+                f"{operacion} del item {item_id} bloqueado: no se pudo verificar a qué "
+                f"app de Podio pertenece ({e})") from e
+
+        if app_id and app_id not in permitidas:
+            raise EscrituraFueraDeEntorno(
+                f"{operacion} del item {item_id} BLOQUEADO: pertenece a la app de Podio "
+                f"{app_id}, que no está configurada en este entorno (APP_ENV={APP_ENV}). "
+                f"Apps permitidas: {sorted(permitidas)}. "
+                f"Casi seguro es un item de PRODUCCIÓN referenciado desde datos de dev."
+            )
 
     # ------------- GET ITEMS -------------
     @retry_api(max_retries=3, backoff=2)
@@ -69,6 +121,8 @@ class PodioBaseService:
     @retry_api(max_retries=3, backoff=2)
     def update_item(self, item_id: int, fields: dict):
 
+        self._exigir_app_permitida(item_id, "UPDATE")
+
         url = f"{BASE_URL}/item/{item_id}"
 
         podio_fields = clean_podio_fields(fields)
@@ -101,6 +155,8 @@ class PodioBaseService:
     # ------------- DELETE -------------
     @retry_api(max_retries=3, backoff=2)
     def delete_item(self, item_id: str):
+
+        self._exigir_app_permitida(item_id, "DELETE")
 
         url = f"{BASE_URL}/item/{item_id}"
         response = requests.delete(url, headers=self._headers())
