@@ -79,7 +79,17 @@ def _validate_podio_webhook_token():
         logger.info("webhook %s: hook.verify sin token (Podio no reenvia la query) — se permite", path)
         return None
 
-    provided = _request.args.get("token", "")
+    # El token va en la RUTA, no en el query: Podio DESCARTA el query string en
+    # todas sus entregas. Medido el 10-ago-2026 en los logs de gqm-api-dev — la
+    # ruta se conserva y el ?token= no llega:
+    #   nuestra peticion   "POST …/jobs/QID/2026?token=d6e3…"  (con query)
+    #   Podio hook.verify  "POST …/jobs/QID/2026"              (sin query) → 403
+    #   Podio item.update  "POST …/jobs/QID/2026"              (sin query) → 403
+    # Con el token en el query, NINGUN hook podia entregar nada: el paso 3 del
+    # runbook habria dejado la sync entrante muerta con 403 permanente.
+    # Se sigue aceptando el query como respaldo para hooks legado.
+    en_ruta = (_request.view_args or {}).get("token") or ""
+    provided = en_ruta or _request.args.get("token", "")
     if not _hmac.compare_digest(provided, expected):
         return jsonify({"error": "invalid webhook token"}), 403
     return None
@@ -90,7 +100,8 @@ def _validate_podio_webhook_token():
 # ----------------------------------------
 
 @webhook_bp.route("/webhook/podio/others/no_relations/<app_type>", methods=["POST"])
-def podio_general_webhook(app_type):
+@webhook_bp.route("/webhook/podio/others/no_relations/<app_type>/<token>", methods=["POST"])
+def podio_general_webhook(app_type, token=None):
 
     APP_ROUTER_MAP = {
         "PMC":  (podio_pa_mgmt_co_router, map_podio_item_to_parent_mgmt_co, ParentMgmtCo, "ID_Community_Tracking"),
@@ -182,7 +193,8 @@ def podio_general_webhook(app_type):
 
 
 @webhook_bp.route("/webhook/podio/others/relations/<app_type>", methods=["POST"])
-def podio_relations_webhook(app_type):
+@webhook_bp.route("/webhook/podio/others/relations/<app_type>/<token>", methods=["POST"])
+def podio_relations_webhook(app_type, token=None):
 
     APP_ROUTER_MAP = {
         "CLI":  (podio_clients_router, process_clients_podio, Client, "ID_Client"),
@@ -352,7 +364,8 @@ def _cascade_delete_job_from_podio(session, item_id):
 # Jobs webhook — con auditoría de timeline
 # ---------------------------------------------------------------------------------
 @webhook_bp.route("/webhook/podio/jobs/<app_type>/<int:year>", methods=["POST"])
-def podio_jobs_webhook(app_type, year):
+@webhook_bp.route("/webhook/podio/jobs/<app_type>/<int:year>/<token>", methods=["POST"])
+def podio_jobs_webhook(app_type, year, token=None):
 
     JOB_TYPES = {"QID", "PTL", "PAR"}
 

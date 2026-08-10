@@ -10,8 +10,18 @@ from src.utils.middleware.retries.retries import retry_api
 
 
 def redact_hook_url(url: str) -> str:
-    """El token del webhook es un secreto: jamás a logs ni a respuestas."""
-    return re.sub(r"(token=)[^&]+", r"\1***", url or "")
+    """El token del webhook es un secreto: jamás a logs ni a respuestas.
+
+    Oculta las DOS formas: `?token=` (legado) y el token como último segmento de
+    la ruta (la actual, porque Podio descarta el query string al entregar). Sin
+    esta segunda parte el secreto salía por los logs y por la respuesta HTTP de
+    /admin/webhooks/<app>/register.
+    """
+    limpia = re.sub(r"(token=)[^&]+", r"\1***", url or "")
+    secreto = env_config("PODIO_WEBHOOK_TOKEN", default="")
+    if secreto:
+        limpia = limpia.replace(secreto, "***")
+    return limpia
 
 # Apps de Jobs: una app por año → el hook necesita year (REG-002/REG-010)
 JOB_APP_TYPES = {"QID", "PTL", "PAR"}
@@ -61,7 +71,11 @@ def build_webhook_target(app_type: str, year: int | None = None) -> str:
     # (la validación del lado del API se activa en el Bloque 2).
     token = env_config("PODIO_WEBHOOK_TOKEN", default="")
     if token:
-        target = f"{target}?token={token}"
+        # En la RUTA, no en el query: Podio descarta el query string al entregar
+        # (comprobado en los logs el 10-ago-2026). El prefijo se mantiene
+        # (/webhook/podio/jobs/...) para no romper la whitelist publica de
+        # main.py, que filtra por prefijo.
+        target = f"{target}/{token}"
     else:
         logger.warning(
             "PODIO_WEBHOOK_TOKEN no configurado: el webhook de %s se registra "
