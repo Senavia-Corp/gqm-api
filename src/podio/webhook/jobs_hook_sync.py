@@ -86,9 +86,39 @@ def upsert_job_from_item(session, item, app_type, year=None):
         print(f"🟢 Insert {mapped['ID_Jobs']}")
 
         new_job = Job(**mapped)
-        session.add(new_job)
 
-        return new_job
+        # Carrera real: Podio reintenta y puede tener VARIOS hooks activos
+        # sobre la misma app, así que el mismo item.create llega dos veces a
+        # la vez. Sin savepoint, el INSERT perdedor explota en un autoflush
+        # posterior (UniqueViolation en jobs_pkey) y devuelve 500 → Podio
+        # reintenta otra vez y ensucia la dead-letter. Con savepoint, el
+        # perdedor degrada a UPDATE del ganador: convergen al mismo estado.
+        from sqlalchemy.exc import IntegrityError
+
+        try:
+            with session.begin_nested():
+                session.add(new_job)
+                session.flush()
+            return new_job
+        except IntegrityError:
+            print(f"⚠️ {mapped['ID_Jobs']} ya insertado por otra entrega "
+                  "concurrente — se degrada a UPDATE (idempotencia)")
+
+        winner = session.exec(
+            select(Job).where(
+                or_(
+                    Job.podio_item_id == podio_item_id,
+                    Job.ID_Jobs == tracking_id,
+                )
+            )
+        ).first()
+        if not winner:
+            raise
+        for k, v in mapped.items():
+            if getattr(winner, k) != v:
+                setattr(winner, k, v)
+        session.add(winner)
+        return winner
 
 
 def add_job_relations(session, job, item):

@@ -1181,10 +1181,22 @@ def delete_job(id_job):
         podio_ref = str(obj.podio_item_id) if obj.podio_item_id else None
         orders = session.exec(select(Order).where(
             Order.job_podio_id == podio_ref)).all() if podio_ref else []
-        change_orders = session.exec(select(ChangeOrder).where(
-            ChangeOrder.job_podio_id == podio_ref)).all() if podio_ref else []
-        fin_docs = session.exec(select(FinancialDocument).where(
-            FinancialDocument.ID_Jobs == id_job)).all()
+
+        # COs y findocs cuelgan por TRES vías (job_podio_id, ID_Order, ID_Jobs):
+        # recogerlos solo por podio_ref dejaba huérfano el CO enlazado a una
+        # Order, y su FK bloqueaba el DELETE de esa Order.
+        _order_ids = [o.ID_Order for o in orders if o.ID_Order]
+        co_conds = [ChangeOrder.ID_Jobs == id_job]
+        fd_conds = [FinancialDocument.ID_Jobs == id_job]
+        if podio_ref:
+            co_conds.append(ChangeOrder.job_podio_id == podio_ref)
+        if _order_ids:
+            co_conds.append(ChangeOrder.ID_Order.in_(_order_ids))
+            fd_conds.append(FinancialDocument.ID_Order.in_(_order_ids))
+        change_orders = session.exec(
+            select(ChangeOrder).where(or_(*co_conds))).all()
+        fin_docs = session.exec(
+            select(FinancialDocument).where(or_(*fd_conds))).all()
 
         if orders or change_orders or fin_docs:
             if not force:
@@ -1206,18 +1218,31 @@ def delete_job(id_job):
             # EstimateCost/Opportunities referencian order.ID_Order sin
             # ondelete: desenlazar primero o el DELETE de la Order viola FK.
             # (Los EstimateCost del propio job caen luego con su cascade.)
+            # Todo en SQL bulk: idempotente y sin StaleDataError si el webhook
+            # de Podio borró lo mismo en paralelo (ver Webhook_bp).
+            from sqlalchemy import update as sa_update
+            from sqlmodel import delete as sq_delete
+
             order_ids = [o.ID_Order for o in orders if o.ID_Order]
             if order_ids:
                 from src.models.EstimateCostModel import EstimateCost
                 from src.models.OpportunitiesModel import Opportunities
                 for model in (EstimateCost, Opportunities):
-                    for row in session.exec(
-                            select(model).where(model.ID_Order.in_(order_ids))).all():
-                        row.ID_Order = None
-                        session.add(row)
+                    session.exec(sa_update(model).where(
+                        model.ID_Order.in_(order_ids)).values(ID_Order=None))
 
-            for row in change_orders + orders + fin_docs:
-                session.delete(row)
+            co_ids = [c.ID_ChangeOrder for c in change_orders if c.ID_ChangeOrder]
+            if co_ids:
+                session.exec(sq_delete(ChangeOrder).where(
+                    ChangeOrder.ID_ChangeOrder.in_(co_ids)))
+            fd_ids = [f.ID_FinancialDoc for f in fin_docs if f.ID_FinancialDoc]
+            if fd_ids:
+                session.exec(sq_delete(FinancialDocument).where(
+                    FinancialDocument.ID_FinancialDoc.in_(fd_ids)))
+            if order_ids:
+                session.exec(sq_delete(Order).where(
+                    Order.ID_Order.in_(order_ids)))
+            session.expire_all()  # colecciones cacheadas ya no reflejan la BD
             logger.warning(
                 "🗑️ Cascada forzada de Job %s: %s orders, %s COs, %s findocs",
                 id_job, len(orders), len(change_orders), len(fin_docs))

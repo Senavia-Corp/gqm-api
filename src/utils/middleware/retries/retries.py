@@ -58,6 +58,17 @@ def retry_db(max_retries=3, delay=1):
                         exc_info=True
                     )
 
+                    # Sin rollback, la sesión queda envenenada y TODOS los
+                    # reintentos mueren con PendingRollbackError (failed_sync
+                    # #12): el primer arg de save/delete_with_retry es la
+                    # sesión — límpiala antes de reintentar o propagar.
+                    _session = args[0] if args else None
+                    if hasattr(_session, "rollback"):
+                        try:
+                            _session.rollback()
+                        except Exception:
+                            pass
+
                     if attempt == max_retries:
                         logger.critical(
                             "[retry_db] Falló permanentemente con DB.")

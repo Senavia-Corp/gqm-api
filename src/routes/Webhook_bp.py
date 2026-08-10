@@ -234,58 +234,95 @@ def podio_relations_webhook(app_type):
     return jsonify({"status": "ok"}), 200
 
 
+def _webhook_state_converged(event_type, item_id) -> bool:
+    """¿El estado deseado del evento ya se cumple pese al error?
+
+    Podio reintenta y una app puede tener varios hooks activos, así que el
+    mismo evento llega duplicado y en paralelo: el perdedor de la carrera
+    revienta con UniqueViolation aunque el ganador ya dejó la BD como debía.
+    Se consulta en una sesión NUEVA (la del request quedó abortada)."""
+    if not item_id or event_type not in ("item.create", "item.update", "item.delete"):
+        return False
+    with get_session() as check:
+        exists = check.exec(
+            select(Job).where(Job.podio_item_id == str(item_id))).first() is not None
+    return not exists if event_type == "item.delete" else exists
+
+
 def _cascade_delete_job_from_podio(session, item_id):
     """Cascada del delete de jobs venido de Podio — COMPARTIDA entre el webhook
-    y el resync de failed_syncs (antes el resync corría la cascada vieja y
-    reintroducía Bills huérfanas). Simétrica al DELETE por API (Job.py):
-    findocs fuera, EstimateCost/Opportunities desenlazados de las Orders (FK
-    sin ondelete) y links pre-borrados en bulk — sin esto el ORM lanza
-    StaleDataError con los pares (job, member) duplicados de los datos reales.
-    Devuelve (job_id, n_orders, n_change_orders) para el log."""
-    from sqlmodel import delete as sq_delete
+    y el resync de failed_syncs. Simétrica al DELETE por API (Job.py).
 
+    TODO en SQL bulk (no ORM) para los hijos: idempotente y tolerante a
+    carreras — si el delete del panel (sync_podio) y el webhook de Podio
+    corren a la vez, el segundo solo afecta 0 filas en vez de reventar con
+    StaleDataError sobre filas ya borradas (failed_sync #12, 9-ago). El Job
+    se borra al final vía ORM: su colección change_orders ya está vacía y
+    sus cascades (tasks/estimate_costs/tlactivity) siguen aplicando.
+    Devuelve (job_id, n_orders, n_change_orders) para el log."""
+    from sqlalchemy import update as sa_update
+    from sqlmodel import delete as sq_delete, or_ as sq_or
+
+    from src.models.EstimateCostModel import EstimateCost
+    from src.models.FinancialDocModel import FinancialDocument
+    from src.models.OpportunitiesModel import Opportunities
     from src.models.link_models.JobMember import JobMemberLink
     from src.models.link_models.JobMultiplierR import JobMultiplierRLink
     from src.models.link_models.JobPaymentU import JobPaymentULink
     from src.models.link_models.JobSubcontractor import JobSubcontractorLink
     from src.models.link_models.JobTechnician import JobTechnicianLink
 
-    job = session.exec(
-        select(Job).where(Job.podio_item_id == str(item_id))).first()
+    ref = str(item_id)
+    job = session.exec(select(Job).where(Job.podio_item_id == ref)).first()
     job_id = job.ID_Jobs if job else None
 
+    order_ids = [o for o in session.exec(
+        select(Order.ID_Order).where(Order.job_podio_id == ref)).all() if o]
+
+    # 1. Desenlazar EstimateCost/Opportunities de las orders (FK sin ondelete)
+    if order_ids:
+        for model in (EstimateCost, Opportunities):
+            session.exec(sa_update(model).where(
+                model.ID_Order.in_(order_ids)).values(ID_Order=None))
+
+    # 2. Change Orders: por ref de Podio, por sus orders o por el job
+    co_conds = [ChangeOrder.job_podio_id == ref]
+    if order_ids:
+        co_conds.append(ChangeOrder.ID_Order.in_(order_ids))
     if job_id:
-        from src.models.FinancialDocModel import FinancialDocument
-        for fdoc in session.exec(select(FinancialDocument).where(
-                FinancialDocument.ID_Jobs == job_id)).all():
-            session.delete(fdoc)
+        co_conds.append(ChangeOrder.ID_Jobs == job_id)
+    n_cos = session.exec(
+        sq_delete(ChangeOrder).where(sq_or(*co_conds))).rowcount
+
+    # 3. FinancialDocuments del job o de sus orders
+    fd_conds = []
+    if job_id:
+        fd_conds.append(FinancialDocument.ID_Jobs == job_id)
+    if order_ids:
+        fd_conds.append(FinancialDocument.ID_Order.in_(order_ids))
+    if fd_conds:
+        session.exec(sq_delete(FinancialDocument).where(sq_or(*fd_conds)))
+
+    # 4. Orders
+    n_orders = session.exec(
+        sq_delete(Order).where(Order.job_podio_id == ref)).rowcount
+
+    # 5. Links del job (StaleDataError con pares (job, member) duplicados)
+    if job_id:
         for link_model in (JobMemberLink, JobMultiplierRLink, JobPaymentULink,
                            JobSubcontractorLink, JobTechnicianLink):
             session.exec(sq_delete(link_model).where(
                 link_model.job_id == job_id))
 
-    event_delete(session=session, Model=Job, item_unique_id=str(item_id))
+    # 6. El Job al final (ORM: cascades de tasks/estimate_costs/tlactivity).
+    #    Si no hay job (carrera ya resuelta), commit de la limpieza bulk.
+    session.expire_all()  # las colecciones cacheadas ya no reflejan la BD
+    if job_id:
+        event_delete(session=session, Model=Job, item_unique_id=ref)
+    else:
+        session.commit()
 
-    orders = session.exec(
-        select(Order).where(Order.job_podio_id == str(item_id))).all()
-    order_ids = [o.ID_Order for o in orders if o.ID_Order]
-    if order_ids:
-        from src.models.EstimateCostModel import EstimateCost
-        from src.models.OpportunitiesModel import Opportunities
-        for _model in (EstimateCost, Opportunities):
-            for row in session.exec(select(_model).where(
-                    _model.ID_Order.in_(order_ids))).all():
-                row.ID_Order = None
-                session.add(row)
-    for order in orders:
-        delete_with_retry(session, order)
-
-    ch_orders = session.exec(select(ChangeOrder).where(
-        ChangeOrder.job_podio_id == str(item_id))).all()
-    for ch_order in ch_orders:
-        delete_with_retry(session, ch_order)
-
-    return job_id, len(orders), len(ch_orders)
+    return job_id, n_orders, n_cos
 
 
 # ---------------------------------------------------------------------------------
@@ -454,7 +491,17 @@ def podio_jobs_webhook(app_type, year):
     except Exception as e:
         print(f"❌ Error procesando webhook: {e}")
         traceback.print_exc()
-        
+
+        # Entrega duplicada/concurrente ya convergida: el estado deseado se
+        # cumple, así que es un ÉXITO idempotente — nada de 500 (Podio
+        # reintentaría) ni de dead-letter (ruido para el cliente).
+        try:
+            if _webhook_state_converged(event_type, item_id):
+                print("✅ Estado ya convergido (entrega duplicada) — 200")
+                return jsonify({"status": "ok", "note": "duplicate_delivery"}), 200
+        except Exception:
+            pass
+
         # Guardar en base de datos para sincronización manual
         try:
             from src.models.PodioFailedSyncModel import PodioFailedSync
@@ -559,8 +606,25 @@ def resync_failed_sync(id):
                 
                 # Re-ejecutar la lógica
                 if event_type in ["item.create", "item.update"]:
-                    item = failed_sync.payload.get("item") or get_podio_item(item_id, app_type, year=year)
-                    
+                    try:
+                        item = failed_sync.payload.get("item") or get_podio_item(
+                            item_id, app_type, year=year)
+                    except Exception as podio_err:
+                        # 404/410: el item ya no está en Podio (lo borraron
+                        # después del fallo). Converger = borrarlo también
+                        # aquí; el reintento eterno no arregla nada.
+                        if not any(c in str(podio_err) for c in ("404", "410")):
+                            raise
+                        _cascade_delete_job_from_podio(session, item_id)
+                        failed_sync.resolved = True
+                        session.add(failed_sync)
+                        session.commit()
+                        return jsonify({
+                            "status": "ok",
+                            "message": "El item ya no existe en Podio; se sincronizó "
+                                       "el borrado y la falla queda resuelta.",
+                        }), 200
+
                     existing_job = session.exec(select(Job).where(Job.podio_item_id == str(item_id))).first()
                     old_status = existing_job.Job_status if existing_job else None
 
