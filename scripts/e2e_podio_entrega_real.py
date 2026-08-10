@@ -55,7 +55,8 @@ CASOS = {
     "PTL":  (Job, "Ptl_property_id", "title"),
     "PAR":  (Job, "Po_wtn_wo", "payment-date-and-number-1"),
     "CLI":  (Client, "Client_Community", "title"),
-    "SUBC": (Subcontractor, "Organization", "title"),
+    # SUBC no tiene campo 'title': su nombre es 'name' y 'organization' es tag.
+    "SUBC": (Subcontractor, "Name", "name"),
     "PMC":  (ParentMgmtCo, "Property_mgmt_co", "title"),
     "BDEP": (BuildingDept, "City_BldgDept", "title"),
 }
