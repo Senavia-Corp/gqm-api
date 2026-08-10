@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-"""Seed idempotente de RBAC para DESARROLLO (Fase 1).
+"""Seed idempotente de RBAC (4 roles + sus políticas IAM).
 
-Crea/actualiza los 4 roles del modelo aprobado, sus permission documents
-(IAM JSONB) y los usuarios de prueba @senavia-test.com. Re-ejecutable:
-los documentos de política se sobreescriben con lo definido aquí.
+Dos modos, porque el cutover NO puede crear usuarios de prueba en producción:
 
-Uso (desde la raíz del repo, con el .env de dev):
+  --roles-only   Solo los 4 roles y sus 4 documentos de política.
+                 APTO PARA PRODUCCIÓN (no crea ninguna cuenta ni toca
+                 passwords). Es el que usa el cutover.
+
+  (sin flag)     Lo anterior + los usuarios @senavia-test.com con
+                 SEED_DEV_PASSWORD + desactivación del insider.
+                 SOLO DESARROLLO: exige Neon develop y APP_ENV=test.
+
+Uso:
     SEED_DEV_PASSWORD=... .venv/bin/python scripts/seed_rbac.py
+    .venv/bin/python scripts/seed_rbac.py --roles-only
 """
 import os
 import sys
@@ -15,11 +22,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from decouple import config  # noqa: E402
 
-# Guardas de aislamiento: este seed solo corre contra Neon develop en modo test.
-if "ep-sparkling-sound" not in config("DATABASE_URL", default=""):
-    sys.exit("⛔ DATABASE_URL no apunta a Neon develop — abortado")
-if config("APP_ENV", default="") != "test":
-    sys.exit("⛔ APP_ENV != test — abortado")
+ROLES_ONLY = "--roles-only" in sys.argv
+
+# Guardas de aislamiento: sembrar USUARIOS de prueba solo contra Neon develop.
+# Con --roles-only no hay cuentas ni passwords, así que es apto para prod.
+if not ROLES_ONLY:
+    if "ep-sparkling-sound" not in config("DATABASE_URL", default=""):
+        sys.exit("⛔ DATABASE_URL no apunta a Neon develop — abortado "
+                 "(¿buscabas --roles-only, el modo apto para producción?)")
+    if config("APP_ENV", default="") != "test":
+        sys.exit("⛔ APP_ENV != test — abortado "
+                 "(¿buscabas --roles-only, el modo apto para producción?)")
 
 from sqlmodel import select  # noqa: E402
 from src.database.db_sqlmodel import get_session  # noqa: E402
@@ -207,6 +220,12 @@ def main() -> None:
                     session.delete(link)
                     print(f"  - despegado permiso legacy {link.permission_id} de «{role_name}»")
         session.commit()
+
+        if ROLES_ONLY:
+            print("✅ 4 roles y 4 políticas listos (modo --roles-only, "
+                  "sin usuarios de prueba)")
+            return
+
         for email, name, role_name in MEMBERS:
             upsert_member(session, email, name, roles[role_name])
         upsert_subcontractor(session, *SUBCONTRACTOR_USER, roles["Subcontractor"])
