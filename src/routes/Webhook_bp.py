@@ -56,6 +56,29 @@ def _validate_podio_webhook_token():
         logger.warning("PODIO_WEBHOOK_TOKEN no configurado: webhook %s aceptado sin validar", path)
         return None
 
+    # hook.verify va EXENTO del token, y no es un agujero: es la unica forma de
+    # que un hook llegue a activarse.
+    #
+    # Medido el 10-ago-2026 en los logs de gqm-api-dev: Podio DESCARTA el query
+    # string al enviar la verificacion. Nuestra propia peticion se registro como
+    #   "POST /webhook/podio/jobs/QID/2026?token=d6e3... HTTP/1.1" 500
+    # y las cuatro de Podio como
+    #   "POST /webhook/podio/jobs/QID/2026 HTTP/1.1" 403
+    # Sin exencion, el hook nunca pasa la verificacion, se queda en 'inactive' y
+    # NO dispara jamas: re-registrar con token mataba la sync entrante en
+    # silencio (el paso 3 del runbook lo habria hecho en produccion).
+    #
+    # Sigue siendo seguro: la verificacion trae hook_id + code y los validamos
+    # contra la API de Podio (/hook/<id>/verify/validate). Un code inventado se
+    # rechaza — comprobado: con hook_id=1/code=abc, Podio devuelve 400.
+    es_verificacion = (
+        (_request.form.get("type") or (_request.get_json(silent=True) or {}).get("type"))
+        == "hook.verify"
+    )
+    if es_verificacion:
+        logger.info("webhook %s: hook.verify sin token (Podio no reenvia la query) — se permite", path)
+        return None
+
     provided = _request.args.get("token", "")
     if not _hmac.compare_digest(provided, expected):
         return jsonify({"error": "invalid webhook token"}), 403
