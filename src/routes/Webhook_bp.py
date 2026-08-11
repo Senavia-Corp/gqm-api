@@ -406,6 +406,18 @@ def _cascade_delete_job_from_podio(session, item_id):
             session.exec(sq_delete(link_model).where(
                 link_model.job_id == job_id))
 
+    # 5b. Purchases y opportunities: NO declaran cascade en JobModel.py, así que
+    #     el ORM no las borra — les pone `ID_Jobs` a NULL y quedan flotando sin
+    #     dueño y sin ruido. Esa es la huella que hay en producción (9 purchases,
+    #     8 change_orders, 31 financial_documents con ID_Jobs NULL). Aquí se
+    #     toma la decisión explícitamente en vez de dejársela al default de
+    #     SQLAlchemy: son hijas del job y se van con él.
+    huerfanos_antes = None
+    if job_id:
+        from src.utils.borrado_job import desvincular_sin_cascade, sentinela_huerfanos
+        huerfanos_antes = sentinela_huerfanos(session)
+        desvincular_sin_cascade(session, session.get(Job, job_id))
+
     # 6. El Job al final (ORM: cascades de tasks/estimate_costs/tlactivity).
     #    Si no hay job (carrera ya resuelta), commit de la limpieza bulk.
     session.expire_all()  # las colecciones cacheadas ya no reflejan la BD
@@ -413,6 +425,17 @@ def _cascade_delete_job_from_podio(session, item_id):
         event_delete(session=session, Model=Job, item_unique_id=ref)
     else:
         session.commit()
+
+    if huerfanos_antes is not None:
+        from src.utils.borrado_job import sentinela_huerfanos
+        despues = sentinela_huerfanos(session)
+        if despues != huerfanos_antes:
+            # No se revierte aquí (el borrado ya está commiteado por
+            # event_delete), pero queda en el log con los números exactos: sin
+            # esto las huérfanas solo se descubren meses después contando.
+            logger.error(
+                "BORRADO DE %s DEJÓ HUÉRFANOS: antes %s, después %s",
+                ref, huerfanos_antes, despues)
 
     return job_id, n_orders, n_cos
 

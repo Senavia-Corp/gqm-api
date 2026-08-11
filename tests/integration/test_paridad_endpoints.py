@@ -108,6 +108,93 @@ def test_el_censo_usa_un_servicio_que_no_puede_escribir(monkeypatch):
         capturados[0].create_item({"x": 1})
 
 
+def test_import_en_dry_run_no_escribe_nada(client, admin_headers):
+    """El dry-run informa de lo que habría pasado; nunca lo deja a medias."""
+    from sqlmodel import func, select
+
+    from src.database.db_sqlmodel import get_session
+    from src.models.JobModel import Job
+
+    with get_session() as s:
+        antes = s.exec(select(func.count()).select_from(Job)).one()
+
+    resp = client.post("/admin/podio/import?type=QID&year=2026&dry_run=true",
+                       headers=admin_headers)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
+    cuerpo = resp.get_json()
+    assert cuerpo["dry_run"] is True
+
+    with get_session() as s:
+        assert s.exec(select(func.count()).select_from(Job)).one() == antes, (
+            "el dry-run escribió en la BD")
+
+
+def test_import_no_genera_comisiones(client, admin_headers):
+    """`process_job_to_commissions` dispara con cualquier transición a PAID.
+
+    Un import masivo las generaría todas de golpe, fechadas al mes actual sobre
+    jobs históricos. El disparo vive en las rutas, no en `upsert_job_from_item`,
+    así que importar no puede tocarlas — y esta invariante lo fija.
+    """
+    resp = client.post("/admin/podio/import?type=QID&year=2026&dry_run=true",
+                       headers=admin_headers)
+    comisiones = resp.get_json()["comisiones"]
+    assert comisiones["antes"] == comisiones["despues"]
+
+
+def test_import_valida_tipo_y_año(client, admin_headers):
+    assert client.post("/admin/podio/import?type=NOPE&year=2026",
+                       headers=admin_headers).status_code == 400
+    assert client.post("/admin/podio/import?type=QID&year=2019",
+                       headers=admin_headers).status_code == 400
+
+
+def test_purge_en_dry_run_devuelve_token_y_no_borra(client, admin_headers):
+    from sqlmodel import func, select
+
+    from src.database.db_sqlmodel import get_session
+    from src.models.JobModel import Job
+
+    with get_session() as s:
+        antes = s.exec(select(func.count()).select_from(Job)).one()
+
+    resp = client.post("/admin/podio/purge_orphans?type=QID&year=2026&dry_run=true",
+                       headers=admin_headers)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
+    cuerpo = resp.get_json()
+
+    assert cuerpo["dry_run"] is True
+    assert len(cuerpo["confirmar"]) == 64, "el token es un sha256"
+    assert len(cuerpo["detalle"]) == cuerpo["huerfanas"]
+
+    with get_session() as s:
+        assert s.exec(select(func.count()).select_from(Job)).one() == antes
+
+
+def test_purge_rechaza_un_token_que_no_casa(client, admin_headers):
+    """Si el conjunto cambió entre mirar y borrar, no se borra."""
+    resp = client.post(
+        "/admin/podio/purge_orphans?type=QID&year=2026&dry_run=false"
+        "&confirmar=" + "0" * 64,
+        headers=admin_headers)
+    assert resp.status_code == 409
+    assert "token" in resp.get_data(as_text=True).lower()
+
+
+def test_inspeccionar_un_local_da_su_inventario(client, admin_headers):
+    locales = client.get("/admin/podio/local_jobs", headers=admin_headers).get_json()
+    if not locales["jobs"]:
+        pytest.skip("develop no tiene jobs locales")
+
+    id_job = locales["jobs"][0]["ID_Jobs"]
+    inv = client.get(f"/admin/podio/local_jobs/{id_job}",
+                     headers=admin_headers).get_json()
+
+    assert inv["ID_Jobs"] == id_job
+    assert "dependientes" in inv and "total_dependientes" in inv
+    assert inv["podio_item_id"] is None
+
+
 def test_local_jobs_lista_los_que_nunca_llegaron_a_podio(client, admin_headers):
     resp = client.get("/admin/podio/local_jobs", headers=admin_headers)
     assert resp.status_code == 200
