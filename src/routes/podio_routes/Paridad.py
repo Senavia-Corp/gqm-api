@@ -68,10 +68,31 @@ def _anios_de_la_misma_app(job_type: str, app_id: str) -> list[int]:
     return sorted(a for a in JOB_YEARS if _app_id_de(job_type, a) == str(app_id))
 
 
-def _enumerar(servicio, total_esperado: int) -> dict:
-    """Pagina la app entera. Devuelve los ids y las claves formateadas."""
-    items, offset = {}, 0
+def _enumerar(servicio, total_esperado: int, offset_inicial: int = 0,
+              presupuesto_s: int | None = None) -> tuple[dict, int | None]:
+    """Pagina la app. Devuelve (ids -> clave formateada, siguiente_offset).
+
+    `siguiente_offset` es None cuando se termino la app; un entero cuando se
+    agoto el presupuesto de reloj y hay que reencadenar desde ahi.
+
+    El presupuesto NO es opcional en la practica. Medido contra produccion el
+    11-ago-2026: el filtro de Podio devuelve el item COMPLETO, con todos sus
+    campos, asi que una pagina de 500 tarda unos 100 s en construirse del lado
+    de Podio. QID2026 (1267 items, 3 paginas) tardo 296,6 s — al borde del
+    techo de 300 s de la funcion. QID2025 tiene 1880 y NO cabria: sin trocear,
+    las tres apps QID grandes son sencillamente inverificables.
+    """
+    items, offset = {}, offset_inicial
+    inicio = time.monotonic()
     while True:
+        if presupuesto_s is not None and offset > offset_inicial:
+            # Se comprueba ANTES de pedir otra pagina, con el coste de la
+            # ultima como estimacion de la siguiente.
+            gastado = time.monotonic() - inicio
+            por_pagina = gastado / max(1, (offset - offset_inicial) / TOPE_PAGINA)
+            if gastado + por_pagina > presupuesto_s:
+                return items, offset
+
         pagina = servicio.get_items_page(limit=TOPE_PAGINA, offset=offset)
         lote = pagina.get("items") or []
         if not lote:
@@ -79,11 +100,11 @@ def _enumerar(servicio, total_esperado: int) -> dict:
         for item in lote:
             items[str(item.get("item_id"))] = item.get("app_item_id_formatted")
         offset += len(lote)
-        if len(items) >= (total_esperado or 0) and total_esperado:
+        if len(items) + offset_inicial >= (total_esperado or 0) and total_esperado:
             break
         if len(lote) < TOPE_PAGINA:
             break
-    return items
+    return items, None
 
 
 def _conteo_bd(session, job_type: str, anios: list[int],
@@ -103,7 +124,8 @@ def _conteo_bd(session, job_type: str, anios: list[int],
     ).one()
 
 
-def _paridad_de_app(session, job_type: str, year: int, enumerar: bool) -> dict:
+def _paridad_de_app(session, job_type: str, year: int, enumerar: bool,
+                    offset: int = 0, presupuesto_s: int | None = None) -> dict:
     servicio = podio_jobs_router.get_readonly_service(job_type, year)
     app_id = str(servicio.app_id)
     colapsados = _anios_de_la_misma_app(job_type, app_id)
@@ -158,8 +180,35 @@ def _paridad_de_app(session, job_type: str, year: int, enumerar: bool) -> dict:
         )
 
     if enumerar:
-        encontrados = _enumerar(servicio, total_podio)
+        encontrados, siguiente = _enumerar(
+            servicio, total_podio, offset_inicial=offset,
+            presupuesto_s=presupuesto_s)
         resultado["podio"]["enumerados"] = len(encontrados)
+        resultado["podio"]["offset"] = offset
+        resultado["podio"]["items"] = [
+            {"item_id": i, "app_item_id_formatted": c}
+            for i, c in encontrados.items()]
+
+        if siguiente is not None:
+            # Se acabo el reloj antes que la app. No es un fallo ni una
+            # paridad: es media medida, y decirlo es la unica opcion honesta.
+            resultado["siguiente_offset"] = siguiente
+            resultado["completo"] = False
+            resultado["ok"] = False
+            resultado["parcial"] = (
+                f"enumerados {len(encontrados)} de {total_podio} antes de agotar "
+                f"el presupuesto. Reencadenar con offset={siguiente}.")
+            return resultado
+
+        resultado["completo"] = True
+        if offset:
+            # Vino troceada: esta llamada solo tiene su ultimo tramo, asi que
+            # comparar contra la BD entera daria un `faltan` inventado.
+            resultado["ok"] = False
+            resultado["parcial"] = (
+                "tramo final de una enumeracion troceada: la comparacion la "
+                "hace quien acumule todos los tramos.")
+            return resultado
 
         if len(encontrados) != (total_podio or 0):
             # No se promedia: la app se movió mientras se contaba.
@@ -224,7 +273,11 @@ def parity():
     tipo = (request.args.get("type") or "").upper().strip() or None
     anio = request.args.get("year", type=int)
     enumerar = (request.args.get("enumerar") or "").lower() in ("1", "true", "yes")
+    offset = request.args.get("offset", default=0, type=int)
+    presupuesto = request.args.get("presupuesto_s", default=PRESUPUESTO_S, type=int)
 
+    if offset and not (tipo and anio):
+        return jsonify({"detail": "offset solo tiene sentido con type y year"}), 400
     if tipo and tipo not in JOB_TYPES:
         return jsonify({"detail": f"type inválido: {tipo}. Válidos: {JOB_TYPES}"}), 400
     if anio and anio not in JOB_YEARS:
@@ -238,7 +291,9 @@ def parity():
         for t in tipos:
             for a in anios:
                 try:
-                    filas.append(_paridad_de_app(session, t, a, enumerar))
+                    filas.append(_paridad_de_app(
+                        session, t, a, enumerar,
+                        offset=offset, presupuesto_s=presupuesto))
                 except Exception as e:  # una app rota no puede tumbar el censo
                     errores.append({"tipo": t, "anio": a,
                                     "error": f"{type(e).__name__}: {e}"})

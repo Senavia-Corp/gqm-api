@@ -111,6 +111,40 @@ def test_los_conjuntos_mandan_sobre_el_conteo(monkeypatch):
     assert r["ok"] is False, "delta 0 con un hueco y un sobrante no es paridad"
 
 
+def test_quedarse_sin_reloj_no_se_confunde_con_paridad(monkeypatch):
+    """Presupuesto agotado = media medida, y hay que decirlo.
+
+    Sin esto, QID2025 (1880 items) es inverificable: el filtro de Podio
+    devuelve el item completo y una pagina de 500 tarda ~100 s, asi que la
+    funcion muere en el techo de 300 s. Medido en QID2026: 296,6 s.
+    """
+    items = [{"item_id": i, "app_item_id_formatted": f"PTL{i}"} for i in range(3)]
+    filas = [(f"PTL{i}", str(i)) for i in range(3)]
+    ses = _montar(monkeypatch, items, filas)
+
+    # presupuesto 0 => se corta en cuanto pasa la primera pagina
+    monkeypatch.setattr(Paridad, "TOPE_PAGINA", 1)
+    r = Paridad._paridad_de_app(ses, "PTL", 2026, enumerar=True, presupuesto_s=0)
+
+    assert r["completo"] is False
+    assert r["siguiente_offset"] is not None
+    assert r["ok"] is False, "media enumeracion no puede dar verde"
+    assert "faltan" not in r, (
+        "con la app a medias, calcular faltan inventa huecos que no existen")
+
+
+def test_un_tramo_intermedio_no_inventa_huecos(monkeypatch):
+    """Con offset>0 esta llamada solo ve su tramo: no le toca comparar."""
+    items = [{"item_id": i, "app_item_id_formatted": f"PTL{i}"} for i in range(3)]
+    filas = [(f"PTL{i}", str(i)) for i in range(3)]
+    ses = _montar(monkeypatch, items, filas)
+
+    r = Paridad._paridad_de_app(ses, "PTL", 2026, enumerar=True, offset=2)
+
+    assert r["ok"] is False and "parcial" in r
+    assert "faltan" not in r
+
+
 def test_desalineado_tambien_tumba_el_veredicto(monkeypatch):
     """ID_Jobs != app_item_id_formatted = la secuencia nativa se rompio."""
     items = [{"item_id": 100, "app_item_id_formatted": "PTL6001"}]
