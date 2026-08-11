@@ -339,6 +339,12 @@ def importar():
     offset = request.args.get("offset", default=0, type=int)
     presupuesto = request.args.get("presupuesto_s", default=PRESUPUESTO_S, type=int)
     dry_run = (request.args.get("dry_run") or "true").lower() not in ("0", "false", "no")
+    # `items=3289271527,3289263246` importa SOLO esos item_id. Sin esto, reparar
+    # 3 jobs ausentes de QID2026 obliga a reescribir los 1264 que ya estaban
+    # bien: radio de explosion gratis sobre produccion. Con el filtro, lo que
+    # se toca es exactamente lo que el censo dijo que faltaba.
+    solo_items = {s.strip() for s in (request.args.get("items") or "").split(",")
+                  if s.strip()}
 
     if tipo not in JOB_TYPES or anio not in JOB_YEARS:
         return jsonify({"detail": f"type y year obligatorios. "
@@ -349,8 +355,11 @@ def importar():
     resumen = {"tipo": tipo, "anio": anio, "dry_run": dry_run, "offset_inicial": offset,
                "procesados": 0, "creados": 0, "actualizados": 0,
                "errores": [], "siguiente_offset": None,
-               "agotado_por_presupuesto": False}
+               "agotado_por_presupuesto": False,
+               "filtro_items": sorted(solo_items) or None,
+               "saltados_por_filtro": 0}
 
+    vistos: set[str] = set()
     ficha = importando.set(True)
     try:
         with get_session() as session:
@@ -368,6 +377,13 @@ def importar():
                 lote = pagina.get("items") or []
                 if not lote:
                     break
+
+                if solo_items:
+                    lote = [i for i in lote
+                            if str(i.get("item_id")) in solo_items]
+                    vistos.update(str(i.get("item_id")) for i in lote)
+                    resumen["saltados_por_filtro"] += (
+                        len(pagina.get("items") or []) - len(lote))
 
                 punto = session.begin_nested()
                 for item in lote:
@@ -393,9 +409,23 @@ def importar():
                     # primeras no se pierden.
                     session.commit()
 
-                offset += len(lote)
-                if len(lote) < TOPE_PAGINA:
+                offset += len(pagina.get("items") or [])
+                if solo_items and resumen["procesados"] >= len(solo_items):
+                    # Ya estan todos: no tiene sentido seguir paginando la app.
                     break
+                if len(pagina.get("items") or []) < TOPE_PAGINA:
+                    break
+
+            if solo_items:
+                # Un item pedido que Podio no tiene es un dato, no un silencio:
+                # o se borro en Podio, o el item_id venia mal.
+                resumen["no_encontrados_en_podio"] = sorted(
+                    solo_items - vistos) or None
+                if resumen["no_encontrados_en_podio"]:
+                    resumen["errores"].append({
+                        "item_id": None,
+                        "error": f"pedidos pero no estan en la app: "
+                                 f"{resumen['no_encontrados_en_podio']}"})
 
             comisiones_despues = session.exec(
                 select(func.count()).select_from(CommissionDetail)).one()
