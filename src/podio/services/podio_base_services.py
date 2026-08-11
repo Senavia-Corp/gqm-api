@@ -3,7 +3,7 @@ import requests
 from src.podio.podio_auth import get_podio_headers
 from src.config import APP_ENV, BASE_URL, app_ids_configurados
 from src.utils.mappers.clean_podio_fields import clean_podio_fields
-from src.utils.middleware.retries.retries import retry_api
+from src.utils.middleware.retries.retries import retry_api, retry_api_lectura
 
 
 class EscrituraFueraDeEntorno(Exception):
@@ -73,16 +73,39 @@ class PodioBaseService:
             )
 
     # ------------- GET ITEMS -------------
-    @retry_api(max_retries=3, backoff=2)
-    def get_items(self, limit=50, offset=0):
 
+    @retry_api_lectura()
+    def get_items_page(self, limit: int = 50, offset: int = 0) -> dict:
+        """Una página del filtro de la app, CON los contadores que Podio devuelve.
+
+        `filtered` = items que pasan el filtro; `total` = items de la app. Sin
+        filtros son iguales, y `total` es el número que el cliente ve en la UI de
+        Podio — el que tiene que cuadrar con la BD.
+
+        `get_items` los tiraba (`.get("items", [])`), y sin ellos no hay forma de
+        saber cuándo se ha terminado de paginar ni de comparar contra la BD.
+        """
         url = f"{BASE_URL}/item/app/{self.app_id}/filter/"
         params = {"limit": limit, "offset": offset}
 
         response = requests.post(url, headers=self._headers(), json=params)
         response.raise_for_status()
+        cuerpo = response.json()
 
-        return response.json().get("items", [])
+        return {
+            "items": cuerpo.get("items", []),
+            "filtered": cuerpo.get("filtered"),
+            "total": cuerpo.get("total"),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    def get_items(self, limit=50, offset=0):
+        # Firma intacta a propósito: los llamadores vivos esperan solo la lista.
+        # Al delegar hereda `retry_api_lectura`, así que un 403 ahora falla al
+        # instante en vez de a los 6 s. Es lo deseado: era una lectura decorada
+        # con la política de reintento de las escrituras.
+        return self.get_items_page(limit=limit, offset=offset)["items"]
 
     @retry_api(max_retries=3, backoff=2)
     def get_item(self, item_id: int):
