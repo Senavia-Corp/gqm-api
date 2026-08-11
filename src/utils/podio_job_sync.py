@@ -8,17 +8,16 @@ from src.utils.mappers.to_podio.par_mapper import map_job_to_podio_par
 from src.podio.services.job_services import podio_jobs_router
 from src.utils.mappers.mapper_aux_functions import register_event
 from src.utils.middleware.logs.logs import logger
+from src.utils.job_app_year import resolver_anio_app
 
 
-def resolve_job_app_year(job) -> int | None:
-    """Año de la app Podio del job: el persistido, o Date_assigned como
-    fallback histórico. Nunca now() — adivinar el año manda el update a la
-    app equivocada (REG-015)."""
-    if job.podio_app_year:
-        return job.podio_app_year
-    if job.Date_assigned:
-        return job.Date_assigned.year
-    return None
+# La regla canónica vive en src/utils/job_app_year.py. Se conserva el nombre
+# porque hay llamadores vivos (Job.py:1116 y :1252).
+#
+# Antes caía a `Date_assigned.year`: esa rama es la que mandaba los updates a la
+# app del año equivocado. El 100 % de los PTL tienen `Date_assigned` NULL, así
+# que además dejaba sin año a los 510 PTL de producción y su sync nunca salía.
+resolve_job_app_year = resolver_anio_app
 
 
 def _record_failed_sync(session, job, error) -> None:
