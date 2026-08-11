@@ -58,6 +58,7 @@ from src.podio.get_user_id import podio_filter_bp
 # Rutas de webhooks:
 from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
+from src.routes.podio_routes.Paridad import paridad_bp
 # Rutas de Quickbooks
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
@@ -178,7 +179,7 @@ def create_app():
     protect_blueprint(qbo_bp, "qbo", fixed_action="qbo:manage")
 
     # Sync/administración Podio
-    for _bp in (sync_phase1_bp, sync_phase2_bp, admin_bp):
+    for _bp in (sync_phase1_bp, sync_phase2_bp, admin_bp, paridad_bp):
         protect_blueprint(_bp, "admin", fixed_action="admin:sync")
 
     # Financiero
@@ -296,6 +297,8 @@ def create_app():
     app.register_blueprint(webhook_bp)
     # Para crear o eliminar los hooks de Podio
     app.register_blueprint(admin_bp)
+    # Censo Podio ↔ BD (solo lectura)
+    app.register_blueprint(paridad_bp)
 
     # debug_bp expone items de Podio: SOLO en entorno de pruebas (REG-032/082)
     if _env("APP_ENV", default="production") == "test":
