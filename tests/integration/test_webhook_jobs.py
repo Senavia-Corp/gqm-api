@@ -186,6 +186,32 @@ def test_par_webhook_syncs_order_with_payments(client, par_ids):
         assert (order.Payment_1, order.Payment_2) == (300.00, None)
 
 
+def test_podio_readonly_no_mata_el_sync_entrante(client, qid_ids, monkeypatch):
+    """`PODIO_READONLY` corta lo SALIENTE; lo entrante tiene que seguir entrando.
+
+    Durante la ventana de reconciliación la bandera está encendida para que ni
+    una importación ni un `PATCH ?sync_podio=true` toquen las apps. Si además
+    matara las entregas de webhook, el sync moriría justo mientras se comparan
+    contadores y la divergencia crecería en vez de cerrarse.
+
+    Esta es la invariante que hace que la bandera sea usable en producción.
+    """
+    from src.podio.services import podio_base_services as pbs
+
+    monkeypatch.setattr(pbs, "PODIO_READONLY", True)
+
+    item_id, tracking = qid_ids
+    resp = _post(client, "QID", 2026, qid_item(item_id=item_id, tracking_id=tracking))
+    assert resp.status_code == 200
+
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.ID_Jobs == tracking)).first()
+        assert job is not None, (
+            "PODIO_READONLY bloqueó una escritura ENTRANTE: el webhook no guardó el job"
+        )
+        assert job.podio_app_year == 2026
+
+
 def test_ptl_webhook_creates_gc_fee(client, ptl_ids):
     item_id, tracking = ptl_ids
     resp = _post(client, "PTL", 2026, ptl_item(item_id=item_id, tracking_id=tracking))

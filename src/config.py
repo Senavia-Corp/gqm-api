@@ -28,6 +28,31 @@ TOKEN_URL = "https://api.podio.com/oauth/token"
 # Entorno de la aplicación: "test" o "production" (default: production)
 APP_ENV = os.getenv("APP_ENV", "production").lower()
 
+
+def _bandera(nombre: str) -> bool:
+    return os.getenv(nombre, "").strip().lower() in ("1", "true", "yes", "si", "sí")
+
+
+# Corta TODA escritura SALIENTE hacia Podio, en cualquier entorno. Se enciende
+# durante la ventana de reconciliación para que ni una importación ni un
+# `PATCH /jobs/X?sync_podio=true` desde el panel puedan tocar las apps mientras
+# se comparan contadores.
+#
+# NO afecta a las escrituras ENTRANTES: los webhooks de Podio guardan en la BD
+# por `upsert_job_from_item`, que no pasa por `PodioBaseService`. Si esta bandera
+# matara también lo entrante, el sync moriría durante la ventana y la
+# divergencia crecería justo mientras se arregla.
+PODIO_READONLY = _bandera("PODIO_READONLY")
+
+# Exige que el item que se va a escribir pertenezca EXACTAMENTE a la app del
+# servicio que lo escribe, no solo a alguna app de la lista blanca. Es lo único
+# que atrapa un update/delete apuntando al año equivocado.
+#
+# En producción NO puede encenderse todavía: mientras M1/M2 no hayan corrido
+# allí, el año resuelto es None para los 510 PTL y equivocado en 88 jobs, así
+# que esas escrituras pasarían de "ir a la app equivocada" a fallar en seco.
+PODIO_STRICT_APP_MATCH = _bandera("PODIO_STRICT_APP_MATCH") or APP_ENV == "test"
+
 # Credenciales (desde .env)
 PODIO_CLIENT_ID = os.getenv("PODIO_CLIENT_ID")
 PODIO_CLIENT_SECRET = os.getenv("PODIO_CLIENT_SECRET")
