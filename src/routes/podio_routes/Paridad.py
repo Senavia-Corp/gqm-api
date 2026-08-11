@@ -86,10 +86,20 @@ def _enumerar(servicio, total_esperado: int) -> dict:
     return items
 
 
-def _conteo_bd(session, job_type: str, anios: list[int]) -> int:
+def _conteo_bd(session, job_type: str, anios: list[int],
+               solo_con_item: bool = False) -> int:
+    """Filas de la BD para (tipo, años).
+
+    Con `solo_con_item` cuenta unicamente las que tienen `podio_item_id`, que
+    son las UNICAS que pueden emparejar con un item de Podio. Es la cifra que
+    hay que comparar contra el contador de la app: incluir los jobs locales
+    hace que un local TAPE un item ausente y el semaforo salga verde.
+    """
+    filtros = [Job.Job_type == job_type, expr_anio_app().in_(anios)]
+    if solo_con_item:
+        filtros.append(Job.podio_item_id.is_not(None))
     return session.exec(
-        select(func.count()).select_from(Job).where(
-            Job.Job_type == job_type, expr_anio_app().in_(anios))
+        select(func.count()).select_from(Job).where(*filtros)
     ).one()
 
 
@@ -112,16 +122,33 @@ def _paridad_de_app(session, job_type: str, year: int, enumerar: bool) -> dict:
         "bd": {
             "por_anio": _conteo_bd(session, job_type, [year]),
             "por_app_id": _conteo_bd(session, job_type, colapsados),
+            # Solo estas pueden emparejar con un item; es contra esta que se
+            # compara Podio. La diferencia con por_anio son los jobs locales.
+            "con_item_id": _conteo_bd(session, job_type,
+                                      [year] if comparable else colapsados,
+                                      solo_con_item=True),
         },
         "apps_colapsadas": colapsados if not comparable else [],
         "comparable_por_anio": comparable,
     }
+    resultado["bd"]["locales_sin_item"] = (
+        resultado["bd"]["por_anio" if comparable else "por_app_id"]
+        - resultado["bd"]["con_item_id"])
 
     # El lado de la BD con el que se compara depende de si la app está partida
     # por año de verdad o no. Comparar contra `por_anio` en dev es comparar la
     # misma app de Podio contra un cuarto de la BD.
-    referencia_bd = resultado["bd"]["por_anio" if comparable else "por_app_id"]
-    resultado["delta"] = (total_podio or 0) - referencia_bd
+    #
+    # Y se compara contra con_item_id, NO contra por_anio: medido el 11-ago-2026
+    # en produccion, PTL2026 daba delta 0 y ok=true mientras a la BD le FALTABA
+    # el item PTL6024 — el hueco lo tapaba el job local PTL-I60001. El criterio
+    # por conteo bruto es un falso positivo esperando a pasar.
+    resultado["delta"] = (total_podio or 0) - resultado["bd"]["con_item_id"]
+    # Lo que el cliente ve en el panel incluye los locales, asi que se expone
+    # aparte para explicar por que su cuenta a ojo puede no cuadrar todavia.
+    resultado["delta_visible_en_panel"] = (
+        (total_podio or 0)
+        - resultado["bd"]["por_anio" if comparable else "por_app_id"])
 
     if not comparable:
         resultado["nota"] = (
@@ -167,7 +194,21 @@ def _paridad_de_app(session, job_type: str, year: int, enumerar: bool) -> dict:
         ]
         resultado["locales_sin_item"] = len([1 for i, p in filas if not p])
 
+    # El veredicto usa la evidencia MAS fuerte disponible. Si se enumero, los
+    # conjuntos mandan sobre el conteo: dos errores que se compensan dan delta
+    # 0 y no son paridad. Sin enumerar, el conteo es lo unico que hay, y por
+    # eso `ok` sin `enumerar=true` es una condicion NECESARIA, no suficiente.
     resultado["ok"] = resultado.get("ok", True) and resultado["delta"] == 0
+    if enumerar:
+        resultado["ok"] = (
+            resultado["ok"]
+            and not resultado["faltan"]
+            and not resultado["sobran"]
+            and not resultado["desalineados"])
+    else:
+        resultado["veredicto_parcial"] = (
+            "solo conteo: coincidir aqui es necesario pero no suficiente. "
+            "Usa enumerar=true para comparar los conjuntos.")
     return resultado
 
 
