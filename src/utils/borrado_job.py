@@ -36,39 +36,10 @@ TABLAS_HIJAS = [
 # Las cuatro que se quedan con la FK a NULL en vez de borrarse.
 SIN_CASCADE = [t for t in TABLAS_HIJAS if not t[3]]
 
-# NIETAS: hijas de las hijas. Hay que borrarlas ANTES que a su padre, o el
-# DELETE del padre lanza foreign_key_violation y aborta la transaccion entera.
-#
-# Medido en produccion el 11-ago-2026 borrando los jobs locales: QID-I60001 y
-# QID-I60003 fallaron los dos, porque sus `purchase` tenian un `purchase_order`
-# colgando. Los otros cinco pasaron por no tener purchases — el defecto solo
-# aparece con datos, y en dev no los habia.
-#
-# Y no era codigo viejo: las 13 FK hacia `jobs` las añadieron las migraciones de
-# esa misma noche. El plan media "ninguna FK apunta a jobs" contra el esquema
-# anterior, y esa frase dejo de ser cierta en cuanto migramos.
-#
-# test_nietas_cubre_todas_las_fk_del_esquema_real deriva esta lista del esquema
-# real, asi que una migracion futura que añada otra hija rompe el test en vez de
-# romper un borrado en produccion.
-#
-#   padre -> [(tabla nieta, columna que apunta al padre, PK del padre)]
-NIETAS = {
-    "purchase": [
-        ("purchase_order", "ID_Purchase", "ID_Purchase"),
-        ("purchase_supplier", "purchase_id", "ID_Purchase"),
-    ],
-    "opportunities": [
-        ("opportunities_skills", "opport_id", "ID_Opportunities"),
-        ("opportunities_subcontractors", "opport_id", "ID_Opportunities"),
-    ],
-    "financial_document": [
-        ("attachments", "ID_FinancialDoc", "ID_FinancialDoc"),
-        ("fdocument_ftransaction", "fdocument_id", "ID_FinancialDoc"),
-        ("financial_doc_item", "ID_FinancialDoc", "ID_FinancialDoc"),
-    ],
-    # change_order no tiene hijas propias.
-}
+# Lo que cuelga POR DEBAJO de esas cuatro no se enumera aqui a proposito: se lee
+# del catalogo en `_hijas_bloqueantes`. Hubo una version con la lista escrita a
+# mano y fallo dos veces seguidas — primero le faltaba purchase_order, y al
+# arreglarlo aparecio purchase_order_item un nivel mas abajo.
 
 
 def _cuenta(session, tabla: str, columna: str, valor) -> int:
@@ -95,22 +66,21 @@ def inventario_dependientes(session, job) -> dict:
             por_tabla[etiqueta] = {"filas": n, "cascadea": cascadea}
             total += n
 
-        # Las nietas tambien desaparecen, asi que van en el numero que el
-        # operador declara. Si no, `dependientes_esperados` miente por defecto
-        # sobre lo que el borrado se lleva por delante.
-        for nieta, col_nieta, pk_padre in NIETAS.get(tabla, []):
+        # Todo el arbol que cuelga, no solo el primer nivel: la cadena real
+        # llega a purchase_order_item, cuatro saltos por debajo del job. Si no
+        # se cuentan, `dependientes_esperados` miente por defecto sobre lo que
+        # el borrado se lleva por delante.
+        if not cascadea:
             try:
-                m = session.exec(
-                    text(f'SELECT count(*) FROM {nieta} WHERE "{col_nieta}" IN '
-                         f'(SELECT "{pk_padre}" FROM {tabla} WHERE "{columna}" = :v)'
-                         ).bindparams(v=job.ID_Jobs)).scalar() or 0
+                for sub, m in _contar_descendientes(
+                        session, tabla, f'"{columna}" = :v',
+                        {"v": job.ID_Jobs}).items():
+                    por_tabla[f"{etiqueta}.{sub}"] = {"filas": m, "cascadea": False,
+                                                      "desciende_de": etiqueta}
+                    total += m
             except Exception as e:
-                por_tabla[f"{etiqueta}.{nieta}"] = {"error": f"{type(e).__name__}: {e}"}
-                continue
-            if m:
-                por_tabla[f"{etiqueta}.{nieta}"] = {"filas": m, "cascadea": False,
-                                                    "nieta_de": etiqueta}
-                total += m
+                por_tabla[f"{etiqueta}.<descendientes>"] = {
+                    "error": f"{type(e).__name__}: {e}"}
 
     return {
         "ID_Jobs": job.ID_Jobs,
@@ -148,6 +118,93 @@ class HuerfanosCreados(Exception):
     """El borrado dejó filas sin dueño. Hay que revertir."""
 
 
+def _hijas_bloqueantes(session, tabla: str) -> list[tuple[str, str, str]]:
+    """Tablas que referencian `tabla` con una FK que IMPIDE borrar.
+
+    Solo NO ACTION ('a') y RESTRICT ('r'): las de CASCADE o SET NULL se apañan
+    solas. Se lee del catalogo en vez de una lista escrita a mano porque las FK
+    de este esquema las ponen las migraciones, y una lista se queda vieja sin
+    que nadie se entere — que es exactamente como se rompio esto.
+    """
+    filas = session.exec(text("""
+        SELECT src.relname AS hija, ca.attname AS col_hija, pa.attname AS pk_padre
+        FROM pg_constraint con
+        JOIN pg_class src ON src.oid = con.conrelid
+        JOIN pg_class tgt ON tgt.oid = con.confrelid
+        JOIN LATERAL unnest(con.conkey)  WITH ORDINALITY AS k(n, o)  ON true
+        JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS f(n, o)  ON f.o = k.o
+        JOIN pg_attribute ca ON ca.attrelid = con.conrelid  AND ca.attnum = k.n
+        JOIN pg_attribute pa ON pa.attrelid = con.confrelid AND pa.attnum = f.n
+        WHERE con.contype = 'f'
+          AND tgt.relname = :t
+          AND con.confdeltype IN ('a', 'r')
+          AND array_length(con.conkey, 1) = 1
+    """).bindparams(t=tabla)).all()
+    return [(h, c, p) for h, c, p in filas]
+
+
+PROFUNDIDAD_MAX = 6
+
+
+def _contar_descendientes(session, tabla, predicado, params,
+                          visitados=None, profundidad=0) -> dict:
+    """Lo mismo que `_borrar_con_descendientes` pero contando. Es el dry-run."""
+    if profundidad > PROFUNDIDAD_MAX:
+        return {}
+    visitados = (visitados or set()) | {tabla}
+    cuenta = {}
+    for hija, col_hija, pk_padre in _hijas_bloqueantes(session, tabla):
+        if hija in visitados:
+            continue
+        sub = (f'"{col_hija}" IN (SELECT "{pk_padre}" FROM {tabla} '
+               f'WHERE {predicado})')
+        n = session.exec(
+            text(f'SELECT count(*) FROM {hija} WHERE {sub}').bindparams(**params)
+        ).scalar() or 0
+        if n:
+            cuenta[hija] = cuenta.get(hija, 0) + n
+        for k, v in _contar_descendientes(
+                session, hija, sub, params, visitados, profundidad + 1).items():
+            cuenta[k] = cuenta.get(k, 0) + v
+    return cuenta
+
+
+def _borrar_con_descendientes(session, tabla, predicado, params,
+                              visitados=None, profundidad=0) -> dict:
+    """Borra `tabla WHERE predicado`, y antes todo lo que cuelgue de ello.
+
+    La profundidad NO se puede fijar de antemano. Medido en produccion el
+    11-ago-2026 sobre los jobs locales: la cadena real es
+
+        jobs -> purchase -> purchase_order -> purchase_order_item
+
+    Cuatro niveles. La primera version cubria dos, se arreglo, y al reintentar
+    aparecio el tercero. Por eso esto recorre el grafo hasta el fondo en vez de
+    enumerar niveles: la lista escrita a mano ya fallo dos veces seguidas.
+    """
+    if profundidad > PROFUNDIDAD_MAX:
+        raise HuerfanosCreados(
+            f"cadena de FK mas profunda que {PROFUNDIDAD_MAX} niveles en {tabla}: "
+            f"puede haber un ciclo. No se borra nada.")
+
+    visitados = (visitados or set()) | {tabla}
+    borradas = {}
+    for hija, col_hija, pk_padre in _hijas_bloqueantes(session, tabla):
+        if hija in visitados:      # autorreferencia o ciclo
+            continue
+        sub = (f'"{col_hija}" IN (SELECT "{pk_padre}" FROM {tabla} '
+               f'WHERE {predicado})')
+        for k, v in _borrar_con_descendientes(
+                session, hija, sub, params, visitados, profundidad + 1).items():
+            borradas[k] = borradas.get(k, 0) + v
+
+    res = session.exec(
+        text(f'DELETE FROM {tabla} WHERE {predicado}').bindparams(**params))
+    if res.rowcount:
+        borradas[tabla] = borradas.get(tabla, 0) + res.rowcount
+    return borradas
+
+
 def desvincular_sin_cascade(session, job) -> dict:
     """Borra explícitamente las hijas que el ORM dejaría con la FK a NULL.
 
@@ -158,22 +215,10 @@ def desvincular_sin_cascade(session, job) -> dict:
     from sqlalchemy import text
 
     borradas = {}
-    for etiqueta, tabla, columna, _ in SIN_CASCADE:
-        # Primero las nietas: si queda una apuntando al padre, el DELETE del
-        # padre lanza foreign_key_violation y se pierde la transaccion entera.
-        for nieta, col_nieta, pk_padre in NIETAS.get(tabla, []):
-            res = session.exec(
-                text(f'DELETE FROM {nieta} WHERE "{col_nieta}" IN '
-                     f'(SELECT "{pk_padre}" FROM {tabla} WHERE "{columna}" = :v)'
-                     ).bindparams(v=job.ID_Jobs))
-            if res.rowcount:
-                borradas[f"{etiqueta}.{nieta}"] = res.rowcount
-
-        res = session.exec(
-            text(f'DELETE FROM {tabla} WHERE "{columna}" = :v').bindparams(
-                v=job.ID_Jobs))
-        if res.rowcount:
-            borradas[etiqueta] = res.rowcount
+    for _etiqueta, tabla, columna, _ in SIN_CASCADE:
+        for k, v in _borrar_con_descendientes(
+                session, tabla, f'"{columna}" = :v', {"v": job.ID_Jobs}).items():
+            borradas[k] = borradas.get(k, 0) + v
     return borradas
 
 

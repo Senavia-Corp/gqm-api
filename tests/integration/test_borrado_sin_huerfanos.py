@@ -161,40 +161,63 @@ def test_no_se_puede_borrar_por_aqui_un_job_que_si_esta_en_podio(client, admin_h
     assert "no es un job local" in resp.get_data(as_text=True)
 
 
-def test_nietas_cubre_todas_las_fk_del_esquema_real():
-    """NIETAS tiene que cubrir TODA hija de las tablas sin cascade.
+def test_la_cascada_llega_hasta_el_fondo_del_grafo():
+    """La cascada tiene que recorrer el arbol entero, no dos niveles.
 
-    Regresión medida en producción el 11-ago-2026: al borrar los jobs locales,
-    QID-I60001 y QID-I60003 fallaron con foreign_key_violation porque sus
-    `purchase` tenían un `purchase_order` colgando y `desvincular_sin_cascade`
-    borraba el padre sin la nieta. Los otros cinco locales pasaron por no tener
-    purchases, así que el defecto solo se ve con datos.
+    Medido en produccion el 11-ago-2026 borrando los jobs locales. La cadena
+    real de QID-I60001 es
 
-    Y no era código viejo: las 13 FK hacia `jobs` las añadieron las migraciones
-    de esa misma noche. Por eso este test no compara contra una lista escrita a
-    mano — la deriva del esquema es el fallo, así que la lista se deriva del
-    esquema. Una migración futura que añada otra hija rompe este test en vez de
-    romper un borrado en producción.
+        jobs -> purchase -> purchase_order -> purchase_order_item
+
+    Cuatro niveles. La primera version cubria dos y fallo con
+    foreign_key_violation; se añadio el tercero y al reintentar aparecio el
+    cuarto. Por eso la cascada se deriva del catalogo y baja hasta el fondo.
+
+    Este test no fija la lista: comprueba que la travesia ALCANZA una tabla que
+    esta a tres saltos de una sin cascade. Si alguien vuelve a cablear niveles
+    a mano, se cae.
     """
     from sqlalchemy import text
 
-    from src.utils.borrado_job import NIETAS, SIN_CASCADE
+    from src.utils.borrado_job import _hijas_bloqueantes
 
-    padres = [t[1] for t in SIN_CASCADE]
     with get_session() as session:
-        reales = session.exec(text("""
-            SELECT tgt.relname AS padre, src.relname AS hija
-            FROM pg_constraint con
-            JOIN pg_class src ON src.oid = con.conrelid
-            JOIN pg_class tgt ON tgt.oid = con.confrelid
-            WHERE con.contype = 'f' AND tgt.relname = ANY(:padres)
-        """).bindparams(padres=padres)).all()
+        # nivel 1: hijas de purchase
+        n1 = {h for h, _, _ in _hijas_bloqueantes(session, "purchase")}
+        assert "purchase_order" in n1, f"purchase deberia tener purchase_order: {n1}"
 
-    declaradas = {(p, n[0]) for p, hijas in NIETAS.items() for n in hijas}
-    faltan = {(p, h) for p, h in reales} - declaradas
+        # nivel 2: hijas de purchase_order
+        n2 = {h for h, _, _ in _hijas_bloqueantes(session, "purchase_order")}
+        assert "purchase_order_item" in n2, (
+            f"la travesia no llega a purchase_order_item, que es justo la tabla "
+            f"que rompio el borrado en produccion: {n2}")
 
-    assert not faltan, (
-        f"el esquema tiene hijas de tablas sin cascade que NIETAS no declara: "
-        f"{sorted(faltan)}. Borrar un job con esas filas dará "
-        f"foreign_key_violation y abortará la transacción entera. "
-        f"Añádelas a NIETAS en src/utils/borrado_job.py.")
+        # y que el recorrido termina (sin ciclos infinitos)
+        assert not _hijas_bloqueantes(session, "purchase_order_item")
+
+
+def test_toda_hija_bloqueante_es_alcanzable_desde_alguna_sin_cascade():
+    """Ninguna FK que bloquee puede quedar fuera del recorrido.
+
+    Se deriva del esquema a proposito: las 13 FK hacia `jobs` las añadieron las
+    migraciones, y una lista escrita a mano se queda vieja sin que nadie se
+    entere. Eso es exactamente como se rompio esto.
+    """
+    from src.utils.borrado_job import PROFUNDIDAD_MAX, SIN_CASCADE, _hijas_bloqueantes
+
+    with get_session() as session:
+        alcanzables, frontera = set(), [t[1] for t in SIN_CASCADE]
+        for _ in range(PROFUNDIDAD_MAX):
+            siguiente = []
+            for tabla in frontera:
+                for hija, _, _ in _hijas_bloqueantes(session, tabla):
+                    if hija not in alcanzables:
+                        alcanzables.add(hija)
+                        siguiente.append(hija)
+            frontera = siguiente
+            if not frontera:
+                break
+        assert not frontera, (
+            f"el grafo es mas profundo que PROFUNDIDAD_MAX={PROFUNDIDAD_MAX}; "
+            f"sin recorrer: {frontera}")
+        assert "purchase_order_item" in alcanzables
