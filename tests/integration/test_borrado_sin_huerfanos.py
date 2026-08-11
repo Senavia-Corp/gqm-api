@@ -159,3 +159,42 @@ def test_no_se_puede_borrar_por_aqui_un_job_que_si_esta_en_podio(client, admin_h
         headers=admin_headers)
     assert resp.status_code == 409
     assert "no es un job local" in resp.get_data(as_text=True)
+
+
+def test_nietas_cubre_todas_las_fk_del_esquema_real():
+    """NIETAS tiene que cubrir TODA hija de las tablas sin cascade.
+
+    Regresión medida en producción el 11-ago-2026: al borrar los jobs locales,
+    QID-I60001 y QID-I60003 fallaron con foreign_key_violation porque sus
+    `purchase` tenían un `purchase_order` colgando y `desvincular_sin_cascade`
+    borraba el padre sin la nieta. Los otros cinco locales pasaron por no tener
+    purchases, así que el defecto solo se ve con datos.
+
+    Y no era código viejo: las 13 FK hacia `jobs` las añadieron las migraciones
+    de esa misma noche. Por eso este test no compara contra una lista escrita a
+    mano — la deriva del esquema es el fallo, así que la lista se deriva del
+    esquema. Una migración futura que añada otra hija rompe este test en vez de
+    romper un borrado en producción.
+    """
+    from sqlalchemy import text
+
+    from src.utils.borrado_job import NIETAS, SIN_CASCADE
+
+    padres = [t[1] for t in SIN_CASCADE]
+    with get_session() as session:
+        reales = session.exec(text("""
+            SELECT tgt.relname AS padre, src.relname AS hija
+            FROM pg_constraint con
+            JOIN pg_class src ON src.oid = con.conrelid
+            JOIN pg_class tgt ON tgt.oid = con.confrelid
+            WHERE con.contype = 'f' AND tgt.relname = ANY(:padres)
+        """).bindparams(padres=padres)).all()
+
+    declaradas = {(p, n[0]) for p, hijas in NIETAS.items() for n in hijas}
+    faltan = {(p, h) for p, h in reales} - declaradas
+
+    assert not faltan, (
+        f"el esquema tiene hijas de tablas sin cascade que NIETAS no declara: "
+        f"{sorted(faltan)}. Borrar un job con esas filas dará "
+        f"foreign_key_violation y abortará la transacción entera. "
+        f"Añádelas a NIETAS en src/utils/borrado_job.py.")

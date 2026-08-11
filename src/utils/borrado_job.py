@@ -14,7 +14,7 @@ financial_documents con `ID_Jobs IS NULL`: es la huella de los borrados que ya
 se hicieron. Por eso `sentinela_huerfanos` se mide **antes y después** de cada
 borrado y tiene que salir idéntica; si sube, el borrado corrompió algo.
 """
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 # (etiqueta, tabla, columna de enlace, cascadea?)
 # El orden es el del artefacto del dry-run, así que se lee de mayor a menor
@@ -35,6 +35,40 @@ TABLAS_HIJAS = [
 
 # Las cuatro que se quedan con la FK a NULL en vez de borrarse.
 SIN_CASCADE = [t for t in TABLAS_HIJAS if not t[3]]
+
+# NIETAS: hijas de las hijas. Hay que borrarlas ANTES que a su padre, o el
+# DELETE del padre lanza foreign_key_violation y aborta la transaccion entera.
+#
+# Medido en produccion el 11-ago-2026 borrando los jobs locales: QID-I60001 y
+# QID-I60003 fallaron los dos, porque sus `purchase` tenian un `purchase_order`
+# colgando. Los otros cinco pasaron por no tener purchases — el defecto solo
+# aparece con datos, y en dev no los habia.
+#
+# Y no era codigo viejo: las 13 FK hacia `jobs` las añadieron las migraciones de
+# esa misma noche. El plan media "ninguna FK apunta a jobs" contra el esquema
+# anterior, y esa frase dejo de ser cierta en cuanto migramos.
+#
+# test_nietas_cubre_todas_las_fk_del_esquema_real deriva esta lista del esquema
+# real, asi que una migracion futura que añada otra hija rompe el test en vez de
+# romper un borrado en produccion.
+#
+#   padre -> [(tabla nieta, columna que apunta al padre, PK del padre)]
+NIETAS = {
+    "purchase": [
+        ("purchase_order", "ID_Purchase", "ID_Purchase"),
+        ("purchase_supplier", "purchase_id", "ID_Purchase"),
+    ],
+    "opportunities": [
+        ("opportunities_skills", "opport_id", "ID_Opportunities"),
+        ("opportunities_subcontractors", "opport_id", "ID_Opportunities"),
+    ],
+    "financial_document": [
+        ("attachments", "ID_FinancialDoc", "ID_FinancialDoc"),
+        ("fdocument_ftransaction", "fdocument_id", "ID_FinancialDoc"),
+        ("financial_doc_item", "ID_FinancialDoc", "ID_FinancialDoc"),
+    ],
+    # change_order no tiene hijas propias.
+}
 
 
 def _cuenta(session, tabla: str, columna: str, valor) -> int:
@@ -60,6 +94,23 @@ def inventario_dependientes(session, job) -> dict:
         if n:
             por_tabla[etiqueta] = {"filas": n, "cascadea": cascadea}
             total += n
+
+        # Las nietas tambien desaparecen, asi que van en el numero que el
+        # operador declara. Si no, `dependientes_esperados` miente por defecto
+        # sobre lo que el borrado se lleva por delante.
+        for nieta, col_nieta, pk_padre in NIETAS.get(tabla, []):
+            try:
+                m = session.exec(
+                    text(f'SELECT count(*) FROM {nieta} WHERE "{col_nieta}" IN '
+                         f'(SELECT "{pk_padre}" FROM {tabla} WHERE "{columna}" = :v)'
+                         ).bindparams(v=job.ID_Jobs)).scalar() or 0
+            except Exception as e:
+                por_tabla[f"{etiqueta}.{nieta}"] = {"error": f"{type(e).__name__}: {e}"}
+                continue
+            if m:
+                por_tabla[f"{etiqueta}.{nieta}"] = {"filas": m, "cascadea": False,
+                                                    "nieta_de": etiqueta}
+                total += m
 
     return {
         "ID_Jobs": job.ID_Jobs,
@@ -108,6 +159,16 @@ def desvincular_sin_cascade(session, job) -> dict:
 
     borradas = {}
     for etiqueta, tabla, columna, _ in SIN_CASCADE:
+        # Primero las nietas: si queda una apuntando al padre, el DELETE del
+        # padre lanza foreign_key_violation y se pierde la transaccion entera.
+        for nieta, col_nieta, pk_padre in NIETAS.get(tabla, []):
+            res = session.exec(
+                text(f'DELETE FROM {nieta} WHERE "{col_nieta}" IN '
+                     f'(SELECT "{pk_padre}" FROM {tabla} WHERE "{columna}" = :v)'
+                     ).bindparams(v=job.ID_Jobs))
+            if res.rowcount:
+                borradas[f"{etiqueta}.{nieta}"] = res.rowcount
+
         res = session.exec(
             text(f'DELETE FROM {tabla} WHERE "{columna}" = :v').bindparams(
                 v=job.ID_Jobs))
