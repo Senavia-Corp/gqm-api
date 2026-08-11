@@ -42,6 +42,7 @@ from src.utils.middleware.auth.routes_protection import (
     scope_jobs_statement,
 )
 from src.utils.policy_evaluator import PolicyEvaluator
+from src.utils.job_app_year import expr_anio_app
 from src.models.JobModel import JobReadBasic
 from src.models.ComDetailModel import CommissionDetail
 from src.models.ComGroupModel import CommissionGroup
@@ -78,6 +79,137 @@ MONTH_NUMBER = {
 
 
 # --------------------RUTAS GET-------------------#
+def _aplicar_filtros(stmt, *, job_type=None, status=None, year_int=None, search=None,
+                     client_id=None, member_id=None, parent_mgmt_co_id=None,
+                     subcontractor_id=None, date_from=None, date_to=None):
+    """Los MISMOS WHERE para la consulta de filas y para la de conteo.
+
+    Antes estaban escritos dos veces, y no eran iguales: las filas resolvían
+    `?status=A,B` con `in_()` y el conteo con `ilike('A,B')`, que no casa con
+    nada. El resultado era una respuesta con filas y `total: 0` — justo el
+    número que el cliente mira en el panel para dar la paridad por buena.
+
+    Sirve tanto a `select(Job)` como a `select(func.count()).select_from(Job)`.
+
+    El año sale de `expr_anio_app()`, no de las fechas: es a qué app de Podio
+    pertenece el item, que es lo que el cliente compara contra su contador. Las
+    métricas y el dashboard siguen con semántica de fecha a propósito — ahí «el
+    año» significa cuándo se trabajó, no en qué app vive.
+    """
+    if job_type:
+        stmt = stmt.where(Job.Job_type == job_type)
+
+    if status:
+        # lower() + in_() en las dos ramas: `in_()` era sensible a mayúsculas
+        # mientras `ilike` no, así que con y sin coma tampoco coincidían.
+        valores = [s.strip().lower() for s in str(status).split(",") if s.strip()]
+        if valores:
+            stmt = stmt.where(func.lower(Job.Job_status).in_(valores))
+
+    if year_int is not None:
+        stmt = stmt.where(expr_anio_app() == year_int)
+
+    if search:
+        pattern = f"%{search}%"
+        stmt = stmt.where(
+            or_(
+                Job.Project_name.ilike(pattern),
+                Job.ID_Jobs.ilike(pattern),
+                Job.Project_location.ilike(pattern),
+                Job.Job_status.ilike(pattern),
+                Job.Service_type.ilike(pattern),
+                Job.client.has(Client.Client_Community.ilike(pattern)),
+                Job.client.has(Client.parent_mgmt_co.has(or_(
+                    ParentMgmtCo.Property_mgmt_co.ilike(pattern),
+                    ParentMgmtCo.Company_abbrev.ilike(pattern)))),
+                Job.members.any(Member.Member_Name.ilike(pattern))
+            )
+        )
+
+    if member_id:
+        stmt = stmt.where(Job.members.any(Member.ID_Member == member_id))
+
+    if client_id:
+        stmt = stmt.where(Job.ID_Client == client_id)
+
+    if parent_mgmt_co_id:
+        stmt = stmt.where(
+            Job.client.has(Client.ID_Community_Tracking == parent_mgmt_co_id))
+
+    if subcontractor_id:
+        stmt = stmt.where(
+            Job.subcontractors.any(
+                Subcontractor.ID_Subcontractor == subcontractor_id))
+
+    # El rango de fechas sí depende del tipo: para PTL la fecha que importa es
+    # la de inicio estimado, y para el resto la de asignación.
+    if date_from or date_to:
+        if job_type == "PTL":
+            date_col = Job.Estimated_start_date
+        elif job_type:
+            date_col = Job.Date_assigned
+        else:
+            date_col = None
+            if date_from:
+                stmt = stmt.where(or_(
+                    and_(Job.Job_type == "PTL",
+                         Job.Estimated_start_date >= date_from),
+                    and_(Job.Job_type != "PTL",
+                         Job.Date_assigned >= date_from)))
+            if date_to:
+                stmt = stmt.where(or_(
+                    and_(Job.Job_type == "PTL",
+                         Job.Estimated_start_date <= date_to),
+                    and_(Job.Job_type != "PTL",
+                         Job.Date_assigned <= date_to)))
+
+        if date_col is not None:
+            if date_from:
+                stmt = stmt.where(date_col >= date_from)
+            if date_to:
+                stmt = stmt.where(date_col <= date_to)
+
+    return stmt
+
+
+def _filtros_de_la_peticion() -> tuple[dict, object]:
+    """Lee y valida los filtros de la query string. Devuelve (filtros, error)."""
+    job_type = request.args.get("type")
+    if job_type:
+        job_type = job_type.upper()
+
+    date_from = date_to = None
+    try:
+        if request.args.get("date_from"):
+            date_from = datetime.fromisoformat(request.args["date_from"])
+        if request.args.get("date_to"):
+            date_to = datetime.fromisoformat(request.args["date_to"])
+    except ValueError:
+        return {}, (jsonify(
+            {"detail": "Invalid date format. Use ISO 8601 (YYYY-MM-DD)."}), 400)
+
+    year_int = None
+    if request.args.get("year"):
+        try:
+            year_int = int(request.args["year"])
+        except ValueError:
+            return {}, (jsonify({"detail": "Invalid year"}), 400)
+
+    return {
+        "job_type": job_type,
+        "status": request.args.get("status"),
+        "year_int": year_int,
+        "search": (request.args.get("search") or "").strip(),
+        "client_id": request.args.get("client_id"),
+        "member_id": request.args.get("member_id"),
+        "parent_mgmt_co_id": request.args.get("parent_mgmt_co_id"),
+        "subcontractor_id": (request.args.get("subcontractorId")
+                             or request.args.get("subcontractor_id")),
+        "date_from": date_from,
+        "date_to": date_to,
+    }, None
+
+
 @job_bp.get("/")
 @require_permission(["job:read", "job:read_basics"])
 @handle_exceptions()
@@ -90,7 +222,13 @@ def list_jobs():
         limit = 10
     limit = min(limit, 200)
 
-    job_type = request.args.get("type")
+    # Antes esta ruta filtraba SOLO por `type` e ignoraba `year` y `status` en
+    # silencio, que es peor que un 400: `/jobs/?type=QID&year=2025` devolvía
+    # todos los QID de todos los años y quien verificara la paridad con curl
+    # concluía una divergencia catastrófica que no existe.
+    filtros, error = _filtros_de_la_peticion()
+    if error:
+        return error
 
     with get_session() as session:
         statement = (
@@ -113,14 +251,12 @@ def list_jobs():
             )
         )
 
-        if job_type:
-            statement = statement.where(Job.Job_type == job_type)
+        statement = _aplicar_filtros(statement, **filtros)
         # Portal (sub/tech): solo sus jobs (REG-037)
         statement = scope_jobs_statement(statement)
 
-        count_stmt = select(func.count()).select_from(Job)
-        if job_type:
-            count_stmt = count_stmt.where(Job.Job_type == job_type)
+        count_stmt = _aplicar_filtros(
+            select(func.count()).select_from(Job), **filtros)
         count_stmt = scope_jobs_statement(count_stmt)
         total = session.exec(count_stmt).one()
 
@@ -175,37 +311,9 @@ def list_jobs_table():
             limit = 10
         limit = min(limit, 200)
 
-        job_type = request.args.get("type")
-        status = request.args.get("status")
-        year = request.args.get("year")
-        search = request.args.get("search", "").strip()
-        client_id = request.args.get("client_id")
-        member_id = request.args.get("member_id")
-        parent_mgmt_co_id = request.args.get("parent_mgmt_co_id")
-        date_from_raw = request.args.get("date_from")
-        date_to_raw = request.args.get("date_to")
-        subcontractor_id = request.args.get("subcontractorId") or request.args.get("subcontractor_id")
-
-        if job_type:
-            job_type = job_type.upper()
-
-        year_int = None
-        date_from = None
-        date_to = None
-
-        try:
-            if date_from_raw:
-                date_from = datetime.fromisoformat(date_from_raw)
-            if date_to_raw:
-                date_to = datetime.fromisoformat(date_to_raw)
-        except ValueError:
-            return jsonify({"detail": "Invalid date format. Use ISO 8601 (YYYY-MM-DD)."}), 400
-
-        if year:
-            try:
-                year_int = int(year)
-            except ValueError:
-                return jsonify({"detail": "Invalid year"}), 400
+        filtros, error = _filtros_de_la_peticion()
+        if error:
+            return error
 
         with get_session() as session:
             statement = (
@@ -215,7 +323,11 @@ def list_jobs_table():
                         Job.ID_Jobs, Job.Job_type, Job.Project_name,
                         Job.Project_location, Job.Job_status, Job.Date_assigned,
                         Job.Gqm_formula_pricing, Job.ID_Client, Job.Estimated_start_date, Job.Gqm_target_sold_pricing,
-                        Job.Gqm_target_return, Job.Service_type, Job.created_at
+                        Job.Gqm_target_return, Job.Service_type, Job.created_at,
+                        # Sin esto el panel no puede leer el año de la app y
+                        # tiene que adivinarlo desde las fechas, que es lo que
+                        # hacía y fallaba en 88 jobs.
+                        Job.podio_app_year, Job.podio_item_id,
                     ),
                     selectinload(Job.client).load_only(
                         Client.ID_Client, Client.Client_Community),
@@ -224,193 +336,15 @@ def list_jobs_table():
                 )
             )
 
-            if job_type:
-                statement = statement.where(Job.Job_type == job_type)
-            if status:
-                if "," in status:
-                    statement = statement.where(Job.Job_status.in_([s.strip() for s in status.split(",")]))
-                else:
-                    statement = statement.where(Job.Job_status.ilike(status))
-            if search:
-                pattern = f"%{search}%"
-                statement = statement.where(
-                    or_(
-                        Job.Project_name.ilike(pattern),
-                        Job.ID_Jobs.ilike(pattern),
-                        Job.Project_location.ilike(pattern),
-                        Job.Job_status.ilike(pattern),
-                        Job.Service_type.ilike(pattern),
-                        Job.client.has(Client.Client_Community.ilike(pattern)),
-                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(
-                            pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
-                        Job.members.any(Member.Member_Name.ilike(pattern))
-                    )
-                )
-
-            # --- Filtro por miembro ---
-            if member_id:
-                statement = statement.where(
-                    Job.members.any(Member.ID_Member == member_id)
-                )
-
-            # --- Filtro por cliente ---
-            if client_id:
-                statement = statement.where(Job.ID_Client == client_id)
-
-            # --- Filtro por compañía padre ---
-            if parent_mgmt_co_id:
-                statement = statement.where(
-                    Job.client.has(
-                        Client.ID_Community_Tracking == parent_mgmt_co_id)
-                )
-
-            # --- Filtro por subcontratista ---
-            if subcontractor_id:
-                statement = statement.where(
-                    Job.subcontractors.any(Subcontractor.ID_Subcontractor == subcontractor_id)
-                )
-
-            # --- Filtro por rango de fechas ---
-            if date_from or date_to:
-                if job_type == "PTL":
-                    date_col = Job.Estimated_start_date
-                elif job_type:
-                    date_col = Job.Date_assigned
-                else:
-                    # Sin tipo conocido: OR entre PTL y no-PTL
-                    if date_from:
-                        statement = statement.where(or_(
-                            and_(Job.Job_type == "PTL",
-                                 Job.Estimated_start_date >= date_from),
-                            and_(Job.Job_type != "PTL",
-                                 Job.Date_assigned >= date_from),
-                        ))
-                    if date_to:
-                        statement = statement.where(or_(
-                            and_(Job.Job_type == "PTL",
-                                 Job.Estimated_start_date <= date_to),
-                            and_(Job.Job_type != "PTL",
-                                 Job.Date_assigned <= date_to),
-                        ))
-                    date_col = None
-
-                if date_col is not None:
-                    if date_from:
-                        statement = statement.where(date_col >= date_from)
-                    if date_to:
-                        statement = statement.where(date_col <= date_to)
-
-            if year_int is not None:
-                if job_type == "PTL":
-                    # ── ERR-007 fix: PTLs sin Estimated_start_date usan created_at como fallback
-                    statement = statement.where(
-                        extract("year", func.coalesce(
-                            Job.Estimated_start_date, Job.created_at)) == year_int)
-                elif job_type:
-                    statement = statement.where(
-                        Job.Date_assigned.is_not(None),
-                        extract("year", Job.Date_assigned) == year_int)
-                else:
-                    statement = statement.where(or_(
-                        and_(Job.Job_type == "PTL",
-                             extract("year", func.coalesce(
-                                 Job.Estimated_start_date, Job.created_at)) == year_int),
-                        and_(Job.Job_type != "PTL",
-                             Job.Date_assigned.is_not(None),
-                             extract("year", Job.Date_assigned) == year_int)))
-
+            statement = _aplicar_filtros(statement, **filtros)
             # Portal (sub/tech): solo sus jobs (REG-037)
             statement = scope_jobs_statement(statement)
 
-            # --- Preparar count_stmt con EXACTAMENTE los mismos filtros ---
-            count_stmt = select(func.count()).select_from(Job)
+            # El conteo usa el MISMO constructor, no una copia a mano. La copia
+            # llevaba meses divergiendo: `?status=A,B` daba filas y `total: 0`.
+            count_stmt = _aplicar_filtros(
+                select(func.count()).select_from(Job), **filtros)
             count_stmt = scope_jobs_statement(count_stmt)
-            if job_type:
-                count_stmt = count_stmt.where(Job.Job_type == job_type)
-            if status:
-                count_stmt = count_stmt.where(Job.Job_status.ilike(status))
-
-            if search:
-                pattern = f"%{search}%"
-                count_stmt = count_stmt.where(
-                    or_(
-                        Job.Project_name.ilike(pattern),
-                        Job.ID_Jobs.ilike(pattern),
-                        Job.Project_location.ilike(pattern),
-                        Job.Job_status.ilike(pattern),
-                        Job.Service_type.ilike(pattern),
-                        Job.client.has(Client.Client_Community.ilike(pattern)),
-                        Job.client.has(Client.parent_mgmt_co.has(or_(ParentMgmtCo.Property_mgmt_co.ilike(
-                            pattern), ParentMgmtCo.Company_abbrev.ilike(pattern)))),
-                        Job.members.any(Member.Member_Name.ilike(pattern))
-                    )
-                )
-
-            if member_id:
-                count_stmt = count_stmt.where(
-                    Job.members.any(Member.ID_Member == member_id)
-                )
-
-            if client_id:
-                count_stmt = count_stmt.where(Job.ID_Client == client_id)
-
-            if parent_mgmt_co_id:
-                count_stmt = count_stmt.where(
-                    Job.client.has(
-                        Client.ID_Community_Tracking == parent_mgmt_co_id)
-                )
-
-            if subcontractor_id:
-                count_stmt = count_stmt.where(
-                    Job.subcontractors.any(Subcontractor.ID_Subcontractor == subcontractor_id)
-                )
-
-            if date_from or date_to:
-                if job_type == "PTL":
-                    date_col = Job.Estimated_start_date
-                elif job_type:
-                    date_col = Job.Date_assigned
-                else:
-                    if date_from:
-                        count_stmt = count_stmt.where(or_(
-                            and_(Job.Job_type == "PTL",
-                                 Job.Estimated_start_date >= date_from),
-                            and_(Job.Job_type != "PTL",
-                                 Job.Date_assigned >= date_from),
-                        ))
-                    if date_to:
-                        count_stmt = count_stmt.where(or_(
-                            and_(Job.Job_type == "PTL",
-                                 Job.Estimated_start_date <= date_to),
-                            and_(Job.Job_type != "PTL",
-                                 Job.Date_assigned <= date_to),
-                        ))
-                    date_col = None
-
-                if date_col is not None:
-                    if date_from:
-                        count_stmt = count_stmt.where(date_col >= date_from)
-                    if date_to:
-                        count_stmt = count_stmt.where(date_col <= date_to)
-
-            if year_int is not None:
-                if job_type == "PTL":
-                    # ── ERR-007 fix: mismo fallback para el count
-                    count_stmt = count_stmt.where(
-                        extract("year", func.coalesce(
-                            Job.Estimated_start_date, Job.created_at)) == year_int)
-                elif job_type:
-                    count_stmt = count_stmt.where(
-                        Job.Date_assigned.is_not(None),
-                        extract("year", Job.Date_assigned) == year_int)
-                else:
-                    count_stmt = count_stmt.where(or_(
-                        and_(Job.Job_type == "PTL",
-                             extract("year", func.coalesce(
-                                 Job.Estimated_start_date, Job.created_at)) == year_int),
-                        and_(Job.Job_type != "PTL",
-                             Job.Date_assigned.is_not(None),
-                             extract("year", Job.Date_assigned) == year_int)))
 
             total = session.exec(count_stmt).one()
             offset = (page - 1) * limit
@@ -441,6 +375,8 @@ def list_jobs_table():
                     "Gqm_target_return": j.Gqm_target_return,
                     "Gqm_target_sold_pricing": j.Gqm_target_sold_pricing,
                     "created_at": j.created_at.isoformat() if hasattr(j, "created_at") and j.created_at else None,
+                    "podio_app_year": j.podio_app_year,
+                    "podio_item_id": j.podio_item_id,
                     "client": None, "members": [],
                 }
                 if j.client:
@@ -619,8 +555,15 @@ def get_jobs_by_type_year():
     if not job_type or not year:
         raise AppException(
             "Debes enviar los parámetros 'type' y 'year'.", "missing_query_params", 400)
-    year_digit = year[-1]
-    pattern = f"{job_type.upper()}{year_digit}%"
+    # Antes: `year[-1]` contra `ID_Jobs LIKE 'QID5%'`. Casualmente era la regla
+    # correcta, pero sin validar (`?year=abc` construía el patrón `QIDc%`) y
+    # sin cubrir los jobs locales, cuyo ID es `QID-I60001` y no casa con `QID6%`.
+    try:
+        year_int = int(year)
+    except (TypeError, ValueError):
+        raise AppException(
+            f"'year' debe ser un año, no {year!r}.", "invalid_year", 400)
+    job_type = job_type.upper()
     with get_session() as session:
         statement = (
             select(Job)
@@ -635,7 +578,7 @@ def get_jobs_by_type_year():
                     Subcontractor.orders),
                 selectinload(Job.tlactivity), selectinload(Job.change_orders),
                 joinedload(Job.building_dept))
-            .where(Job.ID_Jobs.like(pattern))
+            .where(Job.Job_type == job_type, expr_anio_app() == year_int)
         )
         results = session.exec(statement).unique().all()
         if not results:
