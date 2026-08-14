@@ -137,6 +137,15 @@ def create_app():
             "/webhook/podio/others",
             "/webhook/qbo",
             "/callback",
+            # Vercel Cron: llega con `Authorization: Bearer $CRON_SECRET`, que
+            # no es un JWT y este middleware rechazaría. Entra por la misma
+            # excepción que los receptores de webhooks — trae su propio token y
+            # lo valida él. Falla CERRADO: sin `CRON_SECRET` responde 503 y no
+            # escribe (el token del hook de Podio falló abierto y dejó 45 hooks
+            # entregando sin autenticar, A-7/A-10).
+            # El prefijo es exacto a propósito: `reconciliar_dinero`, `parity` y
+            # `purge_orphans` siguen exigiendo JWT.
+            "/admin/podio/reconciliar_cron",
         ]
 
         # Permitir root
@@ -179,8 +188,16 @@ def create_app():
     protect_blueprint(qbo_bp, "qbo", fixed_action="qbo:manage")
 
     # Sync/administración Podio
-    for _bp in (sync_phase1_bp, sync_phase2_bp, admin_bp, paridad_bp):
+    for _bp in (sync_phase1_bp, sync_phase2_bp, admin_bp):
         protect_blueprint(_bp, "admin", fixed_action="admin:sync")
+
+    # Paridad igual, salvo `reconciliar_cron`: lo invoca Vercel Cron con
+    # `Authorization: Bearer $CRON_SECRET`, que no es un JWT y no tiene políticas
+    # que evaluar. Se exime del RBAC porque valida su propio secreto y falla
+    # cerrado; el resto del blueprint (reconciliar_dinero, parity, purge_orphans,
+    # import) sigue exigiendo admin:sync.
+    protect_blueprint(paridad_bp, "admin", fixed_action="admin:sync",
+                      overrides={"reconciliar_cron": None})
 
     # Financiero
     for _bp in (order_bp, change_order_bp, estimate_bp, purchase_order_bp,

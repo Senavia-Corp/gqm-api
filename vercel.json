@@ -1,3 +1,8 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/admin/podio/reconciliar_cron?type=PTL", "schedule": "0 7 * * *" },
+    { "path": "/admin/podio/reconciliar_cron?type=PAR", "schedule": "20 7 * * *" },
+    { "path": "/admin/podio/reconciliar_cron?type=QID", "schedule": "40 7 * * *" }
+  ]
 }

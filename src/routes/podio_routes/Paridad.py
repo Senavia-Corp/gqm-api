@@ -20,8 +20,10 @@ respuesta lleva `app_id`, `apps_colapsadas` y `comparable_por_anio`: en dev la
 comparación válida es contra `bd.por_app_id`.
 """
 import hashlib
+import os
 import time
 from contextvars import ContextVar
+from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 from sqlmodel import func, select
@@ -552,6 +554,148 @@ def importar():
     return jsonify(resumen), 200 if resumen["ok"] else 409
 
 
+class CensoParcial(Exception):
+    """La app se movió o se agotó el reloj: no se reconcilia a medias."""
+
+
+def _censo_y_diffs(session, tipo: str, anio: int, presupuesto: int):
+    """Enumera la app y devuelve `(items, diffs, sin_fila)`.
+
+    Compartido por la ruta manual y la del cron para que no puedan divergir: si
+    una detecta un desvío y la otra no, el cron deshace lo que revisó un humano.
+    """
+    from src.utils.mappers.from_podio.job_mapper import map_podio_item_to_job
+
+    servicio = podio_jobs_router.get_readonly_service(tipo, anio)
+    sonda = servicio.get_items_page(limit=1)
+    total_podio = sonda.get("filtered") or sonda.get("total") or 0
+
+    inicio, items, offset = time.monotonic(), [], 0
+    while True:
+        pagina = servicio.get_items_page(limit=TOPE_PAGINA, offset=offset)
+        lote = pagina.get("items") or []
+        if not lote:
+            break
+        items.extend(lote)
+        offset += len(lote)
+        if len(items) >= total_podio or len(lote) < TOPE_PAGINA:
+            break
+        if time.monotonic() - inicio > presupuesto:
+            raise CensoParcial(
+                f"enumerados {len(items)} de {total_podio} antes de agotar el "
+                "presupuesto. No se reconcilia con datos parciales.")
+
+    if len(items) != total_podio:
+        raise CensoParcial(
+            f"la enumeración no cuadra con la sonda ({len(items)} vs "
+            f"{total_podio}); la app se movió mientras se contaba.")
+
+    por_item = {
+        str(j.podio_item_id): j
+        for j in session.exec(
+            select(Job).where(Job.Job_type == tipo,
+                              Job.podio_item_id.is_not(None),
+                              expr_anio_app() == anio)).all()
+    }
+
+    diffs, sin_fila = [], []
+    for item in items:
+        job = por_item.get(str(item.get("item_id")))
+        if job is None:
+            sin_fila.append(item.get("app_item_id_formatted"))
+            continue
+        cambios = _diff_de_job(job, map_podio_item_to_job(item, job_type=tipo))
+        if cambios:
+            diffs.append({"ID_Jobs": job.ID_Jobs, "cambios": cambios, "_job": job})
+    return items, diffs, sin_fila
+
+
+def _aplicar(session, diffs) -> None:
+    """Escribe los valores de Podio. `importando` corta las comisiones."""
+    marca = importando.set(True)
+    try:
+        for d in diffs:
+            for col, v in d["cambios"].items():
+                setattr(d["_job"], col, v["podio"])
+            session.add(d["_job"])
+        session.commit()
+    finally:
+        importando.reset(marca)
+
+
+# Tope de seguridad del cron. Corre sin nadie mirando: si un día encuentra más
+# desvíos que esto, algo cambió de fondo (un despliegue, un cambio de mapeo, una
+# app reindexada) y reescribir cientos de filas a ciegas es peor que no hacer
+# nada. Se planta y avisa. Los 207 de la reparación inicial se aplicaron a mano.
+TOPE_CRON = int(os.getenv("RECONCILIAR_CRON_TOPE", "40"))
+
+
+@paridad_bp.get("/reconciliar_cron")
+@handle_exceptions()
+def reconciliar_cron():
+    """Reconciliación diaria desatendida del año en curso. La invoca Vercel Cron.
+
+    Existe porque **la causa raíz no está arreglada**: los agregados solo se
+    recalculan al escribir hijos por la API (`job_calculator.py::
+    recalculate_and_apply`), así que un job que entra o cambia por webhook se
+    queda con la fórmula desactualizada. Medido el 14-ago-2026: `PTL6035` volvió
+    a desviarse **dos horas** después de repararlo a mano. Esto no cura eso;
+    mantiene el desvío acotado a un día mientras se arregla el sync.
+
+    Diferencias con la ruta manual, todas para acotar el daño de un escritor sin
+    supervisión:
+
+    - **Solo el año en curso.** Los años cerrados ya están reconciliados y no
+      deberían moverse; si se mueven, quiero enterarme, no que se arreglen solos.
+    - **Un tipo por invocación** (`?type=`). QID del año en curso ronda los 1300
+      ítems y su enumeración se come casi los 300 s de la función.
+    - **Sin token de confirmación** — no hay humano que lo devuelva — pero con
+      `TOPE_CRON`: por encima de ese número de desvíos se planta sin escribir.
+    - **Falla cerrado sin `CRON_SECRET`.** El token del webhook de Podio falló
+      *abierto* y eso dejó 45 hooks entregando sin autenticar (A-7/A-10); aquí
+      no: sin secreto configurado, 503 y no se toca nada.
+    """
+    secreto = os.getenv("CRON_SECRET")
+    if not secreto:
+        return jsonify({"detail": "CRON_SECRET no configurada; el cron no corre "
+                                  "sin autenticación."}), 503
+    if request.headers.get("Authorization") != f"Bearer {secreto}":
+        return jsonify({"detail": "no autorizado"}), 401
+
+    tipo = (request.args.get("type") or "").upper().strip()
+    if tipo not in JOB_TYPES:
+        return jsonify({"detail": f"type inválido: {tipo}"}), 400
+
+    anio = datetime.now(timezone.utc).year
+    if anio not in JOB_YEARS:
+        return jsonify({"detail": f"el año en curso ({anio}) no está configurado "
+                                  f"en JOB_YEARS {JOB_YEARS}; no hay app que "
+                                  "reconciliar.", "sin_trabajo": True}), 200
+
+    with get_session() as session:
+        try:
+            items, diffs, sin_fila = _censo_y_diffs(
+                session, tipo, anio, PRESUPUESTO_S)
+        except CensoParcial as e:
+            return jsonify({"detail": str(e), "aplicado": False}), 409
+
+        if len(diffs) > TOPE_CRON:
+            return jsonify({
+                "detail": f"{len(diffs)} desvíos supera el tope de {TOPE_CRON}. "
+                          "No se escribe nada: revísalo a mano con "
+                          "/admin/podio/reconciliar_dinero?dry_run=true",
+                "tipo": tipo, "anio": anio, "jobs_desviados": len(diffs),
+                "aplicado": False,
+                "ID_Jobs": [d["ID_Jobs"] for d in diffs]}), 409
+
+        _aplicar(session, diffs)
+
+    return jsonify({"tipo": tipo, "anio": anio, "items_podio": len(items),
+                    "jobs_actualizados": len(diffs), "aplicado": True,
+                    "sin_fila_en_bd": sin_fila,
+                    "ID_Jobs": [d["ID_Jobs"] for d in diffs]}), 200
+
+
 @paridad_bp.post("/reconciliar_dinero")
 @handle_exceptions()
 def reconciliar_dinero():
@@ -591,55 +735,12 @@ def reconciliar_dinero():
         return jsonify({"detail": f"type y year obligatorios. "
                                   f"Válidos: {JOB_TYPES} / {JOB_YEARS}"}), 400
 
-    from src.utils.mappers.from_podio.job_mapper import map_podio_item_to_job
-
-    servicio = podio_jobs_router.get_readonly_service(tipo, anio)
-    sonda = servicio.get_items_page(limit=1)
-    total_podio = sonda.get("filtered") or sonda.get("total") or 0
-
-    # Igual que en purge_orphans: de una página parcial no se concluye nada.
-    # Aquí es menos grave (solo se dejarían jobs sin reparar) pero un informe a
-    # medias que parece completo es justo lo que hace perder la tarde.
-    inicio, items, offset = time.monotonic(), [], 0
-    while True:
-        pagina = servicio.get_items_page(limit=TOPE_PAGINA, offset=offset)
-        lote = pagina.get("items") or []
-        if not lote:
-            break
-        items.extend(lote)
-        offset += len(lote)
-        if len(items) >= total_podio or len(lote) < TOPE_PAGINA:
-            break
-        if time.monotonic() - inicio > presupuesto:
-            return jsonify({
-                "detail": f"enumerados {len(items)} de {total_podio} antes de "
-                          "agotar el presupuesto. No se reconcilia con datos "
-                          "parciales.", "parcial": True}), 409
-
-    if len(items) != total_podio:
-        return jsonify({
-            "detail": "la enumeración no cuadra con la sonda; la app se movió "
-                      "mientras se contaba. No se toca nada.",
-            "sonda": total_podio, "enumerados": len(items)}), 409
-
-    diffs, sin_fila = [], []
     with get_session() as session:
-        por_item = {
-            str(j.podio_item_id): j
-            for j in session.exec(
-                select(Job).where(Job.Job_type == tipo,
-                                  Job.podio_item_id.is_not(None),
-                                  expr_anio_app() == anio)).all()
-        }
-
-        for item in items:
-            job = por_item.get(str(item.get("item_id")))
-            if job is None:
-                sin_fila.append(item.get("app_item_id_formatted"))
-                continue
-            cambios = _diff_de_job(job, map_podio_item_to_job(item, job_type=tipo))
-            if cambios:
-                diffs.append({"ID_Jobs": job.ID_Jobs, "cambios": cambios})
+        try:
+            items, diffs, sin_fila = _censo_y_diffs(
+                session, tipo, anio, presupuesto)
+        except CensoParcial as e:
+            return jsonify({"detail": str(e), "parcial": True}), 409
 
         token = _token_confirmacion(
             [f"{d['ID_Jobs']}:{sorted(d['cambios'])}" for d in diffs])
@@ -649,7 +750,8 @@ def reconciliar_dinero():
                 "dry_run": True, "tipo": tipo, "anio": anio,
                 "items_podio": len(items), "jobs_a_tocar": len(diffs),
                 "sin_fila_en_bd": sin_fila, "confirmar": token,
-                "diffs": diffs}), 200
+                "diffs": [{k: v for k, v in d.items() if k != "_job"}
+                          for d in diffs]}), 200
 
         if confirmar != token:
             return jsonify({
@@ -657,18 +759,7 @@ def reconciliar_dinero():
                           "no casa. Vuelve a pedir el dry_run y usa su token.",
                 "confirmar_esperado": token}), 409
 
-        # `importando` corta la generación de comisiones en el PATCH de jobs:
-        # reparar un agregado no puede pagar a nadie dos veces.
-        marca = importando.set(True)
-        try:
-            for d in diffs:
-                job = next(j for j in por_item.values() if j.ID_Jobs == d["ID_Jobs"])
-                for col, v in d["cambios"].items():
-                    setattr(job, col, v["podio"])
-                session.add(job)
-            session.commit()
-        finally:
-            importando.reset(marca)
+        _aplicar(session, diffs)
 
     return jsonify({"dry_run": False, "tipo": tipo, "anio": anio,
                     "jobs_actualizados": len(diffs),
