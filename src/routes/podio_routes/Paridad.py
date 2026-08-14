@@ -68,9 +68,43 @@ def _anios_de_la_misma_app(job_type: str, app_id: str) -> list[int]:
     return sorted(a for a in JOB_YEARS if _app_id_de(job_type, a) == str(app_id))
 
 
+# Los tipos de campo que sirven para auditar una métrica. Se filtra por TIPO y no
+# por una lista de `external_id` a propósito: en cuanto eliges qué campo es «lo
+# cotizado» ya estás usando el mapeo del código que la auditoría tiene que poner
+# a prueba. Bajando todos los numéricos, el mapeo se reconstruye después desde
+# las etiquetas de Podio y queda como artefacto revisable.
+# `category` entra porque el estado del job decide qué filas suma cada métrica;
+# `date` para poder contrastar la regla del año contra su origen.
+TIPOS_AUDITABLES = {"money", "number", "calculation",
+                    "progress", "category", "date"}
+
+
+def _campos_crudos(item: dict) -> dict:
+    """Los valores tal como los devuelve Podio, sin pasar por el mapeador.
+
+    Se conserva `values` sin tocar (Podio anida distinto según el tipo: money da
+    `{"value","currency"}`, category da `{"value":{"text"}}`) porque normalizar
+    aquí sería volver a meter criterio propio en el lado que hace de patrón.
+    """
+    crudos = {}
+    for campo in item.get("fields") or []:
+        if campo.get("type") not in TIPOS_AUDITABLES:
+            continue
+        crudos[campo.get("external_id")] = {
+            "label": campo.get("label"),
+            "type": campo.get("type"),
+            "values": campo.get("values"),
+        }
+    return crudos
+
+
 def _enumerar(servicio, total_esperado: int, offset_inicial: int = 0,
-              presupuesto_s: int | None = None) -> tuple[dict, int | None]:
-    """Pagina la app. Devuelve (ids -> clave formateada, siguiente_offset).
+              presupuesto_s: int | None = None,
+              campos: bool = False) -> tuple[dict, int | None, dict]:
+    """Pagina la app. Devuelve (ids -> clave formateada, siguiente_offset, crudos).
+
+    `crudos` va vacío salvo con `campos=true`. No cuesta red: la página ya trae
+    el ítem entero (ver abajo), así que hasta ahora se estaba tirando.
 
     `siguiente_offset` es None cuando se termino la app; un entero cuando se
     agoto el presupuesto de reloj y hay que reencadenar desde ahi.
@@ -83,6 +117,7 @@ def _enumerar(servicio, total_esperado: int, offset_inicial: int = 0,
     las tres apps QID grandes son sencillamente inverificables.
     """
     items, offset = {}, offset_inicial
+    crudos = {}
     inicio = time.monotonic()
     while True:
         if presupuesto_s is not None and offset > offset_inicial:
@@ -91,20 +126,23 @@ def _enumerar(servicio, total_esperado: int, offset_inicial: int = 0,
             gastado = time.monotonic() - inicio
             por_pagina = gastado / max(1, (offset - offset_inicial) / TOPE_PAGINA)
             if gastado + por_pagina > presupuesto_s:
-                return items, offset
+                return items, offset, crudos
 
         pagina = servicio.get_items_page(limit=TOPE_PAGINA, offset=offset)
         lote = pagina.get("items") or []
         if not lote:
             break
         for item in lote:
-            items[str(item.get("item_id"))] = item.get("app_item_id_formatted")
+            iid = str(item.get("item_id"))
+            items[iid] = item.get("app_item_id_formatted")
+            if campos:
+                crudos[iid] = _campos_crudos(item)
         offset += len(lote)
         if len(items) + offset_inicial >= (total_esperado or 0) and total_esperado:
             break
         if len(lote) < TOPE_PAGINA:
             break
-    return items, None
+    return items, None, crudos
 
 
 def _conteo_bd(session, job_type: str, anios: list[int],
@@ -125,7 +163,8 @@ def _conteo_bd(session, job_type: str, anios: list[int],
 
 
 def _paridad_de_app(session, job_type: str, year: int, enumerar: bool,
-                    offset: int = 0, presupuesto_s: int | None = None) -> dict:
+                    offset: int = 0, presupuesto_s: int | None = None,
+                    campos: bool = False) -> dict:
     servicio = podio_jobs_router.get_readonly_service(job_type, year)
     app_id = str(servicio.app_id)
     colapsados = _anios_de_la_misma_app(job_type, app_id)
@@ -180,13 +219,14 @@ def _paridad_de_app(session, job_type: str, year: int, enumerar: bool,
         )
 
     if enumerar:
-        encontrados, siguiente = _enumerar(
+        encontrados, siguiente, crudos = _enumerar(
             servicio, total_podio, offset_inicial=offset,
-            presupuesto_s=presupuesto_s)
+            presupuesto_s=presupuesto_s, campos=campos)
         resultado["podio"]["enumerados"] = len(encontrados)
         resultado["podio"]["offset"] = offset
         resultado["podio"]["items"] = [
-            {"item_id": i, "app_item_id_formatted": c}
+            {"item_id": i, "app_item_id_formatted": c,
+             **({"campos": crudos.get(i, {})} if campos else {})}
             for i, c in encontrados.items()]
 
         if siguiente is not None:
@@ -275,7 +315,14 @@ def parity():
     enumerar = (request.args.get("enumerar") or "").lower() in ("1", "true", "yes")
     offset = request.args.get("offset", default=0, type=int)
     presupuesto = request.args.get("presupuesto_s", default=PRESUPUESTO_S, type=int)
+    # Solo para auditar: añade a cada item sus campos numéricos crudos, tal cual
+    # los da Podio. Sirve para calcular las métricas desde el origen sin pasar
+    # por el mapeador ni por la BD — comparar la BD contra sí misma no prueba
+    # nada sobre los valores. Encarece la respuesta, no la red.
+    campos = (request.args.get("campos") or "").lower() in ("1", "true", "yes")
 
+    if campos and not enumerar:
+        return jsonify({"detail": "campos=true requiere enumerar=true"}), 400
     if offset and not (tipo and anio):
         return jsonify({"detail": "offset solo tiene sentido con type y year"}), 400
     if tipo and tipo not in JOB_TYPES:
@@ -293,7 +340,8 @@ def parity():
                 try:
                     filas.append(_paridad_de_app(
                         session, t, a, enumerar,
-                        offset=offset, presupuesto_s=presupuesto))
+                        offset=offset, presupuesto_s=presupuesto,
+                        campos=campos))
                 except Exception as e:  # una app rota no puede tumbar el censo
                     errores.append({"tipo": t, "anio": a,
                                     "error": f"{type(e).__name__}: {e}"})
@@ -466,9 +514,17 @@ def purgar_huerfanas():
     servicio = podio_jobs_router.get_readonly_service(tipo, anio)
     sonda = servicio.get_items_page(limit=1)
     total_podio = sonda.get("filtered") or sonda.get("total") or 0
-    encontrados = _enumerar(servicio, total_podio)
+    # Desempaquetado explícito: esto era `encontrados = _enumerar(...)`, que
+    # dejaba la TUPLA en la variable. `len(tupla)` es 2, no el número de items,
+    # así que la guarda de abajo comparaba 2 contra el total y saltaba siempre —
+    # por eso nunca se notó. Pero si una app llegaba a tener exactamente 2 items
+    # la guarda pasaba, y entonces `str(item_id) not in encontrados` (línea de
+    # los candidatos) probaba pertenencia contra la tupla en vez de contra el
+    # dict: TODOS los jobs de ese tipo/año salían huérfanos, en un endpoint que
+    # borra con cascada de 4 niveles.
+    encontrados, siguiente, _ = _enumerar(servicio, total_podio)
 
-    if len(encontrados) != total_podio:
+    if siguiente is not None or len(encontrados) != total_podio:
         return jsonify({
             "detail": "la enumeración no cuadra con la sonda; la app se movió "
                       "mientras se contaba. No se borra nada.",
