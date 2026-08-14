@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request, Response
-from sqlalchemy import func, extract, and_, or_, case, literal
+from sqlalchemy import func, case, literal
 from src.models.JobModel import Job
+from src.utils.job_app_year import expr_anio_app
 from src.services.metrics.jobs_metrics_service import get_jobs_status_metrics_data, _money_expr
 from src.services.reports.jobs_report_pdf import build_jobs_report_pdf_bytes
 
@@ -24,35 +25,15 @@ def _type_expr(selected_type: str):
 
 
 def _year_expr(selected_type: str, year: int | None):
-    # condición de año para usar dentro de CASE en agregaciones
+    """Condición de año para usar dentro de CASE en agregaciones.
+
+    Misma corrección que `_apply_year_filter`: el año sale de la app de Podio
+    (`expr_anio_app`), no de fechas. `selected_type` ya no se usa — el año de app
+    no depende del tipo — pero se mantiene por los llamadores.
+    """
     if year is None:
         return literal(True)
-
-    if selected_type == "PTL":
-        return and_(
-            Job.Estimated_start_date.is_not(None),
-            extract("year", Job.Estimated_start_date) == year,
-        )
-
-    if selected_type in ("QID", "PAR"):
-        return and_(
-            Job.Date_assigned.is_not(None),
-            extract("year", Job.Date_assigned) == year,
-        )
-
-    # ALL -> depende del tipo del job
-    return or_(
-        and_(
-            Job.Job_type == "PTL",
-            Job.Estimated_start_date.is_not(None),
-            extract("year", Job.Estimated_start_date) == year,
-        ),
-        and_(
-            Job.Job_type != "PTL",
-            Job.Date_assigned.is_not(None),
-            extract("year", Job.Date_assigned) == year,
-        ),
-    )
+    return expr_anio_app() == year
 
 
 def _sum_if(cond):
@@ -62,26 +43,6 @@ def _sum_if(cond):
 
 def _sum_money_if(cond):
     return func.coalesce(func.sum(case((cond, _money_expr()), else_=0.0)), 0.0)
-
-
-def _year_expr_any_job(year: int):
-    """
-    Year predicate independiente del filtro type (depende del Job.Job_type):
-    - PTL -> Estimated_start_date
-    - QID/PAR -> Date_assigned
-    """
-    return or_(
-        and_(
-            Job.Job_type == "PTL",
-            Job.Estimated_start_date.is_not(None),
-            extract("year", Job.Estimated_start_date) == year,
-        ),
-        and_(
-            Job.Job_type != "PTL",
-            Job.Date_assigned.is_not(None),
-            extract("year", Job.Date_assigned) == year,
-        ),
-    )
 
 
 def _norm_order_by(value: str | None) -> str:

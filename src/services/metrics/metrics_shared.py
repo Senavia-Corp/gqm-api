@@ -1,6 +1,7 @@
 # src/services/metrics/metrics_shared.py
-from sqlalchemy import func, extract, and_, or_, case, literal
+from sqlalchemy import func, case
 from ...models.JobModel import Job
+from src.utils.job_app_year import expr_anio_app
 
 # ---------------------------------------------------------------------------
 # Status catalogs
@@ -161,35 +162,16 @@ def _norm_year(value: str | None) -> int | None:
 # ---------------------------------------------------------------------------
 
 def _apply_year_filter(stmt, job_type: str, year: int):
-    """
-    Applies year filter based on job type:
-    - PTL  -> Estimated_start_date
-    - QID/PAR -> Date_assigned
-    - ALL  -> OR combining both
-    """
-    if job_type == "PTL":
-        return stmt.where(
-            Job.Estimated_start_date.is_not(None),
-            extract("year", Job.Estimated_start_date) == year,
-        )
+    """Filtra por el año de la app de Podio, la regla canónica.
 
-    if job_type in ("QID", "PAR"):
-        return stmt.where(
-            Job.Date_assigned.is_not(None),
-            extract("year", Job.Date_assigned) == year,
-        )
+    Antes esto derivaba el año de fechas (`Estimated_start_date` para PTL,
+    `Date_assigned` para el resto) con guardas `IS NOT NULL`. Eso perdía filas:
+    en producción **43 jobs no cancelados** salían en «All» y en ningún año —
+    41 con fecha de nov/dic de 2022 pero viviendo en la app de 2023, y 2 con las
+    dos fechas NULL (`PTL3026`, `PTL4027`). El año de Podio es la app en la que
+    vive el ítem, no la fecha en que se trabajó.
 
-    return stmt.where(
-        or_(
-            and_(
-                Job.Job_type == "PTL",
-                Job.Estimated_start_date.is_not(None),
-                extract("year", Job.Estimated_start_date) == year,
-            ),
-            and_(
-                Job.Job_type != "PTL",
-                Job.Date_assigned.is_not(None),
-                extract("year", Job.Date_assigned) == year,
-            ),
-        )
-    )
+    `job_type` ya no se usa: el año de app no depende del tipo. Se mantiene en la
+    firma porque hay ~13 llamadas y cambiarla no aporta nada.
+    """
+    return stmt.where(expr_anio_app() == year)
