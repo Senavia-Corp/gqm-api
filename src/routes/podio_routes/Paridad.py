@@ -366,6 +366,47 @@ def _token_confirmacion(claves) -> str:
     return hashlib.sha256(f"{len(claves)}:{material}".encode()).hexdigest()
 
 
+# Las 7 columnas que alimentan las 8 tarjetas del dashboard. Deliberadamente NO
+# se reconcilia nada más: nombres, fechas y relaciones tienen su propio camino de
+# sync y meterlas aquí convierte una reparación acotada en una reescritura.
+COLUMNAS_DINERO = (
+    "Gqm_target_sold_pricing",
+    "Gqm_formula_pricing",
+    "Gqm_adj_formula_pricing",
+    "Gqm_final_sold_pricing",
+    "Gqm_premium_in_money",
+    "Gqm_target_return",
+    "Gqm_final_percentage",
+)
+
+# Los importes son float en la BD y texto decimal en Podio: comparar con `!=`
+# marca como divergente medio censo por el ruido del binario.
+TOLERANCIA = 0.005
+
+
+def _difiere(bd, podio) -> bool:
+    if bd is None and podio is None:
+        return False
+    if bd is None or podio is None:
+        return True
+    try:
+        return abs(float(bd) - float(podio)) > TOLERANCIA
+    except (TypeError, ValueError):
+        return str(bd) != str(podio)
+
+
+def _diff_de_job(job, valores_podio: dict) -> dict:
+    """Columnas de dinero donde la BD se ha ido de Podio. Podio manda."""
+    cambios = {}
+    for col in COLUMNAS_DINERO:
+        if col not in valores_podio:
+            continue  # el campo no existe en esa app; no es divergencia
+        actual, nuevo = getattr(job, col, None), valores_podio[col]
+        if _difiere(actual, nuevo):
+            cambios[col] = {"bd": actual, "podio": nuevo}
+    return cambios
+
+
 @paridad_bp.post("/import")
 @handle_exceptions()
 def importar():
@@ -492,6 +533,129 @@ def importar():
     resumen["segundos"] = round(time.monotonic() - inicio, 1)
     resumen["ok"] = not resumen["errores"]
     return jsonify(resumen), 200 if resumen["ok"] else 409
+
+
+@paridad_bp.post("/reconciliar_dinero")
+@handle_exceptions()
+def reconciliar_dinero():
+    """Reescribe desde Podio las columnas de dinero que se han ido de su origen.
+
+    El defecto que esto repara, medido en producción el 14-ago-2026: 185 jobs con
+    `Gqm_formula_pricing = 0` en la BD teniendo Podio un valor real, con venta
+    distinta de 0 y sin cancelar. 167 son de 2026. Como el premium se deriva
+    (`final − formula` en PTL, `final − adj` en QID/PAR), perder la fórmula
+    infla el premium por el mismo importe: en PAR2026 faltan $110.681 de fórmula
+    y sobran $110.064 de premium.
+
+    Sync y mapeo están BIEN — en 2023 los seis agregados de QID coinciden al
+    céntimo. Lo que falla es posterior: los agregados son columnas almacenadas
+    que sólo se recalculan al escribir hijos por la API (`job_calculator.py::
+    recalculate_and_apply`), y `create_job` no recalcula. Un job que entra por
+    webhook sin que sus órdenes crucen la API se queda con la fórmula en 0.
+
+    Reconciliación unidireccional Podio → BD, como manda el cliente. Solo UPDATE
+    sobre filas que ya existen: nunca crea ni borra, ni aquí ni en Podio (el
+    servicio es de solo lectura). `dry_run=true` por defecto, y aplicar exige el
+    `confirmar=<sha>` del dry-run previo, así que no se puede escribir un
+    conjunto distinto del que se enseñó.
+
+    NO toca el mapeo. En PTL, `Gqm_target_sold_pricing` sale del campo etiquetado
+    «PTL Cost» (job_fields_map.py:172) y por eso TOTAL QUOTED enseña un coste;
+    cambiarlo mueve dinero en pantalla y es decisión de negocio, no de una
+    reparación de datos.
+    """
+    tipo = (request.args.get("type") or "").upper().strip()
+    anio = request.args.get("year", type=int)
+    dry_run = (request.args.get("dry_run") or "true").lower() not in ("0", "false", "no")
+    confirmar = request.args.get("confirmar")
+    presupuesto = request.args.get("presupuesto_s", default=PRESUPUESTO_S, type=int)
+
+    if tipo not in JOB_TYPES or anio not in JOB_YEARS:
+        return jsonify({"detail": f"type y year obligatorios. "
+                                  f"Válidos: {JOB_TYPES} / {JOB_YEARS}"}), 400
+
+    from src.utils.mappers.from_podio.job_mapper import map_podio_item_to_job
+
+    servicio = podio_jobs_router.get_readonly_service(tipo, anio)
+    sonda = servicio.get_items_page(limit=1)
+    total_podio = sonda.get("filtered") or sonda.get("total") or 0
+
+    # Igual que en purge_orphans: de una página parcial no se concluye nada.
+    # Aquí es menos grave (solo se dejarían jobs sin reparar) pero un informe a
+    # medias que parece completo es justo lo que hace perder la tarde.
+    inicio, items, offset = time.monotonic(), [], 0
+    while True:
+        pagina = servicio.get_items_page(limit=TOPE_PAGINA, offset=offset)
+        lote = pagina.get("items") or []
+        if not lote:
+            break
+        items.extend(lote)
+        offset += len(lote)
+        if len(items) >= total_podio or len(lote) < TOPE_PAGINA:
+            break
+        if time.monotonic() - inicio > presupuesto:
+            return jsonify({
+                "detail": f"enumerados {len(items)} de {total_podio} antes de "
+                          "agotar el presupuesto. No se reconcilia con datos "
+                          "parciales.", "parcial": True}), 409
+
+    if len(items) != total_podio:
+        return jsonify({
+            "detail": "la enumeración no cuadra con la sonda; la app se movió "
+                      "mientras se contaba. No se toca nada.",
+            "sonda": total_podio, "enumerados": len(items)}), 409
+
+    diffs, sin_fila = [], []
+    with get_session() as session:
+        por_item = {
+            str(j.podio_item_id): j
+            for j in session.exec(
+                select(Job).where(Job.Job_type == tipo,
+                                  Job.podio_item_id.is_not(None),
+                                  expr_anio_app() == anio)).all()
+        }
+
+        for item in items:
+            job = por_item.get(str(item.get("item_id")))
+            if job is None:
+                sin_fila.append(item.get("app_item_id_formatted"))
+                continue
+            cambios = _diff_de_job(job, map_podio_item_to_job(item, job_type=tipo))
+            if cambios:
+                diffs.append({"ID_Jobs": job.ID_Jobs, "cambios": cambios})
+
+        token = _token_confirmacion(
+            [f"{d['ID_Jobs']}:{sorted(d['cambios'])}" for d in diffs])
+
+        if dry_run:
+            return jsonify({
+                "dry_run": True, "tipo": tipo, "anio": anio,
+                "items_podio": len(items), "jobs_a_tocar": len(diffs),
+                "sin_fila_en_bd": sin_fila, "confirmar": token,
+                "diffs": diffs}), 200
+
+        if confirmar != token:
+            return jsonify({
+                "detail": "el conjunto cambió entre el dry-run y ahora: el token "
+                          "no casa. Vuelve a pedir el dry_run y usa su token.",
+                "confirmar_esperado": token}), 409
+
+        # `importando` corta la generación de comisiones en el PATCH de jobs:
+        # reparar un agregado no puede pagar a nadie dos veces.
+        marca = importando.set(True)
+        try:
+            for d in diffs:
+                job = next(j for j in por_item.values() if j.ID_Jobs == d["ID_Jobs"])
+                for col, v in d["cambios"].items():
+                    setattr(job, col, v["podio"])
+                session.add(job)
+            session.commit()
+        finally:
+            importando.reset(marca)
+
+    return jsonify({"dry_run": False, "tipo": tipo, "anio": anio,
+                    "jobs_actualizados": len(diffs),
+                    "ID_Jobs": [d["ID_Jobs"] for d in diffs]}), 200
 
 
 @paridad_bp.post("/purge_orphans")
