@@ -10,7 +10,12 @@ from src.models.link_models.JobMember import JobMemberLink
 from src.models.MemberModel import Member
 from src.models.ClientModel import Client
 
-from .metrics_shared import PAID_STATUSES, ACTIVE_STATUSES, CANCELLED_STATUS
+from .metrics_shared import (
+    PAID_STATUSES,
+    ACTIVE_STATUSES,
+    AVERAGE_TARGET_RETURN_STATUSES,
+    CANCELLED_STATUS,
+)
 from .jobs_metrics_service import _pct_col_expr, _final_col_expr
 
 
@@ -108,6 +113,12 @@ def get_jobs_report_data(
 
     # H-1/H-2: cancelados fuera de cotizado/fórmula/conteo (mismo criterio que el dashboard)
     alive = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) != CANCELLED_STATUS.upper()
+
+    valor_target_ret = case(
+        (Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES)),
+         Job.Gqm_target_return),
+        else_=None,
+    )
     paid_with_pct = and_(
         Job.Job_status.in_(list(PAID_STATUSES)),
         pct_col.is_not(None),
@@ -127,7 +138,11 @@ def get_jobs_report_data(
             func.nullif(func.sum(case((paid_with_pct, final_col), else_=0)), 0),
             0.0
         ).label("avg_final_pct"),
-        func.avg(case((Job.Job_status.in_(list(ACTIVE_STATUSES)), Job.Gqm_target_return), else_=None)).label("avg_target_ret"),
+        # Misma corrección que en jobs_metrics_service: ACTIVE_STATUSES es el
+        # conjunto del PIPELINE, no el de esta métrica, y dejaba el denominador
+        # en una sola fila. El informe financiero en PDF heredaba el -3764.3 %.
+        func.avg(valor_target_ret).label("avg_target_ret"),
+        func.count(valor_target_ret).label("avg_target_ret_n"),
         func.sum(paid_flag).label("paid_count"),
     )
     stmt_sum = _apply_filters(stmt_sum, year, month, job_type, client_id)
@@ -148,7 +163,9 @@ def get_jobs_report_data(
         "total_final_sold":  total_final,
         "total_premium":   _safe_float(r.total_premium),
         "avg_final_pct":   _safe_float(r.avg_final_pct),
-        "avg_target_ret":  _safe_float(r.avg_target_ret),
+        "avg_target_ret":  (float(r.avg_target_ret)
+                            if r.avg_target_ret is not None else None),
+        "avg_target_ret_n": int(r.avg_target_ret_n or 0),
         "final_vs_quoted_pct": _pct(total_final, total_quoted),
     }
 

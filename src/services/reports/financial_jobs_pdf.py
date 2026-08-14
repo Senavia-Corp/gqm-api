@@ -66,7 +66,9 @@ def _fmt_pct(v) -> str:
     try:
         return f"{(float(v) * 100):.1f}%"
     except (TypeError, ValueError):
-        return "0.0%"
+        # None = no había filas que promediar. Pintarlo como «0.0%» convertía un
+        # dato ausente en una afirmación de negocio falsa.
+        return "—"
 
 
 def _fit_logo(path: str, max_w: float, max_h: float) -> Image:

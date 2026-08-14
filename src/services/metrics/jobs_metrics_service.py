@@ -19,6 +19,7 @@ from .metrics_shared import (
     COMPLETED_BY_TYPE,
     PAID_STATUSES,
     ACTIVE_STATUSES,
+    AVERAGE_TARGET_RETURN_STATUSES,
     CANCELLED_STATUS,
     _norm_job_type,
     _norm_year,
@@ -174,6 +175,16 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
             # status NULL y variantes de mayúsculas/espacios de prod.
             alive = func.upper(func.trim(func.coalesce(Job.Job_status, ""))) != CANCELLED_STATUS.upper()
 
+            # El valor por fila que entra en AVG TARGET RETURN. Se nombra aparte
+            # para poder contar el denominador con la MISMA expresión: un
+            # promedio calculado sobre una fila no es un promedio, y hasta ahora
+            # no había forma de distinguirlo desde fuera.
+            valor_target_ret = case(
+                (Job.Job_status.in_(list(AVERAGE_TARGET_RETURN_STATUSES)),
+                 Job.Gqm_target_return),
+                else_=None,
+            )
+
             stmt_sum = select(
                 func.sum(case((alive, 1), else_=0)).label("job_count"),
                 func.count(Job.ID_Jobs).label("job_count_all"),
@@ -184,7 +195,16 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), final_col), else_=0)).label("total_final"),
                 func.sum(case((Job.Job_status.in_(list(PAID_STATUSES)), Job.Gqm_premium_in_money), else_=0)).label("total_premium"),
                 avg_final_pct_expr,
-                func.avg(case((Job.Job_status.in_(list(ACTIVE_STATUSES)), Job.Gqm_target_return), else_=None)).label("avg_target_ret"),
+                # Promediaba sobre ACTIVE_STATUSES, que son solo 4 estados
+                # (in-progress + Invoiced). Como AVG de SQL ignora los NULL, el
+                # denominador real era «activo Y con valor» y colapsaba a una
+                # sola fila en celdas enteras: 2023/QID salía -3764.3 %, que es
+                # literalmente el único job que quedaba (QID3221, formula
+                # $44.023 contra target sold $630), y ALL/PTL salía 100.0 %
+                # clavado por el mismo motivo. Con la constante que existe para
+                # esta métrica el denominador pasa de 1 a 1282 y de 1 a 502.
+                func.avg(valor_target_ret).label("avg_target_ret"),
+                func.count(valor_target_ret).label("avg_target_ret_n"),
                 func.sum(paid_flag).label("paid_count"),
             )
             stmt_sum = _apply_base_filters(stmt_sum, normed_type, year)
@@ -205,7 +225,11 @@ def get_jobs_dashboard_data(job_type_raw: str | None, year_raw: str | None):
                 "total_final_sold":   total_final,
                 "total_premium":      _safe_float(r.total_premium),
                 "avg_final_pct":      _safe_float(r.avg_final_pct),
-                "avg_target_ret":     _safe_float(r.avg_target_ret),
+                # None, no 0.0: sin filas que promediar `_safe_float` devolvía un
+                # 0 % indistinguible de un 0 % real. El panel pinta «—».
+                "avg_target_ret":     (float(r.avg_target_ret)
+                                       if r.avg_target_ret is not None else None),
+                "avg_target_ret_n":   int(r.avg_target_ret_n or 0),
                 "final_vs_quoted_pct": _pct(total_final, total_quoted),
                 "pct_label":          pct_label,
             }
