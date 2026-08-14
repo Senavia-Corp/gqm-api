@@ -101,6 +101,28 @@ def test_el_token_cambia_si_cambia_el_conjunto():
     assert a == _token_confirmacion(["QID6001:['Gqm_formula_pricing']"])
 
 
+def test_los_importes_de_podio_llegan_como_texto():
+    """Podio manda `{"value": "1980.0100"}` — texto, no número.
+
+    Sin convertir, se escribiría la cadena en una columna float. Postgres la
+    castea y el UPDATE funciona, pero el objeto en memoria se queda con un str
+    hasta el refresh siguiente.
+    """
+    job = _Job(Gqm_adj_formula_pricing=0.0)
+    cambios = _diff_de_job(job, {"Gqm_adj_formula_pricing": "1980.0100"})
+
+    assert cambios["Gqm_adj_formula_pricing"]["podio"] == 1980.01
+    assert isinstance(cambios["Gqm_adj_formula_pricing"]["podio"], float), (
+        "lo que se va a escribir tiene que ser float, no la cadena de Podio"
+    )
+
+
+def test_texto_igual_al_valor_guardado_no_es_divergencia():
+    """«1945.0000» y 1945.0 son el mismo importe."""
+    job = _Job(Gqm_formula_pricing=1945.0)
+    assert _diff_de_job(job, {"Gqm_formula_pricing": "1945.0000"}) == {}
+
+
 @pytest.mark.parametrize("bd,podio,esperado", [
     (None, None, False),
     (None, 100.0, True),      # la BD no tiene el dato y Podio sí: hay que traerlo

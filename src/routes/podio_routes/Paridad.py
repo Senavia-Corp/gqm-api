@@ -395,13 +395,30 @@ def _difiere(bd, podio) -> bool:
         return str(bd) != str(podio)
 
 
+def _a_float(v):
+    """Podio manda los importes como texto: `{"value": "1980.0100"}`.
+
+    Sin esto se escribiría la cadena en una columna float. Postgres la castea y
+    el UPDATE funciona, pero el objeto en memoria se queda con un str hasta el
+    siguiente refresh, y cualquier comparación posterior en la misma sesión
+    compara texto contra número.
+    """
+    if v is None or isinstance(v, float):
+        return v
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return v
+
+
 def _diff_de_job(job, valores_podio: dict) -> dict:
     """Columnas de dinero donde la BD se ha ido de Podio. Podio manda."""
     cambios = {}
     for col in COLUMNAS_DINERO:
         if col not in valores_podio:
             continue  # el campo no existe en esa app; no es divergencia
-        actual, nuevo = getattr(job, col, None), valores_podio[col]
+        actual = getattr(job, col, None)
+        nuevo = _a_float(valores_podio[col])
         if _difiere(actual, nuevo):
             cambios[col] = {"bd": actual, "podio": nuevo}
     return cambios
