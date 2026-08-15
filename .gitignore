@@ -1,3 +1,5 @@
 .env
 __pycache__/
 *.pyc
+# Vercel CLI: `vercel link` deja aqui los IDs de org/proyecto.
+.vercel
