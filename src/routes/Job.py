@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request
 from sqlmodel import select, delete
 from ..database.db_sqlmodel import get_session
 from flask import send_file, request
-from datetime import datetime
+from datetime import datetime, date
 import io
 from ..models.JobModel import Job, JobCreate, JobUpdate
 from ..models.MemberModel import Member
@@ -42,7 +42,7 @@ from src.utils.middleware.auth.routes_protection import (
     scope_jobs_statement,
 )
 from src.utils.policy_evaluator import PolicyEvaluator
-from src.utils.job_app_year import expr_anio_app
+from src.utils.job_app_year import expr_anio_app, resolver_anio_app
 from src.models.JobModel import JobReadBasic
 from src.models.ComDetailModel import CommissionDetail
 from src.models.ComGroupModel import CommissionGroup
@@ -375,7 +375,10 @@ def list_jobs_table():
                     "Gqm_target_return": j.Gqm_target_return,
                     "Gqm_target_sold_pricing": j.Gqm_target_sold_pricing,
                     "created_at": j.created_at.isoformat() if hasattr(j, "created_at") and j.created_at else None,
-                    "podio_app_year": j.podio_app_year,
+                    # La MISMA regla que usan los filtros (`expr_anio_app`), no
+                    # la columna pelada: si no coincidian, el panel filtraba por
+                    # un año y mostraba otro.
+                    "podio_app_year": resolver_anio_app(j),
                     "podio_item_id": j.podio_item_id,
                     "client": None, "members": [],
                 }
@@ -955,6 +958,14 @@ def create_job():
             obj.ID_Jobs = generate_custom_id(
                 session, Job, "ID_Jobs", prefix_map[obj.Job_type])
             obj.podio_item_id = None
+            # Un job local no pasa por Podio, asi que nadie le ponia año: se
+            # quedaba con podio_app_year NULL y ademas su ID lleva prefijo
+            # "QID-I", del que `resolver_anio_app` tampoco puede deducirlo. El
+            # resultado era una fila sin año en jobs_table, que obliga al panel
+            # a adivinarlo desde las fechas (justo lo que fallaba en 88 jobs).
+            if obj.podio_app_year is None:
+                obj.podio_app_year = year or (
+                    obj.Date_assigned.year if obj.Date_assigned else date.today().year)
 
         # Fix race condition: Webhook may have already inserted this job
         existing = session.exec(select(Job).where(Job.ID_Jobs == obj.ID_Jobs)).first()
@@ -1003,6 +1014,16 @@ def create_job():
                                 error=e,
                             )
                     raise e
+        # ── Recálculo automático de campos derivados ──────────────────────
+        # Sin esto el job nace con TODOS los agregados en None/0 y no se
+        # rellenan hasta el primer PATCH o hasta que vuelva el webhook de Podio
+        # (que en un alta sin sync_podio no llega nunca). Mismo patrón que el
+        # PATCH de más abajo.
+        recalculate_and_apply(obj.ID_Jobs, session)
+        session.commit()
+        session.refresh(obj)
+        # ─────────────────────────────────────────────────────────────────
+
         logger.info("✅ Job creado | job_id=%s | podio_item_id=%s",
                     obj.ID_Jobs, obj.podio_item_id)
         return obj.model_dump(), 201

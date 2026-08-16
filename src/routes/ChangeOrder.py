@@ -118,9 +118,19 @@ def create_changeOr():
         # admite Change Orders. Antes esto fallaba en silencio: el mapper
         # devolvía None y el CO se guardaba solo en BD (divergencia BD↔Podio).
         # Ahora se rechaza SIEMPRE (con o sin sync_podio), antes de tocar nada.
-        job_for_type = session.exec(
-            select(Job).where(Job.podio_item_id == obj.job_podio_id)
-        ).first()
+        # Resolver el job por CUALQUIERA de sus dos identificadores. Antes solo
+        # se buscaba por job_podio_id: si el cliente no lo enviaba (el panel
+        # manda `jobPodioId ?? null`), la consulta no encontraba nada, el `and`
+        # de abajo cortocircuitaba y la regla PAR no llegaba a evaluarse — el CO
+        # se guardaba solo en BD, justo la divergencia que este bloque impide.
+        job_for_type = None
+        if obj.job_podio_id:
+            job_for_type = session.exec(
+                select(Job).where(Job.podio_item_id == obj.job_podio_id)
+            ).first()
+        if job_for_type is None and obj.ID_Jobs:
+            job_for_type = session.get(Job, obj.ID_Jobs)
+
         if job_for_type and job_for_type.Job_type == "PAR":
             raise AppException(
                 "Los jobs PAR no admiten Change Orders (usan pagos parciales).",

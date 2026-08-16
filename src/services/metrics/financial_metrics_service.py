@@ -197,11 +197,15 @@ def _fetch_documents(
 
     rows = []
     for row in results:
-        if isinstance(row, tuple):
-            doc, period_collected = row
+        # El select() pide DOS columnas, asi que session.exec() devuelve
+        # sqlalchemy.engine.Row — que NO es instancia de tuple. Comprobarlo con
+        # isinstance(row, tuple) caia siempre en la rama else, dejaba el Row
+        # entero en `doc` y `doc.job` reventaba con AttributeError: job, que el
+        # except generico de mas abajo convertia en un 500 opaco.
+        if isinstance(row, FinancialDocument):
+            doc, period_collected = row, None
         else:
-            doc = row
-            period_collected = None
+            doc, period_collected = row
 
         job = doc.job
         total = float(doc.Total_Amount or 0)
