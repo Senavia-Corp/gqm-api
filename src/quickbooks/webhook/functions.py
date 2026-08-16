@@ -16,6 +16,9 @@ from src.quickbooks.sync.sync_functions import (
     upsert_financial_transaction,
     upsert_financial_link
 )
+from src.quickbooks.sync.sync_bills_with_payments import (
+    _get_date_applied_from_payment,
+)
 from src.quickbooks.services.qbo_base_services import qbo_query
 from src.utils.mappers.qbo_aux_functions import attach_job_code
 from src.database.db_sqlmodel import get_session
@@ -190,8 +193,22 @@ def _handle_payment(session, entity, dry_run):
                 ).first()
 
                 if doc_in_db:
+                    # `dry_run` iba como CUARTO POSICIONAL, y el cuarto
+                    # parametro es `amount_applied` (double precision): Postgres
+                    # rechazaba el booleano con DatatypeMismatch y el pago se
+                    # perdia en la dead-letter. Ademas `dry_run` quedaba en
+                    # False, asi que el modo simulacion escribia igual.
+                    # El importe aplicado a ESTE documento es el de la propia
+                    # linea que estamos recorriendo.
+                    monto = line.get("Amount")
                     upsert_financial_link(
-                        session, doc_in_db.ID_FinancialDoc, trans_obj.ID_FTransaction, dry_run)
+                        session,
+                        doc_in_db.ID_FinancialDoc,
+                        trans_obj.ID_FTransaction,
+                        amount_applied=float(monto) if monto is not None else None,
+                        date_applied=_get_date_applied_from_payment(entity),
+                        dry_run=dry_run,
+                    )
                     # Recalcular es una operación local, es rápida.
                     recalculate_document_from_db(session, linked_id)
 
@@ -252,7 +269,17 @@ def _handle_bill_payment(session, entity, dry_run):
                 ).first()
 
                 if doc_in_db:
+                    # Mismo fallo que en _handle_payment: `dry_run` viajaba en
+                    # la posicion de `amount_applied`. Aqui es donde se
+                    # acumularon 21 BillPayment fallidos el 14-ago-2026.
+                    monto = line.get("Amount")
                     upsert_financial_link(
-                        session, doc_in_db.ID_FinancialDoc, trans_obj.ID_FTransaction, dry_run)
+                        session,
+                        doc_in_db.ID_FinancialDoc,
+                        trans_obj.ID_FTransaction,
+                        amount_applied=float(monto) if monto is not None else None,
+                        date_applied=_get_date_applied_from_payment(entity),
+                        dry_run=dry_run,
+                    )
                     # Actualizamos el balance del Bill localmente
                     recalculate_document_from_db(session, linked_id)
