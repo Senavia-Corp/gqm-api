@@ -271,6 +271,44 @@ def delete_member(id_member):
             raise AppException("Member no encontrado.",
                                "member_not_found", 404)
 
+        # ----------- 🛑 COMPROBAR BLOQUEANTES *ANTES* DE LA CASCADA
+        # MemberModel declara `tlactivity` y `commissions` con
+        # cascade="all, delete, delete-orphan", pero `purchases`, `tasks` y
+        # `chat_messages` NO cascadean: su FK aborta el DELETE.
+        #
+        # El problema es el ORDEN. SQLAlchemy vuelca primero las cascadas y
+        # revienta despues contra la FK, y el fallo NO deshace lo ya borrado:
+        # el miembro sigue ahi pero su auditoria no. Medido en produccion el
+        # 18-ago-2026 con MEM60011: dos intentos fallidos se llevaron 38 de sus
+        # 137 filas de `tlactivity` antes de abortar con 409.
+        #
+        # Comprobar antes cuesta tres COUNT y evita destruir la auditoria de
+        # alguien que al final no se borra.
+        from ..models.PurchaseModel import Purchase
+        from ..models.TasksModel import Tasks
+        from ..models.ChatModel import ChatMessage
+
+        bloqueantes = {}
+        for modelo, columna, etiqueta in (
+            (Purchase, "ID_Member", "purchases"),
+            (Tasks, "ID_Member", "tasks"),
+            (ChatMessage, "ID_Member", "chat_messages"),
+        ):
+            n = session.exec(
+                select(func.count()).select_from(modelo)
+                .where(getattr(modelo, columna) == id_member)
+            ).one()
+            if n:
+                bloqueantes[etiqueta] = n
+
+        if bloqueantes:
+            detalle = ", ".join(f"{v} {k}" for k, v in bloqueantes.items())
+            raise AppException(
+                f"El member tiene registros vinculados que no se borran en "
+                f"cascada: {detalle}. Desvincúlalos primero (o reasígnalos) y "
+                f"repite el borrado.",
+                "member_has_children", 409)
+
         # ----------- 🔴 BORRAR EN DB
         delete_with_retry(session, obj)
 
