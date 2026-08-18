@@ -146,6 +146,10 @@ def create_app():
             # El prefijo es exacto a propósito: `reconciliar_dinero`, `parity` y
             # `purge_orphans` siguen exigiendo JWT.
             "/admin/podio/reconciliar_cron",
+            # Mismo caso: GET de Vercel Cron con Bearer $CRON_SECRET, que no
+            # es un JWT. Valida su propio secreto y falla CERRADO (503 sin
+            # CRON_SECRET). El POST /qbo/refresh_tokens sigue exigiendo JWT.
+            "/qbo/refresh_tokens_cron",
         ]
 
         # Permitir root
@@ -185,7 +189,8 @@ def create_app():
         protect_blueprint(_bp, "iam", fixed_action="iam:manage")
 
     # QBO = solo Full Admin (decisión confirmada)
-    protect_blueprint(qbo_bp, "qbo", fixed_action="qbo:manage")
+    protect_blueprint(qbo_bp, "qbo", fixed_action="qbo:manage",
+                      overrides={"refresh_qbo_tokens_cron": None})
 
     # Sync/administración Podio
     for _bp in (sync_phase1_bp, sync_phase2_bp, admin_bp):

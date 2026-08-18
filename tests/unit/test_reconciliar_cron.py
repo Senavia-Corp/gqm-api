@@ -157,10 +157,13 @@ def test_vercel_json_declara_los_tres_crons():
     import pathlib
 
     raiz = pathlib.Path(__file__).resolve().parents[2]
-    crons = json.loads((raiz / "vercel.json").read_text()).get("crons", [])
+    todos = json.loads((raiz / "vercel.json").read_text()).get("crons", [])
+    # Filtrar por RUTA: vercel.json tambien declara crons de otras cosas (p. ej.
+    # el refresco de tokens de QBO). Antes se afirmaba sobre la lista entera y
+    # cualquier cron ajeno rompia este test sin que nada de Podio estuviera mal.
+    crons = [c for c in todos if c["path"].startswith(RUTA)]
     tipos = {c["path"].split("type=")[-1] for c in crons}
     assert tipos == {"QID", "PTL", "PAR"}, f"faltan crons: {tipos}"
-    assert all(c["path"].startswith(RUTA) for c in crons)
     # Escalonados: dos enumeraciones a la vez se pisan en la misma función.
     minutos = sorted(int(c["schedule"].split()[0]) for c in crons)
     assert len(set(minutos)) == 3, "los tres crons arrancan a la misma hora"

@@ -323,3 +323,44 @@ def refresh_all_qbo_tokens():
 
     status = 200 if all(v == "ok" for v in results.values()) or not results else 207
     return jsonify(results), status
+
+
+# ── El cron que faltaba (REG-114) ────────────────────────────────────────
+# `refresh_tokens` de arriba es POST y exige JWT con `qbo:manage`; Vercel Cron
+# manda GET con `Authorization: Bearer $CRON_SECRET`, que no es un JWT. Sin una
+# ruta como ésta el refresco dependía de que alguien se acordara a mano, y el
+# refresh token de Intuit muere a los ~100 días de inactividad del realm.
+#
+# Mismo patrón que `Paridad.reconciliar_cron`: valida su propio secreto y
+# **falla CERRADO**. Sin `CRON_SECRET` responde 503 y no toca nada — al revés
+# que el token del webhook de Podio, que falló abierto y dejó los hooks de
+# producción aceptando entregas sin autenticar.
+@qbo_bp.get("/refresh_tokens_cron")
+def refresh_qbo_tokens_cron():
+    from flask import jsonify
+
+    from ...database.db_sqlmodel import get_session
+    from ...models.QBOTokensModel import QuickBooksToken
+    from ...quickbooks.qbo_auth import get_valid_access_token
+
+    secreto = os.getenv("CRON_SECRET")
+    if not secreto:
+        return jsonify({"detail": "CRON_SECRET no configurada; el cron no corre "
+                                  "sin autenticación."}), 503
+    if request.headers.get("Authorization") != f"Bearer {secreto}":
+        return jsonify({"detail": "no autorizado"}), 401
+
+    with get_session() as db_session:
+        realms = [t.realm_id for t in db_session.exec(select(QuickBooksToken)).all()]
+
+    resultados = {}
+    for realm in realms:
+        try:
+            get_valid_access_token(realm)
+            resultados[realm] = "ok"
+        except Exception as exc:
+            resultados[realm] = f"error: {exc}"
+
+    # 207 si algún realm falló: el cron debe verse en rojo, no en verde a medias.
+    estado = 200 if not resultados or all(v == "ok" for v in resultados.values()) else 207
+    return jsonify({"realms": resultados, "total": len(resultados)}), estado

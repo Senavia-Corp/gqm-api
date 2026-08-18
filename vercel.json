@@ -1,8 +1,21 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/admin/podio/reconciliar_cron?type=PTL", "schedule": "0 7 * * *" },
-    { "path": "/admin/podio/reconciliar_cron?type=PAR", "schedule": "20 7 * * *" },
-    { "path": "/admin/podio/reconciliar_cron?type=QID", "schedule": "40 7 * * *" }
+    {
+      "path": "/admin/podio/reconciliar_cron?type=PTL",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/admin/podio/reconciliar_cron?type=PAR",
+      "schedule": "20 7 * * *"
+    },
+    {
+      "path": "/admin/podio/reconciliar_cron?type=QID",
+      "schedule": "40 7 * * *"
+    },
+    {
+      "path": "/qbo/refresh_tokens_cron",
+      "schedule": "0 6 * * 1"
+    }
   ]
 }
