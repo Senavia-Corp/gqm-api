@@ -228,6 +228,29 @@ def get_orders_by_job_id(id_job):
 
 # --------------- RUTAS POST, PATCH AND DELETE ----------#
 
+@order_bp.get("/<id_order>/payments")
+@handle_exceptions()
+def listar_cuotas(id_order):
+    """Las cuotas (cheques parciales) pagadas al tecnico de esta orden.
+
+    Hasta ahora los pagos no se podian consultar: vivian en `Payment_1/2/3` y el
+    panel no los leia. Y solo cabian tres, cuando el tecnico 1 de un QID admite
+    once. Cada cuota expone el hueco de Podio que declara ocupar, que es lo que
+    permite reconciliarla a simple vista.
+    """
+    from src.models.OrderPaymentModel import OrderPayment
+
+    with get_session() as session:
+        if not session.get(Order, id_order):
+            raise AppException("Order not found", "order_not_found", 404)
+        cuotas = session.exec(
+            select(OrderPayment)
+            .where(OrderPayment.ID_Order == id_order)
+            .order_by(OrderPayment.Installment)
+        ).all()
+        return [c.model_dump() for c in cuotas], 200
+
+
 @order_bp.post("/")
 @handle_exceptions()
 @audit("Order created", entity_type="Order", id_from="response", job_id_from="body")
