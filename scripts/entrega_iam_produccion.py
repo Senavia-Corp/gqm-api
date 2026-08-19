@@ -17,11 +17,35 @@ import getpass
 import json
 import os
 import secrets
+import ssl
 import sys
 import urllib.error
 import urllib.request
 
 BASE = os.environ.get("GQM_API_URL", "https://gqm-api.vercel.app").rstrip("/")
+
+
+def _contexto_ssl():
+    """Almacen de certificados propio.
+
+    El Python de python.org en macOS no usa el llavero del sistema: espera su
+    bundle en Python.framework/.../etc/openssl/cert.pem, que solo aparece si se
+    ejecuta «Install Certificates.command» tras instalarlo. Sin el, cualquier
+    HTTPS muere con CERTIFICATE_VERIFY_FAILED aunque el certificado sea
+    perfectamente valido (curl, que si usa el llavero, lo valida sin quejarse).
+
+    certifi trae el mismo bundle de Mozilla y viene con requests, que ya es
+    dependencia de este proyecto. Se usa si esta; si no, el de por defecto.
+    Nunca se desactiva la verificacion: aqui viajan credenciales.
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
+_SSL = _contexto_ssl()
 
 # ── Que se toca y por que ────────────────────────────────────────────────────
 TECNICO_JJ = "TEC60001"          # «Juan Jose Jimenez Tech», juanjj272001@gmail.com
@@ -57,7 +81,7 @@ def _peticion(metodo, ruta, cuerpo=None, token=None):
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=45) as r:
+        with urllib.request.urlopen(req, timeout=45, context=_SSL) as r:
             return r.status, json.loads(r.read().decode() or "{}")
     except urllib.error.HTTPError as e:
         cuerpo_err = e.read().decode()
@@ -104,6 +128,14 @@ def main():
         codigo, datos = _peticion("POST", "/auth/login",
                                   {"Email_Address": correo, "Password": clave})
         clave = None
+        if codigo == 0:
+            sys.exit(
+                f"⛔ no se pudo contactar con {BASE} — esto NO es un problema de\n"
+                f"   credenciales, la peticion no llego a salir:\n"
+                f"   {json.dumps(datos)[:200]}"
+            )
+        if codigo == 401:
+            sys.exit("⛔ correo o contrasena incorrectos (401)")
         if codigo != 200 or "access_token" not in datos:
             sys.exit(f"⛔ login fallido ({codigo}): {json.dumps(datos)[:200]}")
         TOKEN = datos["access_token"]
