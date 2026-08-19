@@ -2,11 +2,12 @@ from datetime import date, datetime
 from ..convert_value_podio import convert_value_for_podio
 from sqlmodel import select
 from .job_fields_map import BASE_QID_FIELDS
+from .limpieza_slots import asignar, normalizar
 from src.models.ClientModel import Client
 from src.models.BldgDeptModel import BuildingDept
 
 
-def map_job_to_podio_qid(job_obj, session=None, year=None):
+def map_job_to_podio_qid(job_obj, session=None, year=None, limpiar_slots=None):
     # Year-specific mapping for category fields
     if not year:
         from flask import request
@@ -31,6 +32,7 @@ def map_job_to_podio_qid(job_obj, session=None, year=None):
         year = 2026
 
     payload = {}
+    limpiar = normalizar(limpiar_slots)
     # Campos normales
     for attr, config in BASE_QID_FIELDS.items():
         value = getattr(job_obj, attr, None)
@@ -66,10 +68,9 @@ def map_job_to_podio_qid(job_obj, session=None, year=None):
 
                 converted = convert_value_for_podio(v, config["type"])
 
-                if converted is not None:
-                    payload[ext_id] = converted
-                else:
-                    payload[ext_id] = []
+                # Un hueco que la base no puede rellenar NO se manda: escribir
+                # `[]` aquí borraba el importe que el cliente tiene en Podio.
+                asignar(payload, ext_id, converted, limpiar)
 
         # 🔹 NORMAL FIELD
         else:
@@ -86,9 +87,10 @@ def map_job_to_podio_qid(job_obj, session=None, year=None):
             if converted is not None:
                 payload[config["external_id"]] = converted
 
-    # Relación con Client (M:1)
-    # Si ID_Client es null → mandamos [] para LIMPIAR el campo en Podio
+    # Relación con Client (M:1). Que la app no sepa el cliente no autoriza a
+    # desvincularlo en Podio: sólo se vacía si se pide por `limpiar_slots`.
     client_internal_id = job_obj.ID_Client
+    client_valor = None
 
     if client_internal_id and session:
         client = session.exec(
@@ -96,17 +98,15 @@ def map_job_to_podio_qid(job_obj, session=None, year=None):
         ).first()
 
         if client and client.podio_item_id:
-            payload["relationship"] = convert_value_for_podio(
-                client.podio_item_id, "app"
-            )
-        else:
-            payload["relationship"] = []
-    else:
-        payload["relationship"] = []
+            client_valor = convert_value_for_podio(client.podio_item_id, "app")
 
-    # Relación con Building Department (M:1)
-    # Si ID_BldgDept es null → mandamos [] para LIMPIAR el campo en Podio
+    asignar(payload, "relationship", client_valor, limpiar)
+
+    # Relación con Building Department (M:1). Mismo criterio: 6.438 de los 6.497
+    # QID de producción no tienen `ID_BldgDept`, y les estábamos borrando el
+    # departamento que sí tienen en Podio.
     bldg_internal_id = job_obj.ID_BldgDept
+    bldg_valor = None
 
     if bldg_internal_id and session:
         bldg_dept = session.exec(
@@ -115,13 +115,9 @@ def map_job_to_podio_qid(job_obj, session=None, year=None):
         ).first()
 
         if bldg_dept and bldg_dept.podio_item_id:
-            payload["bldg-dept"] = convert_value_for_podio(
-                bldg_dept.podio_item_id, "app"
-            )
-        else:
-            payload["bldg-dept"] = []
-    else:
-        payload["bldg-dept"] = []
+            bldg_valor = convert_value_for_podio(bldg_dept.podio_item_id, "app")
+
+    asignar(payload, "bldg-dept", bldg_valor, limpiar)
 
     # Relaciones con Members y Subcontractors (M:N) se mandan desde los links
 
