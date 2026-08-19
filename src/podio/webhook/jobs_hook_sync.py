@@ -571,9 +571,10 @@ def sync_familia_desde_podio(session, job, item, fam) -> None:
         return
 
     por_slot = podio_slots.ocupados(session, fam, job.ID_Jobs)
-    legacy = podio_slots.slots_legacy_posicionales(session, fam, job.ID_Jobs)
-    sin_declarar = [r for r in podio_slots.registros(session, fam, job.ID_Jobs)
-                    if not getattr(r, "podio_field", None)]
+    # Para adoptar se usa la posicion SIN mirar el importe: un registro a cero
+    # es justo el que tiene que recibir el valor de Podio. La regla del cero es
+    # del sentido saliente.
+    adopcion = podio_slots.posiciones_sin_declarar(session, fam, job.ID_Jobs)
 
     creador = next((p for p in fam.propietarios if p.crea_desde_podio), None)
 
@@ -587,8 +588,8 @@ def sync_familia_desde_podio(session, job, item, fam) -> None:
 
         # Mientras el backfill no haya corrido, el hueco lo ocupa de facto el
         # registro que le tocaba por posición. Se adopta y se declara.
-        if registro is None and ext_id in legacy and sin_declarar:
-            registro = sin_declarar.pop(0)
+        if registro is None and ext_id in adopcion:
+            registro = adopcion.pop(ext_id)
             registro.podio_field = ext_id
 
         if registro is not None:

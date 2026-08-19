@@ -147,12 +147,26 @@ def registros(session, fam: Familia, id_jobs: str) -> list:
 
 
 def _importe(fam: Familia, registro) -> Optional[float]:
+    """El importe del registro, o None si no tiene.
+
+    **Cero cuenta como «no tiene».** Una compra sin líneas nace con
+    `Total_spending` a 0 y no es un importe real: es la ausencia de uno. Antes
+    reclamaba hueco igual y escribía `0,00` en Podio.
+
+    Medido en producción el 19-ago-2026: de las 11 compras con job, **6 están a
+    cero**, y una de ellas (`IH60027`, de `QID6809`) reclamaría el hueco donde
+    Podio tiene **31,99** — lo habría sobrescrito con 0 en la siguiente
+    sincronización.
+    """
     for p in fam.propietarios:
         if isinstance(registro, p.modelo):
             # dos propietarios pueden compartir modelo (Rent y BDF son ambos
             # EstimateCost); el atributo de importe es el mismo, así que vale.
             v = getattr(registro, p.attr_importe, None)
-            return None if v is None else float(v)
+            if v is None:
+                return None
+            v = float(v)
+            return None if v == 0 else v
     return None
 
 
@@ -193,6 +207,28 @@ def payload_por_slot(session, fam: Familia, id_jobs: str) -> dict[str, float]:
     return salida
 
 
+def posiciones_sin_declarar(session, fam: Familia, id_jobs: str) -> dict[str, Any]:
+    """`{external_id: registro}` para los que aún no declaran hueco.
+
+    A diferencia de `slots_legacy_posicionales`, **no mira el importe**: es para
+    el sentido ENTRANTE, donde un registro a cero es precisamente el que tiene
+    que recibir el valor de Podio. La regla del cero es del sentido SALIENTE —
+    no escribir `0,00` encima de lo que el cliente tenga.
+    """
+    todos = registros(session, fam, id_jobs)
+    declarados = {getattr(r, "podio_field", None) for r in todos}
+    disponibles = [e for e in fam.external_ids if e not in declarados]
+
+    salida = {}
+    for r in todos:
+        if getattr(r, "podio_field", None):
+            continue
+        if not disponibles:
+            break
+        salida[disponibles.pop(0)] = r
+    return salida
+
+
 def slots_legacy_posicionales(session, fam: Familia, id_jobs: str) -> dict[str, float]:
     """El reparto por posición de siempre, **sólo** para los registros que aún
     no declaran hueco.
@@ -209,12 +245,12 @@ def slots_legacy_posicionales(session, fam: Familia, id_jobs: str) -> dict[str, 
     for r in todos:
         if getattr(r, "podio_field", None):
             continue
+        v = _importe(fam, r)
+        if v is None:
+            continue          # sin importe no consume posición ni escribe
         if not disponibles:
             break
-        v = _importe(fam, r)
-        slot = disponibles.pop(0)
-        if v is not None:
-            salida[slot] = v
+        salida[disponibles.pop(0)] = v
     return salida
 
 
@@ -232,6 +268,11 @@ def reservar(session, fam: Familia, id_jobs: str, registro,
     """
     if getattr(registro, "podio_field", None):
         return registro.podio_field
+
+    # Sin importe no se reclama hueco: ver `_importe`. Reservarlo escribiría
+    # `0,00` sobre lo que el cliente tenga en Podio.
+    if _importe(fam, registro) is None:
+        return None
 
     tomados_bd = set(ocupados(session, fam, id_jobs, excluir_pk=_pk(registro)))
     candidatos = [e for e in fam.external_ids if e not in tomados_bd]

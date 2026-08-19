@@ -77,9 +77,11 @@ WITH pool AS (
   SELECT 'EC' AS t, "ID_EstimateCost" AS pk, "ID_Jobs", 0 AS grupo, "ID_EstimateCost" AS orden
     FROM estimate_cost
    WHERE "Cost_type" = 'Rent' AND "Status" = 'Approved' AND "ID_Jobs" IS NOT NULL
+     AND coalesce("Client_price", 0) <> 0
   UNION ALL
   SELECT 'P', "ID_Purchase", "ID_Jobs", 1, "ID_Purchase"
     FROM purchase WHERE "ID_Jobs" IS NOT NULL
+     AND coalesce("Total_spending", 0) <> 0
 ), num AS (
   SELECT t, pk, row_number() OVER (PARTITION BY "ID_Jobs" ORDER BY grupo, orden) - 1 AS idx
     FROM pool

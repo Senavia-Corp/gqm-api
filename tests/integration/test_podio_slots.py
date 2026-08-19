@@ -170,3 +170,62 @@ def test_los_costes_no_aprobados_no_ocupan_hueco(job_id):
 
         assert podio_slots.libres_en_bd(s, fam, job_id) == list(fam.external_ids)
         s.rollback()
+
+
+def test_un_registro_sin_importe_no_reclama_hueco(job_id):
+    """C2 · Una compra sin líneas nace con `Total_spending` a 0, y eso no es un
+    importe: es la ausencia de uno. Antes reclamaba hueco igual y escribía
+    `0,00` en Podio.
+
+    Medido en producción el 19-ago-2026: de las 11 compras con job, **6 están a
+    cero**, y `IH60027` (de `QID6809`) reclamaba el hueco donde Podio tiene
+    **31,99** — lo habría sobrescrito con 0 en la siguiente sincronización.
+    """
+    with get_session() as s:
+        fam = podio_slots.familia(MAT)
+        vacia = Purchase(ID_Purchase=f"IHT{uuid.uuid4().int % 90000}",
+                         ID_Jobs=job_id, Total_spending=0)
+        s.add(vacia)
+        s.flush()
+
+        assert podio_slots.reservar(s, fam, job_id, vacia) is None
+        assert vacia.podio_field is None
+        assert podio_slots.payload_por_slot(s, fam, job_id) == {}
+        assert podio_slots.slots_legacy_posicionales(s, fam, job_id) == {}
+        s.rollback()
+
+
+def test_el_cero_no_corre_la_posicion_de_los_demas(job_id):
+    """Y tampoco consume posición: la compra con importe sigue en el hueco 1."""
+    with get_session() as s:
+        fam = podio_slots.familia(MAT)
+        base = uuid.uuid4().int % 90000
+        s.add(Purchase(ID_Purchase=f"IHT{base}A", ID_Jobs=job_id, Total_spending=0))
+        s.add(Purchase(ID_Purchase=f"IHT{base}B", ID_Jobs=job_id, Total_spending=820))
+        s.flush()
+
+        assert podio_slots.slots_legacy_posicionales(s, fam, job_id) == {
+            "materials-purchased-1-2": 820.0}
+        s.rollback()
+
+
+def test_un_registro_a_cero_SI_puede_recibir_el_valor_de_podio(job_id):
+    """La regla del cero es del sentido SALIENTE, no del entrante.
+
+    Un marcador a cero en la app es precisamente el que tiene que recibir el
+    importe real desde Podio: asi es como se reconcilia. Lo que no puede es
+    escribir su cero encima de lo que el cliente tenga.
+    """
+    with get_session() as s:
+        fam = podio_slots.familia(MAT)
+        vacia = Purchase(ID_Purchase=f"IHT{uuid.uuid4().int % 90000}",
+                         ID_Jobs=job_id, Total_spending=0)
+        s.add(vacia)
+        s.flush()
+
+        # saliente: no reclama hueco ni escribe
+        assert podio_slots.payload_por_slot(s, fam, job_id) == {}
+        # entrante: si es adoptable, y por la primera posicion libre
+        adopcion = podio_slots.posiciones_sin_declarar(s, fam, job_id)
+        assert adopcion["materials-purchased-1-2"] is vacia
+        s.rollback()
