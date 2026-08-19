@@ -31,9 +31,15 @@ def _record_failed_sync(session, job, error) -> None:
     )
 
 
-def sync_job_to_podio(job_id: str, session) -> bool:
+def sync_job_to_podio(job_id: str, session, limpiar_slots=None) -> bool:
     """Sincroniza el job a Podio. Devuelve True si sincronizó (o no había
-    nada que sincronizar) y False si falló — el /resync usa este valor."""
+    nada que sincronizar) y False si falló — el /resync usa este valor.
+
+    `limpiar_slots` es la ÚNICA vía por la que sale un `[]` hacia Podio, y `[]`
+    en Podio borra el campo. Lo usan las rutas que sueltan un hueco (borrar o
+    desaprobar un coste) para vaciarlo de forma explícita. Sin él, un hueco que
+    la app no puede rellenar simplemente no viaja, y Podio conserva su valor.
+    """
     if not job_id:
         return False
     job = None
@@ -44,11 +50,14 @@ def sync_job_to_podio(job_id: str, session) -> bool:
 
         podio_fields = None
         if job.Job_type == "QID":
-            podio_fields = map_job_to_podio_qid(job, session=session)
+            podio_fields = map_job_to_podio_qid(job, session=session,
+                                                limpiar_slots=limpiar_slots)
         elif job.Job_type == "PTL":
-            podio_fields = map_job_to_podio_ptl(job, session=session)
+            podio_fields = map_job_to_podio_ptl(job, session=session,
+                                                limpiar_slots=limpiar_slots)
         elif job.Job_type == "PAR":
-            podio_fields = map_job_to_podio_par(job, session=session)
+            podio_fields = map_job_to_podio_par(job, session=session,
+                                                limpiar_slots=limpiar_slots)
 
         if not podio_fields:
             return True
