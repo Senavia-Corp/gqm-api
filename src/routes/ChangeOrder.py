@@ -222,6 +222,10 @@ def create_changeOr():
         session.commit()
         # ─────────────────────────────────────────────────────────────────
 
+        # C3: sin este refresh la respuesta salia con `podio_field: null` aunque
+        # el hueco SI quedaba persistido, y el panel no podia decir a que hueco
+        # habia ido el change order sin releer.
+        session.refresh(obj)
         return obj.model_dump(), 201
 
 

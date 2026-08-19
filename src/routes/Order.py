@@ -292,6 +292,28 @@ def create_order():
         recalculate_order_formulas(obj.ID_Order, session)
         session.refresh(obj) # Asegurar recargar los valores calculados en memoria
 
+        # G6.1 · UNA ORDEN POR HUECO DE TECNICO, tambien sin Podio de por medio.
+        # La regla solo existia como comprobacion CONTRA PODIO, asi que con
+        # `sync_podio=false` se podian crear N ordenes en el mismo hueco.
+        #
+        # La clave es el HUECO, no el subcontratista: en produccion hay 29 jobs
+        # donde el mismo subcontratista ocupa DOS huecos de tecnico, y eso es
+        # legitimo — asi esta en Podio. Lo que no puede haber es dos ordenes
+        # escribiendo en el mismo `TECH n - Formula`.
+        if obj.tech_field and obj.job_podio_id:
+            ya = session.exec(
+                select(Order).where(
+                    Order.job_podio_id == obj.job_podio_id,
+                    Order.tech_field == obj.tech_field,
+                    Order.ID_Order != obj.ID_Order,
+                )
+            ).first()
+            if ya:
+                raise AppException(
+                    f"Ese hueco de técnico ya lo ocupa la orden {ya.ID_Order} en "
+                    f"este job. Edita la existente en lugar de crear otra.",
+                    "order_slot_taken", 409)
+
         # VALIDACIÓN: No permitir órdenes con fórmula 0
         if not obj.Formula or obj.Formula == 0:
             raise AppException(
@@ -360,6 +382,20 @@ def create_order():
                 podio_service.update_item(obj.job_podio_id, payload)
 
             except Exception as podio_err:
+                # G6.4: ninguna ruta de ordenes registraba divergencias —
+                # `record_failed_sync` solo se usaba desde Job y desde el lado
+                # entrante, asi que un fallo aqui no dejaba rastro reconciliable.
+                from src.utils.failed_sync import record_failed_sync
+                try:
+                    record_failed_sync(
+                        session, item_id=str(obj.job_podio_id),
+                        hook_type="order_create_divergence",
+                        payload={"ID_Order": obj.ID_Order,
+                                 "ID_Subcontractor": obj.ID_Subcontractor,
+                                 "payload": payload},
+                        error=podio_err)
+                except Exception:
+                    logger.exception("No se pudo registrar la divergencia de la orden")
                 # Rollback compensatorio
                 session.delete(obj)
                 session.commit()

@@ -220,7 +220,21 @@ def podio_general_webhook(app_type, token=None):
                 )
 
             else:
-                print(f"⚠️ Evento no manejado: {event_type}")
+                # H7: antes esto caia en el mismo commit de la rama feliz y
+                # respondia 200 sin log ni dead-letter, asi que un evento nuevo
+                # o renombrado de Podio se daba por procesado.
+                logger.warning(
+                    "Evento de Podio no reconocido: type=%s app=%s year=%s item=%s",
+                    event_type, app_type, year, item_id)
+                from src.utils.failed_sync import record_failed_sync
+                try:
+                    record_failed_sync(
+                        session, item_id=str(item_id),
+                        hook_type=f"podio.jobs.{app_type}.{year}.{event_type or 'desconocido'}",
+                        payload=data,
+                        error=f"evento no reconocido: {event_type!r}")
+                except Exception:
+                    logger.exception("No se pudo registrar el evento desconocido")
 
             session.commit()
 
@@ -299,7 +313,21 @@ def podio_relations_webhook(app_type, token=None):
                 )
 
             else:
-                print(f"⚠️ Evento no manejado: {event_type}")
+                # H7: antes esto caia en el mismo commit de la rama feliz y
+                # respondia 200 sin log ni dead-letter, asi que un evento nuevo
+                # o renombrado de Podio se daba por procesado.
+                logger.warning(
+                    "Evento de Podio no reconocido: type=%s app=%s year=%s item=%s",
+                    event_type, app_type, year, item_id)
+                from src.utils.failed_sync import record_failed_sync
+                try:
+                    record_failed_sync(
+                        session, item_id=str(item_id),
+                        hook_type=f"podio.jobs.{app_type}.{year}.{event_type or 'desconocido'}",
+                        payload=data,
+                        error=f"evento no reconocido: {event_type!r}")
+                except Exception:
+                    logger.exception("No se pudo registrar el evento desconocido")
 
             session.commit()
 
@@ -464,6 +492,9 @@ def podio_jobs_webhook(app_type, year, token=None):
 
         print(f"📩 Evento recibido: {event_type} | Item ID: {item_id}")
 
+        # G3: el job cuyos agregados hay que devolver a Podio TRAS el commit.
+        job_para_devolver = None
+
         with get_session() as session:
 
             # ── CREATE & UPDATE ───────────────────────────────────────────
@@ -496,6 +527,12 @@ def podio_jobs_webhook(app_type, year, token=None):
 
                 if updated_job:
                     recalculate_and_apply(updated_job.ID_Jobs, session)
+                    # G3: se apunta para devolverlo a Podio DESPUES del commit.
+                    # Hacerlo aqui dentro seria peligroso: si la escritura falla,
+                    # `record_failed_sync` hace un `session.rollback()` defensivo
+                    # que descartaria todo lo que el webhook acaba de aplicar.
+                    # Lo entrante se guarda primero; el eco es best-effort.
+                    job_para_devolver = updated_job.ID_Jobs
 
                     # --- 💰 TRIGGER DE COMISIONES (LOCAL) ---
                     # Normalizar ambos estados a mayúsculas para la comparación
@@ -598,11 +635,43 @@ def podio_jobs_webhook(app_type, year, token=None):
                     )
 
             else:
-                print(f"⚠️ Evento no manejado: {event_type}")
+                # H7: antes esto caia en el mismo commit de la rama feliz y
+                # respondia 200 sin log ni dead-letter, asi que un evento nuevo
+                # o renombrado de Podio se daba por procesado.
+                logger.warning(
+                    "Evento de Podio no reconocido: type=%s app=%s year=%s item=%s",
+                    event_type, app_type, year, item_id)
+                from src.utils.failed_sync import record_failed_sync
+                try:
+                    record_failed_sync(
+                        session, item_id=str(item_id),
+                        hook_type=f"podio.jobs.{app_type}.{year}.{event_type or 'desconocido'}",
+                        payload=data,
+                        error=f"evento no reconocido: {event_type!r}")
+                except Exception:
+                    logger.exception("No se pudo registrar el evento desconocido")
 
             # El commit único al final cubre tanto process_jobs_podio
             # como recalculate_and_apply en la misma transacción
             session.commit()
+
+        # ── G3 · devolver los agregados recalculados a Podio ──────────────
+        # Un agregado es DERIVADO: quien lo corrige a mano en Podio veia su
+        # numero ahi mientras la app se quedaba con el calculo local, y los dos
+        # lados quedaban separados de forma permanente. Ahora la app devuelve lo
+        # recalculado y terminan iguales. El eco lo descarta el anti-bucle.
+        #
+        # Fuera del `with` y en sesion propia, para que un fallo aqui NO pueda
+        # tocar lo que ya se guardo.
+        if job_para_devolver:
+            try:
+                from src.utils.podio_job_sync import sync_job_to_podio
+                with get_session() as s2:
+                    sync_job_to_podio(job_para_devolver, s2)
+                    s2.commit()
+            except Exception:
+                logger.warning("No se pudo devolver el recalculo de %s a Podio",
+                               job_para_devolver, exc_info=True)
 
     except Exception as e:
         print(f"❌ Error procesando webhook: {e}")

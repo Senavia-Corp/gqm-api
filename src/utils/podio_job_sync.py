@@ -6,7 +6,7 @@ from src.utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
 from src.utils.mappers.to_podio.ptl_mapper import map_job_to_podio_ptl
 from src.utils.mappers.to_podio.par_mapper import map_job_to_podio_par
 from src.podio.services.job_services import podio_jobs_router
-from src.utils.mappers.mapper_aux_functions import register_event
+from src.utils.mappers.mapper_aux_functions import olvidar_evento as _olvidar_evento, register_event
 from src.utils.middleware.logs.logs import logger
 from src.utils.job_app_year import resolver_anio_app
 
@@ -74,11 +74,18 @@ def sync_job_to_podio(job_id: str, session, limpiar_slots=None) -> bool:
 
         # Register the event before update to prevent loopback
         try:
-            register_event(job.podio_item_id)
+            register_event(job.podio_item_id, podio_fields)
         except Exception:
             pass
 
-        podio_service.update_item(int(job.podio_item_id), podio_fields)
+        try:
+            podio_service.update_item(int(job.podio_item_id), podio_fields)
+        except Exception:
+            # El eco se anota ANTES de escribir para ganarle la carrera al
+            # webhook. Si la escritura falla, esa anotacion es mentira: hay que
+            # retirarla o descartaria eventos legitimos que lleguen despues.
+            _olvidar_evento(job.podio_item_id)
+            raise
         logger.info("Auto-sync de Job %s a Podio (año %s) OK", job_id, year)
         return True
     except Exception as e:

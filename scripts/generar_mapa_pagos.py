@@ -46,6 +46,7 @@ import sys
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 ESQUEMA = pathlib.Path.home() / "outputs/gqm-auditoria-campos/esquema"
 ARTEFACTO = RAIZ / "src/utils/mappers/from_podio/payment_slots.json"
+INVENTARIO = RAIZ / "src/podio/campos_por_anio.json"
 FIXTURE = RAIZ / "tests/fixtures/esquema_pagos.json"
 
 SECCION = re.compile(r"^TECHNICIAN\s+(\d+)\s+PAYMENT\s+SCHEDULE", re.I)
@@ -182,6 +183,19 @@ def main(argv=None) -> int:
         ARTEFACTO.parent.mkdir(parents=True, exist_ok=True)
         ARTEFACTO.write_text(json.dumps(art, indent=2, ensure_ascii=False) + "\n")
         print(f"✓ artefacto escrito: {ARTEFACTO}")
+
+        # Inventario de campos por (tipo, año). Lo usa `PodioBaseService` para
+        # no mandar a un año campos que esa app no tiene: las apps QID de 2023 y
+        # 2024 no tienen `bldg-fees-*`, y Podio rechaza la actualización ENTERA
+        # con `field.not.found`, no sólo el campo que sobra.
+        inv = {}
+        for v in cargar_volcados(args.dir):
+            inv.setdefault(v["job_type"], {})[str(v["anio"])] = sorted(
+                c["external_id"] for c in v["campos"] if c.get("external_id"))
+        INVENTARIO.write_text(json.dumps(
+            {"_comentario": "GENERADO por scripts/generar_mapa_pagos.py — no editar.",
+             "apps": inv}, indent=1) + "\n")
+        print(f"✓ inventario de campos escrito: {INVENTARIO}")
 
     for tipo, app in sorted(art["apps"].items()):
         marca = "sí" if app["habilitado"] else "NO (decisión de cliente)"

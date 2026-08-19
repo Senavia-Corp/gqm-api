@@ -73,8 +73,15 @@ def parse_and_validate_webhook(app_type: str, year: Optional[int] = None):
     # ---- PREPARACION PARA RECIBIR EVENTOS Y QUE NO SE REPITAN
     item_id = data.get("item_id")
 
-    # ---- Anti-loop: ignorar si el evento es reciente
-    if item_id and is_recent_event(item_id):
+    # ---- Anti-bucle: SOLO para `item.update`.
+    #
+    # Las escrituras de la app producen `item.update`, nunca un create ni un
+    # delete. Aplicarlo a los tres tenía una consecuencia fea: si una escritura
+    # saliente fallaba (el eco queda anotado ANTES de escribir, a proposito,
+    # para ganarle la carrera al webhook), el `item.delete` que llegara despues
+    # se descartaba como si fuera nuestro eco — y el job no se borraba.
+    if item_id and data.get("type") == "item.update" \
+            and is_recent_event(item_id, data.get("item")):
         return app_type, None, jsonify({"status": "ignored"}), 200
 
     return app_type, data, None, None

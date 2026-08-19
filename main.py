@@ -59,6 +59,7 @@ from src.podio.get_user_id import podio_filter_bp
 from src.routes.Webhook_bp import webhook_bp
 from src.routes.podio_routes.AdminHooks import admin_bp
 from src.routes.podio_routes.Paridad import paridad_bp
+from src.routes.podio_routes.Divergencias import divergencias_bp
 # Rutas de Quickbooks
 from src.routes.qbo_routes.app_urls import qbo_bp
 from src.quickbooks.qbo_auth import qbo_oauth_bp
@@ -204,6 +205,10 @@ def create_app():
     protect_blueprint(paridad_bp, "admin", fixed_action="admin:sync",
                       overrides={"reconciliar_cron": None})
 
+    # Informe de divergencias campo a campo (solo lectura). Es el contrapeso de
+    # la regla del vacio: si nunca se borra, hay que poder VER lo que diverge.
+    protect_blueprint(divergencias_bp, "admin", fixed_action="admin:sync")
+
     # Financiero
     for _bp in (order_bp, change_order_bp, estimate_bp, purchase_order_bp,
                 purchase_order_item_bp, reimbursement_bp, fdocument_bp,
@@ -321,6 +326,7 @@ def create_app():
     app.register_blueprint(admin_bp)
     # Censo Podio ↔ BD (solo lectura)
     app.register_blueprint(paridad_bp)
+    app.register_blueprint(divergencias_bp)
 
     # debug_bp expone items de Podio: SOLO en entorno de pruebas (REG-032/082)
     if _env("APP_ENV", default="production") == "test":

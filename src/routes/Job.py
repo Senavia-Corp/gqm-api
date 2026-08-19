@@ -944,7 +944,7 @@ def create_job():
                     f"Error de Podio al crear el registro: {error_details}", "podio_creation_error", 400)
 
             obj.ID_Jobs = formatted_id
-            register_event(obj.podio_item_id)
+            register_event(obj.podio_item_id, podio_fields)
 
         else:
             prefix_map = {
@@ -1096,7 +1096,7 @@ def update_job(id_job):
                 job_type=obj.Job_type, year=year)
             try:
                 podio_service.update_item(int(obj.podio_item_id), podio_fields)
-                register_event(obj.podio_item_id)
+                register_event(obj.podio_item_id, podio_fields)
                 logger.info("🔄 Job actualizado en Podio | job_id=%s | podio_item_id=%s",
                             id_job, obj.podio_item_id)
             except Exception as podio_err:
@@ -1220,6 +1220,8 @@ def delete_job(id_job):
             import requests
             try:
                 podio_service.delete_item(int(obj.podio_item_id))
+                # Un borrado no escribe campos: no hay contenido que comparar,
+                # así que el eco se descarta sólo por la ventana corta.
                 register_event(obj.podio_item_id)
                 logger.info("🗑️ Job eliminado en Podio | job_id=%s | podio_item_id=%s",
                             id_job, obj.podio_item_id)

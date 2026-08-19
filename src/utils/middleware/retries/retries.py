@@ -66,6 +66,20 @@ def retry_api_lectura(max_retries=3, backoff=0.5, tope=4.0):
     return decorator
 
 
+def _es_permanente(e) -> bool:
+    """¿Reintentar esto tiene alguna posibilidad de salir distinto?
+
+    La guarda de entorno (`EscrituraFueraDeEntorno`) no es un fallo transitorio:
+    el item pertenece a la app que pertenece, y va a seguir perteneciendo dentro
+    de dos segundos. Reintentarlo tres veces con backoff sólo gasta tiempo — en
+    las pruebas se nota mucho, y en produccion multiplica por tres la latencia
+    de cada escritura bloqueada.
+    """
+    from src.podio.services.podio_base_services import EscrituraFueraDeEntorno
+
+    return isinstance(e, EscrituraFueraDeEntorno)
+
+
 def retry_api(max_retries=3, backoff=2):
     """
     Decorador para reintentar llamadas a APIs externas.
@@ -82,6 +96,9 @@ def retry_api(max_retries=3, backoff=2):
                     return func(*args, **kwargs)
 
                 except Exception as e:
+                    if _es_permanente(e):
+                        logger.error("[retry_api] Fallo permanente, no se reintenta: %s", e)
+                        raise
                     logger.error(
                         f"[retry_api] Error en intento {attempt}/{max_retries}: {e}",
                         exc_info=True

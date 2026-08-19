@@ -139,11 +139,17 @@ def test_falla_de_carrera_ajena_se_auto_resuelve(client, admin_headers, item_ids
     resp = client.get("/webhook/podio/failed_syncs/count", headers=admin_headers)
     assert resp.status_code == 200
     with get_session() as s:
+        # Filtrado por `hook_type`: desde G3 la devolucion de agregados a Podio
+        # tambien puede dejar su propia fila (`auto_sync_to_podio`) para el
+        # mismo item, y un `.first()` sin filtrar cogia la equivocada.
         fs = s.exec(select(PodioFailedSync).where(
-            PodioFailedSync.item_id == str(item_id))).first()
+            PodioFailedSync.item_id == str(item_id),
+            PodioFailedSync.hook_type == "podio.jobs.QID.2026.item.create")).first()
         assert fs is not None and fs.resolved is True, "no se auto-resolvió"
         assert "auto-resuelta" in (fs.error_message or ""), "sin rastro del motivo"
-        s.delete(fs)
+        for otra in s.exec(select(PodioFailedSync).where(
+                PodioFailedSync.item_id == str(item_id))).all():
+            s.delete(otra)
         s.commit()
 
 

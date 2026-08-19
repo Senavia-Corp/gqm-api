@@ -17,6 +17,39 @@ estimate_bp = Blueprint("estimate_blueprint", __name__, url_prefix="/estimate")
 
 # ── GETs ─────────────────────────────────────────────────────────────────────
 
+# H4 · Conceptos que NO tienen destino en Podio para ese tipo de job.
+# `recalculate_job_fields` nunca mira `Job_type`, así que un alquiler o un BD
+# fee metido en un PTL/PAR entraba en `Gqm_formula_pricing` y no salía a Podio:
+# el precio de la app se desviaba en silencio. Medido en la corrida del
+# 18-ago-2026: PTL +400 (Rent 250 + BDF 150) y PAR +900 (los tres conceptos).
+#
+# `Material` SÍ tiene destino en PTL (`fees-and-cost`, «GQM Estimated Material
+# (total)»), así que ahí no se bloquea. Y `Subcontractor`, `Equipment` y `Other`
+# no ocupan hueco: alimentan la fórmula a través de las órdenes.
+COSTOS_SIN_DESTINO = {
+    "PTL": {"Rent", "BDF"},
+    "PAR": {"Rent", "BDF", "Material"},
+    "QID": {"PTLGCF"},          # el GC Fee es exclusivo de PTL
+}
+
+
+def _exigir_tipo_de_costo_valido(session, obj):
+    if not obj.ID_Jobs:
+        return
+    from src.models.JobModel import Job
+
+    job = session.get(Job, obj.ID_Jobs)
+    if not job or not job.Job_type:
+        return
+    prohibidos = COSTOS_SIN_DESTINO.get(job.Job_type.upper(), set())
+    tipo = (obj.Cost_type or "").strip()
+    if tipo in prohibidos:
+        raise AppException(
+            f"Un job {job.Job_type} no admite costes de tipo «{tipo}»: no tienen "
+            f"destino en Podio y desviarían el precio de la app.",
+            "cost_type_no_valido_para_el_tipo", 422)
+
+
 def _reservar_hueco(session, obj):
     """Marca en el coste el `external_id` que va a ocupar en Podio."""
     from src.utils import podio_slots
@@ -120,6 +153,7 @@ def create_estimate():
     with get_session() as session:
         obj.ID_EstimateCost = generate_custom_id(
             session, EstimateCost, "ID_EstimateCost", "EST")
+        _exigir_tipo_de_costo_valido(session, obj)
         _exigir_hueco_libre(session, obj)
         _reservar_hueco(session, obj)
         save_with_retry(session, obj)
@@ -160,6 +194,7 @@ def update_estimate(id_estimate):
             setattr(obj, key, value)
 
         # El hueco se toma al APROBAR y se suelta al desaprobar, no al crear.
+        _exigir_tipo_de_costo_valido(session, obj)
         estado_ahora = (obj.Status or "").strip()
         slots_a_limpiar = []
         if estado_ahora == "Approved" and estado_antes != "Approved":

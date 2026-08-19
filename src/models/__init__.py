@@ -20,6 +20,7 @@ from src.models.MultiplierRModel import MultiplierR
 from src.models.OpportunitiesModel import Opportunities
 from src.models.OrderModel import Order
 from src.models.OrderPaymentModel import OrderPayment
+from src.models.PodioEchoModel import PodioEcho
 from src.models.ParentMgmtCoModel import ParentMgmtCo
 from src.models.PaymentUnitModel import PaymentUnit
 from src.models.PermissionModel import Permission
