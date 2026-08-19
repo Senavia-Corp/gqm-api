@@ -100,11 +100,20 @@ FIELD_ALIASES_QID = {
         "field_id": [274767628, 269478266],
         "external_ids": ["calculation-10"]
     },
-    "Bldg_dept_fees": {
-        "field_id": [274767629, 274767630, 274767631, 269478197, 269478265, 269478318],
-        "external_ids": ["bldg-fees-1", "bldg-fees-2", "bldg-dept-fees-3"],
-        "multi": True
-    },
+    # `Bldg_dept_fees` RETIRADO de este mapa el 18-ago-2026 (era `multi` sobre
+    # `bldg-fees-1`, `bldg-fees-2`, `bldg-dept-fees-3`).
+    #
+    # El lector `multi` sólo acumula los campos que VIENEN en el payload, y
+    # Podio no manda los vacíos: con `bldg-fees-2` vacío producía `[100, 250]`,
+    # de longitud 2, y el importe del hueco 3 acababa escrito en la fila del
+    # hueco 2 — silencioso y persistente, porque el siguiente sync devolvía ese
+    # valor al hueco 2 en Podio.
+    #
+    # Ahora los BD fees entran por `sync_bdf_from_podio`, que lee del ítem
+    # crudo por `external_id` y aplica cada importe sobre el registro que
+    # DECLARA ese hueco (`EstimateCost.podio_field`). La columna del job pasa a
+    # ser derivada: su único escritor es `recalculate_and_apply`.
+    # Ver src/utils/podio_slots.py.
     "Gqm_total_materials_fees": {
         "field_id": [274767634, 268722200, 258250466, 246315516],
         "external_ids": ["materials-purchased-total-2"]

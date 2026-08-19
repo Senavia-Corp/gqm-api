@@ -86,13 +86,21 @@ def test_qid_limpiar_slots_es_el_unico_canal_de_borrado(sesion):
 
 def test_qid_los_valores_reales_siguen_saliendo(sesion):
     payload = map_job_to_podio_qid(
-        _qid(Job_status="Invoiced", Project_name="Casa 4", Bldg_dept_fees=[120.0, None, 360.0]),
-        session=sesion, year=2026)
+        _qid(Job_status="Invoiced", Project_name="Casa 4"), session=sesion, year=2026)
 
     assert payload["project-name-2"] == {"value": "Casa 4"}
+    assert payload["job-status"] == [{"value": "Invoiced"}]
+
+
+def test_qid_sin_sesion_los_huecos_salen_de_la_columna_y_sin_desplazar():
+    """Sin sesión no hay registros que consultar, así que el respaldo es la
+    columna del job — pero cada valor va a SU posición: un hueco intermedio
+    vacío no corre a los siguientes, y tampoco se manda como borrado."""
+    payload = map_job_to_podio_qid(
+        _qid(Bldg_dept_fees=[120.0, None, 360.0]), session=None, year=2026)
+
     assert payload["bldg-fees-1"] == {"value": "120", "currency": "USD"}
     assert payload["bldg-dept-fees-3"] == {"value": "360", "currency": "USD"}
-    # el hueco intermedio no se toca: ni valor ni borrado
     assert "bldg-fees-2" not in payload
 
 

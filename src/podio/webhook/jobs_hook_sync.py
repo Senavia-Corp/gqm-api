@@ -498,154 +498,126 @@ def add_job_orders_and_change_orders(
             )
 
 
-def sync_bdf_from_podio(session, job):
-    """
-    Sincroniza los valores de Bldg_dept_fees traídos desde Podio
-    (Job.Bldg_dept_fees) con los registros EstimateCost(BDF) para que
-    el UI del panel refleje los cambios hechos en Podio y no sean sobreescritos.
-    """
-    if job.Bldg_dept_fees is None:
-        return
+def _valor_money_del_item(item, ext_id):
+    """Lee un campo `money` del ítem crudo de Podio.
 
-    from src.models.EstimateCostModel import EstimateCost
+    Devuelve `(presente, valor)`:
+      - `(False, None)` → el campo **no viene** en el payload
+      - `(True,  None)` → viene y está **vacío**
+      - `(True,  float)` → viene con importe
+
+    Leer del ítem y no de una columna del job es lo que permite distinguir
+    «ausente» de «vacío», y lo que evita el desplazamiento: el lector `multi`
+    (`podio_job_extractor.py`) sólo acumula los campos presentes, así que con
+    `bldg-fees-2` vacío el importe del hueco 3 acababa en la fila del 2.
+    """
+    for f in item.get("fields", []) or []:
+        f_ext = (f.get("external_id") or "").lower()
+        if f_ext != ext_id.lower():
+            continue
+        crudo = f.get("values") or f.get("value")
+        if not isinstance(crudo, list) or not crudo:
+            return True, None
+        v = crudo[0].get("value", crudo[0]) if isinstance(crudo[0], dict) else crudo[0]
+        if isinstance(v, dict) and "value" in v:
+            v = v["value"]
+        try:
+            return True, float(v)
+        except (TypeError, ValueError):
+            return True, None
+    return False, None
+
+
+def sync_familia_desde_podio(session, job, item, fam) -> None:
+    """Aplica los importes de Podio sobre el registro que DECLARA cada hueco.
+
+    Podio manda en los **importes**; la base manda en la **correspondencia**
+    registro ↔ hueco. Reglas, en este orden:
+
+    - campo ausente del payload      → no se toca nada
+    - campo presente pero vacío      → **no se toca nada**. Decisión del cliente
+      (Sebastian, 18-ago-2026): «si en Podio se elimina, no hace nada».
+    - importe + registro que declara → se actualiza ese registro
+    - importe + nadie lo declara     → se crea, sólo si la familia lo permite
+      (BD fees sí; compras no, para no generar «ghost purchases»)
+
+    Lo que ya NO hace, y era el daño: compactar la lista descartando los
+    vacíos —que reasignaba importes entre registros distintos—, borrar los
+    sobrantes con `session.delete`, y convertir un hueco vacío en un 0,00.
+    """
+    from src.utils import podio_slots
     from src.utils.id_generator import generate_custom_id
 
-    # Obtener los EstimateCost BDF Aprobados existentes
-    bdf_costs = session.exec(
-        select(EstimateCost).where(
-            EstimateCost.ID_Jobs == job.ID_Jobs,
-            EstimateCost.Cost_type == "BDF",
-            EstimateCost.Status == "Approved"
-        ).order_by(EstimateCost.ID_EstimateCost)
-    ).all()
+    if not job.ID_Jobs:
+        return
 
-    # Los valores que vienen de Podio (aseguramos floats validos)
-    try:
-        podio_bdfs = [float(v) for v in job.Bldg_dept_fees if v is not None]
-    except Exception:
-        podio_bdfs = []
+    por_slot = podio_slots.ocupados(session, fam, job.ID_Jobs)
+    legacy = podio_slots.slots_legacy_posicionales(session, fam, job.ID_Jobs)
+    sin_declarar = [r for r in podio_slots.registros(session, fam, job.ID_Jobs)
+                    if not getattr(r, "podio_field", None)]
 
-    # Actualizar o crear
-    for i, val in enumerate(podio_bdfs):
-        if i < len(bdf_costs):
-            # Actualizar existente
-            cost = bdf_costs[i]
-            if float(cost.Client_price or 0) != val:
-                cost.Client_price = val
-                # Si el Builder_cost está vacío, lo llenamos, si no lo dejamos para conservar lo cotizado
-                if not cost.Builder_cost:
-                    cost.Builder_cost = val
-                session.add(cost)
-        else:
-            # Crear nuevo costo desde Podio
-            new_cost = EstimateCost(
-                ID_EstimateCost=generate_custom_id(session, EstimateCost, "ID_EstimateCost", "EST"),
-                ID_Jobs=job.ID_Jobs,
-                Cost_type="BDF",
-                Status="Approved",
-                Title=f"Bldg Dept Fee {i+1} (Podio)",
-                Builder_cost=val,
-                Client_price=val,
-                Quatity=1
-            )
-            session.add(new_cost)
+    creador = next((p for p in fam.propietarios if p.crea_desde_podio), None)
 
-    # Eliminar los excedentes si en Podio borraron uno
-    if len(bdf_costs) > len(podio_bdfs):
-        for cost in bdf_costs[len(podio_bdfs):]:
-            session.delete(cost)
+    for indice, ext_id in enumerate(fam.external_ids):
+        presente, val = _valor_money_del_item(item, ext_id)
+
+        if not presente or val is None:
+            continue                      # ausente o vacío: no se toca
+
+        registro = por_slot.get(ext_id)
+
+        # Mientras el backfill no haya corrido, el hueco lo ocupa de facto el
+        # registro que le tocaba por posición. Se adopta y se declara.
+        if registro is None and ext_id in legacy and sin_declarar:
+            registro = sin_declarar.pop(0)
+            registro.podio_field = ext_id
+
+        if registro is not None:
+            for p in fam.propietarios:
+                if isinstance(registro, p.modelo):
+                    if float(getattr(registro, p.attr_importe, 0) or 0) != val:
+                        setattr(registro, p.attr_importe, val)
+                    # Builder_cost sólo se rellena si estaba vacío: conserva lo cotizado
+                    if hasattr(registro, "Builder_cost") and not registro.Builder_cost:
+                        registro.Builder_cost = val
+                    break
+            session.add(registro)
+            continue
+
+        if creador is None:
+            logger.info(
+                "Hueco %s de %s trae %.2f y ningún registro lo reclama; no se crea nada",
+                ext_id, job.ID_Jobs, val)
+            continue
+
+        nuevo = creador.modelo(
+            **{creador.modelo.__mapper__.primary_key[0].name:
+               generate_custom_id(session, creador.modelo,
+                                  creador.modelo.__mapper__.primary_key[0].name, "EST"),
+               "ID_Jobs": job.ID_Jobs,
+               "Cost_type": "BDF",
+               "Status": "Approved",
+               "Title": creador.titulo_nuevo.format(n=indice + 1),
+               "Builder_cost": val,
+               creador.attr_importe: val,
+               "Quatity": 1,
+               "podio_field": ext_id})
+        session.add(nuevo)
+
+
+def sync_bdf_from_podio(session, job, item):
+    """BD Fees de Podio → EstimateCost(BDF, Approved), por hueco declarado."""
+    from src.utils import podio_slots
+    return sync_familia_desde_podio(
+        session, job, item, podio_slots.familia("QID.bldg_dept_fees"))
 
 
 def sync_purchases_from_podio(session, job, item):
-    """
-    Sincroniza los valores de PURCHASE 1..13 traídos desde Podio
-    con los registros de Rent (EstimateCost) y Purchase para que
-    el UI del panel refleje los cambios hechos en Podio.
-    """
-    from src.models.EstimateCostModel import EstimateCost
-    from src.models.PurchaseModel import Purchase
-    from src.utils.id_generator import generate_custom_id
-
-    # IDs externos configurados en Podio para los materiales
-    PURCHASES_EXT_IDS = [
-        "materials-purchased-1-2",
-        "materials-purchased-2",
-        "materials-purchased-3",
-        "material-purchase-4",
-        "material-purchase-5",
-        "material-purchase-6",
-        "material-purchase-7",
-        "material-purchase-8",
-        "material-purchase-9",
-        "material-purchase-10",
-        "material-purchase-11",
-        "material-purchase-12",
-        "material-purchase-13"
-    ]
-
-    podio_purchases = []
-    fields = item.get("fields", [])
-    
-    for ext_id in PURCHASES_EXT_IDS:
-        val = None
-        for f in fields:
-            f_ext = f.get("external_id")
-            if f_ext and f_ext.lower() == ext_id:
-                raw = f.get("values") or f.get("value")
-                if isinstance(raw, list) and raw:
-                    raw_val = raw[0].get("value", raw[0])
-                    if isinstance(raw_val, dict) and "value" in raw_val:
-                        try:
-                            val = float(raw_val["value"])
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            val = float(raw_val)
-                        except Exception:
-                            pass
-                break
-        podio_purchases.append(val)
-
-    # Eliminar los 'None' del final para saber cuántos items reales hay
-    while podio_purchases and podio_purchases[-1] is None:
-        podio_purchases.pop()
-
-    # Obtener Rents y Purchases locales
-    rents = session.exec(
-        select(EstimateCost).where(
-            EstimateCost.ID_Jobs == job.ID_Jobs,
-            EstimateCost.Cost_type == "Rent",
-            EstimateCost.Status == "Approved"
-        ).order_by(EstimateCost.ID_EstimateCost)
-    ).all()
-
-    purchases = session.exec(
-        select(Purchase).where(Purchase.ID_Jobs == job.ID_Jobs).order_by(Purchase.ID_Purchase)
-    ).all()
-
-    # Recorrer los valores de Podio
-    for i, val in enumerate(podio_purchases):
-        if val is None:
-            # En Podio pueden borrar un valor intermedio. Si es None, lo tomamos como 0
-            val = 0.0
-
-        if i < len(rents):
-            # Es un Rent
-            r = rents[i]
-            if float(r.Client_price or 0) != val:
-                r.Client_price = val
-                session.add(r)
-        elif i < len(rents) + len(purchases):
-            # Es un Purchase
-            p = purchases[i - len(rents)]
-            if float(p.Total_spending or 0) != val:
-                p.Total_spending = val
-                session.add(p)
-        # Nota: No creamos nuevos Purchases automáticamente desde Podio.
-        # Esto previene que datos residuales en Podio (o Rentas que aún están en estado "Estimated")
-        # generen "ghost purchases" cada vez que se dispara un webhook.
-
+    """PURCHASE 1..13 de Podio → alquileres aprobados y compras, por hueco
+    declarado. El pool lo comparten las dos tablas (defecto G1)."""
+    from src.utils import podio_slots
+    return sync_familia_desde_podio(
+        session, job, item, podio_slots.familia("QID.purchases_list"))
 
 def sync_ptl_gc_fee_from_podio(session, job):
     """
@@ -707,6 +679,8 @@ def process_jobs_podio(session, item, app_type, year):
     add_job_related_members(session, job, item, app_type, year)
     add_job_related_subcontractor(session, job, item)
     add_job_orders_and_change_orders(session, job, item, app_type)
-    sync_bdf_from_podio(session, job)
+    # Las dos leen del `item` crudo, no de columnas del job: es lo único que
+    # distingue «el campo no vino» de «lo vaciaron en Podio».
+    sync_bdf_from_podio(session, job, item)
     sync_purchases_from_podio(session, job, item)
     sync_ptl_gc_fee_from_podio(session, job)

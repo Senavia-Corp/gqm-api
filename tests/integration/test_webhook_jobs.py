@@ -91,27 +91,61 @@ def test_qid_webhook_creates_job_and_bdf(client, qid_ids):
         assert all(c.Status == "Approved" for c in bdf)
 
 
-def test_qid_webhook_update_bdf_edits_and_prunes(client, qid_ids):
+def _bdf(tracking):
+    with get_session() as session:
+        return session.exec(
+            select(EstimateCost)
+            .where(EstimateCost.ID_Jobs == tracking, EstimateCost.Cost_type == "BDF")
+            .order_by(EstimateCost.ID_EstimateCost)
+        ).all()
+
+
+def test_qid_webhook_bdf_edita_el_importe_y_no_borra_lo_ausente(client, qid_ids):
+    """DECISION DEL CLIENTE (Sebastian, 18-ago-2026): «si en Podio se elimina,
+    no hace nada». Antes este test fijaba lo contrario — quitar el hueco 3
+    BORRABA el coste — que es el defecto G5.
+
+    Editar SI se aplica; la ausencia NO.
+    """
     item_id, tracking = qid_ids
     assert _post(client, "QID", 2026, qid_item(item_id=item_id, tracking_id=tracking)).status_code == 200
 
-    # Podio edita el fee 1 y borra el tercero
     updated = qid_item(item_id=item_id, tracking_id=tracking)
-    updated["fields"] = [
-        f for f in updated["fields"] if f["external_id"] != "bldg-dept-fees-3"
-    ]
+    updated["fields"] = [f for f in updated["fields"]
+                         if f["external_id"] != "bldg-dept-fees-3"]
     for f in updated["fields"]:
         if f["external_id"] == "bldg-fees-1":
             f["values"] = [{"value": "175.00"}]
     assert _post(client, "QID", 2026, updated, event="item.update").status_code == 200
 
-    with get_session() as session:
-        bdf = session.exec(
-            select(EstimateCost)
-            .where(EstimateCost.ID_Jobs == tracking, EstimateCost.Cost_type == "BDF")
-            .order_by(EstimateCost.ID_EstimateCost)
-        ).all()
-        assert [c.Client_price for c in bdf] == [175.00, 150.00]
+    bdf = _bdf(tracking)
+    assert [c.Client_price for c in bdf] == [175.00, 150.00, 250.00], (
+        "el hueco ausente no debe borrar su coste")
+    assert [c.podio_field for c in bdf] == [
+        "bldg-fees-1", "bldg-fees-2", "bldg-dept-fees-3"]
+
+
+def test_qid_webhook_un_hueco_intermedio_vacio_no_desplaza_a_los_siguientes(client, qid_ids):
+    """El desplazamiento silencioso que motivo el cambio de fuente.
+
+    El lector `multi` solo acumulaba los campos presentes, asi que con
+    `bldg-fees-2` vacio producia `[100, 250]` y el 250 acababa escrito en la
+    fila del hueco 2. El test viejo no lo veia porque vaciaba el ULTIMO hueco,
+    el unico caso donde el desplazamiento no se nota.
+    """
+    item_id, tracking = qid_ids
+    assert _post(client, "QID", 2026, qid_item(item_id=item_id, tracking_id=tracking)).status_code == 200
+
+    updated = qid_item(item_id=item_id, tracking_id=tracking)
+    for f in updated["fields"]:
+        if f["external_id"] == "bldg-fees-2":
+            f["values"] = []          # presente pero VACIO
+    assert _post(client, "QID", 2026, updated, event="item.update").status_code == 200
+
+    por_hueco = {c.podio_field: c.Client_price for c in _bdf(tracking)}
+    assert por_hueco["bldg-fees-1"] == 100.00
+    assert por_hueco["bldg-dept-fees-3"] == 250.00, "el 250 no puede caer en el hueco 2"
+    assert por_hueco["bldg-fees-2"] == 150.00, "vaciar en Podio no toca el importe"
 
 
 def test_qid_webhook_syncs_rent_and_purchases(client, qid_ids):
