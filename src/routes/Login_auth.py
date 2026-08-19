@@ -311,6 +311,80 @@ def refresh():
         return jsonify({"error": "Internal server error"}), 500
 
 
+# ── Sesión vigente (REG-038/REG-107) ─────────────────────────────────────
+# El panel escribía rol y políticas en localStorage SOLO durante el login y no
+# volvía a sincronizarlos nunca: un Full Admin que no cerrara sesión seguía con
+# la etiqueta y los permisos del día que entró, y un cambio de rol no surtía
+# efecto jamás. /refresh no servía para arreglarlo porque solo devuelve el
+# access_token. Esta ruta expone el estado actual del usuario del JWT, con la
+# misma forma que `user_data` en /login para que el cliente no tenga dos mapeos.
+@auth_bp.get("/me")
+def me():
+    try:
+        user_id, user_type, policies = get_user_context()
+        if not user_id or not user_type:
+            return jsonify({"error": "Not authenticated"}), 401
+
+        with get_session() as session:
+            user_data = None
+            role_detail = None
+
+            if user_type == "member":
+                user = session.exec(
+                    select(Member)
+                    .options(joinedload(Member.role))
+                    .where(Member.ID_Member == user_id)
+                ).unique().first()
+                if user:
+                    user_data = user.model_dump()
+                    if user.role:
+                        role_detail = {
+                            "ID_Role": user.role.ID_Role,
+                            "Name": user.role.Name
+                        }
+
+            elif user_type == "technician":
+                user = session.exec(
+                    select(Technician).where(Technician.ID_Technician == user_id)
+                ).first()
+                if user:
+                    user_data = user.model_dump()
+
+            elif user_type == "subcontractor":
+                user = session.exec(
+                    select(Subcontractor)
+                    .options(joinedload(Subcontractor.role))
+                    .where(Subcontractor.ID_Subcontractor == user_id)
+                ).unique().first()
+                if user:
+                    user_data = user.model_dump()
+                    if user.role:
+                        role_detail = {
+                            "ID_Role": user.role.ID_Role,
+                            "Name": user.role.Name
+                        }
+
+            else:
+                return jsonify({"error": "Invalid role in token"}), 401
+
+            if user_data is None:
+                return jsonify({"error": "User no longer exists"}), 404
+
+            user_data.pop("Password", None)
+            user_data["role_detail"] = role_detail
+            user_data["policies"] = policies
+
+            return jsonify({
+                "user_type": user_type,
+                "user_id": user_id,
+                "user_data": user_data
+            }), 200
+
+    except Exception as e:
+        print(f"❌ Error en /me: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+
 @auth_bp.get("/can")
 def check_can():
     """
