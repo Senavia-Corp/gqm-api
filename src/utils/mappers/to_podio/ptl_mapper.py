@@ -1,11 +1,13 @@
 from ..convert_value_podio import convert_value_for_podio
 from sqlmodel import select
 from .job_fields_map import BASE_PTL_FIELDS
+from .limpieza_slots import asignar, normalizar
 from src.models.ClientModel import Client
 
 
-def map_job_to_podio_ptl(job_obj, session=None, year=None):
+def map_job_to_podio_ptl(job_obj, session=None, year=None, limpiar_slots=None):
     payload = {}
+    limpiar = normalizar(limpiar_slots)
     # Campos normales
     for attr, config in BASE_PTL_FIELDS.items():
         value = getattr(job_obj, attr, None)
@@ -16,10 +18,7 @@ def map_job_to_podio_ptl(job_obj, session=None, year=None):
             for i, ext_id in enumerate(config["external_ids"]):
                 v = values[i] if i < len(values) else None
                 converted = convert_value_for_podio(v, config["type"])
-                if converted is not None:
-                    payload[ext_id] = converted
-                else:
-                    payload[ext_id] = []
+                asignar(payload, ext_id, converted, limpiar)
         
         # 🔹 NORMAL FIELD
         else:
@@ -36,9 +35,10 @@ def map_job_to_podio_ptl(job_obj, session=None, year=None):
             if converted is not None:
                 payload[config["external_id"]] = converted
 
-    # Relación con Client (M:1)
-    # Si ID_Client es null → mandamos [] para LIMPIAR el campo en Podio
+    # Relación con Client (M:1). Que la app no sepa el cliente no autoriza a
+    # desvincularlo en Podio: sólo se vacía si se pide por `limpiar_slots`.
     client_internal_id = job_obj.ID_Client
+    client_valor = None
 
     if client_internal_id and session:
         client = session.exec(
@@ -46,13 +46,9 @@ def map_job_to_podio_ptl(job_obj, session=None, year=None):
         ).first()
 
         if client and client.podio_item_id:
-            payload["relationship"] = convert_value_for_podio(
-                client.podio_item_id, "app"
-            )
-        else:
-            payload["relationship"] = []
-    else:
-        payload["relationship"] = []
+            client_valor = convert_value_for_podio(client.podio_item_id, "app")
+
+    asignar(payload, "relationship", client_valor, limpiar)
 
     # Relaciones con Members y Subcontractors (M:N) se mandan desde los links
 
