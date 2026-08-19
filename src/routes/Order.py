@@ -510,7 +510,7 @@ def update_order(id_order):
                 year=year
             )
 
-            payload = map_order_patch_to_podio(order, job.Job_type, session)
+            payload = map_order_patch_to_podio(order, job.Job_type, session, year)
 
             try:
                 if payload:

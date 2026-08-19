@@ -198,7 +198,7 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
 
 
 # ============ PATCH
-def map_order_patch_to_podio(order, job_type, session):
+def map_order_patch_to_podio(order, job_type, session, year=None):
 
     if not order.tech_field:
         raise Exception("Order has no assigned Podio field")
@@ -234,7 +234,42 @@ def map_order_patch_to_podio(order, job_type, session):
             if getattr(order, "Notes", None):
                 fields_to_update[notes_field] = order.Notes
 
+        # ================= CUOTAS AL TECNICO =================
+        # Hasta ahora las cuotas solo VIAJABAN de Podio a la app: habia mapa de
+        # entrada y no de salida, asi que la app nunca podia corregir un cheque.
+        fields_to_update.update(
+            map_order_payments_to_podio(order, job_type, year))
+
     return fields_to_update
+
+
+def map_order_payments_to_podio(order, job_type, year=None) -> dict:
+    """`{external_id: importe}` de las cuotas de una orden.
+
+    Cada cuota escribe en el hueco que DECLARA (`OrderPayment.podio_field`);
+    las que no lo declaran se resuelven por (tecnico, numero de cuota) contra
+    el mapa generado desde el esquema real.
+
+    Lo que NUNCA se emite: los `calculation` de Podio — `TECH n Adj Formula`,
+    `Total (Left to) Pay`, `Tech n Final Formula` — porque el artefacto no los
+    contiene. Y el `Check Number(s)`, que es uno por SECCION: componerlo desde
+    N cuotas pisaria lo que alguien escribio a mano.
+    """
+    from src.utils.mappers.from_podio import payment_slots
+
+    if not payment_slots.habilitado(job_type):
+        return {}
+
+    tech_index = resolve_tech_index_from_field(job_type, order.tech_field)
+    salida = {}
+    for cuota in getattr(order, "payments", None) or []:
+        if cuota.Amount is None:
+            continue
+        hueco = cuota.podio_field or payment_slots.slot_de_cuota(
+            job_type, year, tech_index, cuota.Installment)
+        if hueco:
+            salida[hueco] = float(cuota.Amount)
+    return salida
 
 
 # ============ DELETE

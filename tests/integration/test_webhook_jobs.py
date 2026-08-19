@@ -206,7 +206,20 @@ def test_par_webhook_syncs_order_with_payments(client, par_ids):
         assert order.Formula == 1000.00
         assert (order.Payment_1, order.Payment_2, order.Payment_3) == (300.00, 200.00, None)
 
-    # Podio borra el cheque 2 → el slot se limpia (Podio es fuente de verdad)
+    # Las cuotas viven ahora en `order_payment`, con su hueco declarado.
+    from src.models.OrderPaymentModel import OrderPayment
+    with get_session() as session:
+        cuotas = session.exec(select(OrderPayment).where(
+            OrderPayment.job_podio_id == str(item_id))
+            .order_by(OrderPayment.Installment)).all()
+        assert [(c.Installment, c.Amount, c.podio_field) for c in cuotas] == [
+            (1, 300.00, "check-amount-payment-1"),
+            (2, 200.00, "check-amount-payment-2"),
+        ]
+
+    # DECISION DEL CLIENTE (18-ago-2026): vaciar el cheque 2 en Podio NO borra
+    # nada. Antes este test fijaba lo contrario — el slot se limpiaba — que es
+    # el defecto G5 en su cuarto sitio.
     updated = par_item(item_id=item_id, tracking_id=tracking)
     updated["fields"] += [
         calc("tech-1-ptl-original-pricing", "1000.00"),
@@ -217,7 +230,11 @@ def test_par_webhook_syncs_order_with_payments(client, par_ids):
     with get_session() as session:
         order = session.exec(select(Order).where(
             Order.job_podio_id == str(item_id))).first()
-        assert (order.Payment_1, order.Payment_2) == (300.00, None)
+        assert (order.Payment_1, order.Payment_2) == (300.00, 200.00), (
+            "vaciar en Podio no borra el importe que ya estaba")
+        cuotas = session.exec(select(OrderPayment).where(
+            OrderPayment.job_podio_id == str(item_id))).all()
+        assert len(cuotas) == 2, "tampoco se borra la fila de la cuota"
 
 
 def test_podio_readonly_no_mata_el_sync_entrante(client, qid_ids, monkeypatch):

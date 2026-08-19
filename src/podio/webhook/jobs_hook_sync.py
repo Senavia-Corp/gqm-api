@@ -16,13 +16,28 @@ from src.utils.mappers.from_podio.order_changeorder_mapper import (
     TECH_ADJ_FORMULA_FIELDS,
     TECH_HD_MATERIALS_FIELDS,
     TECH_NOTES_FIELDS,
-    TECH_PAYMENT_FIELDS,
     PROJECT_CHANGE_ORDER_FIELDS,
     ORDER_CHANGE_ORDERS_FIELDS,
-    collect_payment_slots,
 )
+from src.utils.mappers.from_podio import payment_slots
+from src.utils.mappers.from_podio.payment_slots import collect_payment_slots
 from src.utils.middleware.logs.logs import logger
 
+
+
+def _texto_del_item(item, ext_id):
+    """Lee un campo `text` del item crudo. Devuelve None si falta o esta vacio."""
+    if not ext_id:
+        return None
+    for f in item.get("fields", []) or []:
+        if (f.get("external_id") or "").lower() != ext_id.lower():
+            continue
+        crudo = f.get("values") or []
+        if not crudo:
+            return None
+        v = crudo[0].get("value", crudo[0]) if isinstance(crudo[0], dict) else crudo[0]
+        return str(v) if v is not None else None
+    return None
 
 def upsert_job_from_item(session, item, app_type, year=None):
 
@@ -316,7 +331,8 @@ def add_job_orders_and_change_orders(
     session,
     job,
     item: dict,
-    app_type: str
+    app_type: str,
+    year: int | None = None,
 ):
     """
     Procesa Orders y Change Orders desde un solo item (webhook).
@@ -413,8 +429,8 @@ def add_job_orders_and_change_orders(
     # =============================
 
     # Cuotas de PAR (REG-001): Podio es la fuente de verdad de los cheques
-    payments_by_tech = collect_payment_slots(fields, app_type)
-    has_payment_model = app_type in TECH_PAYMENT_FIELDS
+    payments_by_tech = collect_payment_slots(fields, app_type, year)
+    has_payment_model = payment_slots.habilitado(app_type)
 
     orders_map = {}
 
@@ -436,7 +452,10 @@ def add_job_orders_and_change_orders(
             tech_field=formula_field,
             hd_materials=data.get("hd_materials"),
             notes=data.get("notes"),
-            payments=payments_by_tech.get(tech_index, {}) if has_payment_model else None
+            payments=payments_by_tech.get(tech_index, {}) if has_payment_model else None,
+            job_type=app_type, year=year,
+            check_numbers=_texto_del_item(item, payment_slots.campo_check_numbers(
+                app_type, year, tech_index))
         )
 
         orders_map[tech_index] = order
@@ -678,7 +697,7 @@ def process_jobs_podio(session, item, app_type, year):
     add_job_relations(session, job, item)
     add_job_related_members(session, job, item, app_type, year)
     add_job_related_subcontractor(session, job, item)
-    add_job_orders_and_change_orders(session, job, item, app_type)
+    add_job_orders_and_change_orders(session, job, item, app_type, year)
     # Las dos leen del `item` crudo, no de columnas del job: es lo único que
     # distingue «el campo no vino» de «lo vaciaron en Podio».
     sync_bdf_from_podio(session, job, item)
