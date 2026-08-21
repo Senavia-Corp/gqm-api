@@ -10,7 +10,7 @@ from ..models.ClientModel import Client
 from ..models.ParentMgmtCoModel import ParentMgmtCo
 from ..models.SubcontractorModel import Subcontractor
 from ..models.BldgDeptModel import BuildingDept
-from ..utils.get_podio_items import get_podio_item
+from ..utils.get_podio_items import get_podio_item, item_de_confianza
 from ..utils.mappers.from_podio.parent_mgmt_co_mapper import map_podio_item_to_parent_mgmt_co
 from ..utils.mappers.from_podio.bldg_dept_mapper import map_podio_item_to_bldg_dept
 from ..podio.services.client_services import podio_clients_router
@@ -168,8 +168,7 @@ def podio_general_webhook(app_type, token=None):
         with get_session() as session:
             existing = None
             if event_type != "item.delete" and event_type != "file.change":
-                podio_item = data.get(
-                    "item") or get_podio_item(item_id, app_type)
+                podio_item = item_de_confianza(data, item_id, app_type)
                 item_data = mapper(podio_item, session)
                 existing = session.exec(
                     select(Model).where(
@@ -264,8 +263,7 @@ def podio_relations_webhook(app_type, token=None):
 
         with get_session() as session:
             if event_type in ["item.create", "item.update"]:
-                podio_item = data.get(
-                    "item") or get_podio_item(item_id, app_type)
+                podio_item = item_de_confianza(data, item_id, app_type)
                 processor(session, podio_item)
             elif event_type == "item.delete":
                 event_delete(session=session, Model=Model,
@@ -468,8 +466,7 @@ def podio_jobs_webhook(app_type, year, token=None):
 
             # ── CREATE & UPDATE ───────────────────────────────────────────
             if event_type in ["item.create", "item.update"]:
-                item = data.get("item") or get_podio_item(
-                    item_id, app_type, year=year)
+                item = item_de_confianza(data, item_id, app_type, year=year)
 
                 # Extraer quien hizo el cambio para timeline
                 current_revision = item.get("current_revision", {})
@@ -563,8 +560,7 @@ def podio_jobs_webhook(app_type, year, token=None):
                         f"⚠️ Job con podio_item_id={item_id} no existe en DB.")
                 else:
                     # Extraer quien hizo el cambio en file.change
-                    item = data.get("item") or get_podio_item(
-                        item_id, app_type, year=year)
+                    item = item_de_confianza(data, item_id, app_type, year=year)
                     current_revision = item.get("current_revision", {})
                     changed_by = current_revision.get(
                         "created_by", {}).get("name", "Unknown")
@@ -784,8 +780,8 @@ def resync_failed_sync(id):
                 # Re-ejecutar la lógica
                 if event_type in ["item.create", "item.update"]:
                     try:
-                        item = failed_sync.payload.get("item") or get_podio_item(
-                            item_id, app_type, year=year)
+                        item = item_de_confianza(
+                            failed_sync.payload, item_id, app_type, year=year)
                     except Exception as podio_err:
                         # 404/410: el item ya no está en Podio (lo borraron
                         # después del fallo). Converger = borrarlo también
