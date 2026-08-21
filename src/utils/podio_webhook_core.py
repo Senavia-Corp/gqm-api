@@ -345,8 +345,14 @@ def process_file_change_event(
 
                 guardado = False
                 for intento in range(1, 6):
+                    # `resincronizar` a partir del 2.o intento: si el ID
+                    # choco, el contador puede estar por detras de la tabla
+                    # (p.ej. una fila insertada a mano por encima). Sin
+                    # esto se reintentaria cinco veces contra el mismo
+                    # numero desfasado.
                     new_id = generate_custom_id(
-                        session, Attachments, "ID_Attachment", "ATT")
+                        session, Attachments, "ID_Attachment", "ATT",
+                        resincronizar=(intento > 1))
                     attachment = Attachments(
                         ID_Attachment=new_id,
                         Document_name=filename,
