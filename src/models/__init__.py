@@ -13,6 +13,7 @@ from src.models.FinancialDocItemModel import FinancialDoc_Item
 from src.models.FinancialDocModel import FinancialDocument
 from src.models.FinancialTransModel import FinancialTransaction
 from src.models.GQMInventoryModel import Inventory
+from src.models.IdCounterModel import IdCounter
 from src.models.JobModel import Job
 from src.models.ManagerModel import Manager
 from src.models.MemberModel import Member
