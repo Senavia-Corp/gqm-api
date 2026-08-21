@@ -103,6 +103,68 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
 
 # -------------------------- SINCRONIZAR FINANCIAL DOC ITEMS -------------------------- #
 def upsert_financial_doc_items(session, data, doc_id, dry_run=False):
+    """Crea o ACTUALIZA una linea de documento financiero.
+
+    Se llamaba "upsert" y solo hacia insert: no habia ni un SELECT previo, asi
+    que cada pasada creaba filas nuevas.
+
+    Los dos llamadores se comportaban distinto y por eso el fallo no era
+    evidente:
+
+      · `src/quickbooks/webhook/functions.py:166` y `:235` BORRAN todas las
+        lineas del documento antes de reinsertar. Ese camino es idempotente y
+        nunca duplico.
+      · `src/quickbooks/sync/sync_invoices_with_payments.py:136` recorre las
+        lineas y llama SIN borrar antes. Ese es el que duplicaba, y una vez por
+        cada pasada del sync masivo.
+
+    Medido en PRODUCCION el 21-ago-2026:
+
+        463 pares duplicados · 233 documentos · 485 filas sobrantes
+        $298.479,99 de mas
+
+    Y no eran solo dobles: FD60023 tiene su linea 1 TRIPLICADA (FDI60055,
+    FDI60881, FDI67843), asi que el sync masivo corrio al menos tres veces. La
+    cabecera del documento queda bien, asi que el descuadre solo se ve abriendo
+    el detalle — donde lo ve el cliente.
+
+    La clave natural es `(ID_FinancialDoc, qbo_line_id)`: `qbo_line_id` es el
+    `Id` de la linea en QuickBooks (`QBO_FDOCITEM_INVOICE_FIELD_MAP`), unico
+    dentro de su documento. Verificado en produccion: las 7.603 filas lo tienen
+    (0 nulos), asi que la clave sirve para todas.
+
+    Arreglar esto NO limpia las 485 filas que ya existen — eso es un DELETE
+    sobre datos financieros de produccion y necesita respaldo y autorizacion.
+    Pero sin este arreglo, limpiar no sirve de nada: la siguiente pasada vuelve
+    a llenarlo.
+
+    Mismo patron que `upsert_financial_transaction`, 20 lineas mas abajo.
+    """
+    qbo_line_id = data.get("qbo_line_id")
+
+    # ---------  🔍 BUSCAR EXISTENCIA POR (documento, linea de QBO)
+    existing = None
+    if qbo_line_id is not None:
+        existing = session.exec(
+            select(FinancialDoc_Item).where(
+                FinancialDoc_Item.ID_FinancialDoc == doc_id,
+                FinancialDoc_Item.qbo_line_id == qbo_line_id,
+            )
+        ).first()
+
+    # ---------  🔁 UPDATE
+    if existing:
+        changed = False
+        for field, value in data.items():
+            if getattr(existing, field, None) != value:
+                setattr(existing, field, value)
+                changed = True
+
+        if changed and not dry_run:
+            session.add(existing)
+            session.flush()
+
+        return existing, False
 
     # ---------  🆕 CREATE
     # dry_run no puede tener efectos: `generate_custom_id` ya no es un SELECT
