@@ -115,6 +115,10 @@ def _siguiente_contador(bind, tabla: str, columna: str, prefix: str,
     retenido durante la transaccion (larga, con E/S de terceros) del llamador.
     """
     with bind.connect() as conn:
+        # Cinturon: si otra transaccion retiene la fila, fallar en 3 s y caer
+        # al respaldo es infinitamente mejor que esperar sin limite (en
+        # produccion lock_timeout=0 y statement_timeout=0).
+        conn.execute(text("SET LOCAL lock_timeout = '3s'"))
         if not resincronizar:
             fila = conn.execute(
                 text("UPDATE id_counters SET last_value = last_value + 1 "
@@ -184,7 +188,8 @@ def _max_en_python(session, model, id_field_name: str, prefix: str,
     return ultimo
 
 
-def _empujar_contador(session, prefix: str, year_digit: str, valor: int) -> None:
+def _empujar_contador(session, prefix: str, year_digit: str,
+                      valor: int) -> int | None:
     """Deja `id_counters` al dia despues de usar el respaldo.
 
     DEFECTO QUE ARREGLA (lo encontro la revision adversarial, dos lentes por
@@ -199,24 +204,54 @@ def _empujar_contador(session, prefix: str, year_digit: str, valor: int) -> None
     `save_with_retry`, que documenta que NO reintenta IntegrityError, asi que
     el alta responde 500.
 
-    Va sobre la conexion del LLAMADOR a proposito: asi se commitea con SU
-    transaccion. Si el llamador hace rollback, ni se usa el ID ni se mueve el
-    contador — que es justo el acoplamiento que se quiere aqui.
+    CONEXION PROPIA, no la del llamador. La primera version usaba
+    `session.connection()` buscando un acoplamiento que parecia elegante: al
+    commitear con la transaccion del llamador, un rollback suyo dejaba el
+    contador sin mover. Pero eso reintroducia EXACTAMENTE el problema por el que
+    este diseno descarto `pg_advisory_xact_lock`:
+
+        el INSERT ... ON CONFLICT toma el row lock de (prefix, year_digit) EN la
+        transaccion del llamador, y lo retiene hasta que ESA transaccion
+        commitee — que en el webhook de adjuntos incluye dos requests.get a
+        Podio y una subida a Cloudinary.
+
+    Y hay un caso peor que el bloqueo entre peticiones: la SIGUIENTE llamada del
+    MISMO request usa la conexion autonoma y se queda esperando un lock que
+    retiene su propia transaccion. No hay ciclo de esperas, asi que el detector
+    de deadlocks de PostgreSQL nunca dispara. Medido en produccion:
+    `lock_timeout = 0` y `statement_timeout = 0`, o sea espera INDEFINIDA hasta
+    que Vercel mate la funcion.
+
+    Lo que se pierde con la conexion propia: si el llamador hace rollback, el
+    contador ya avanzo y ese numero queda quemado. Es un hueco en la secuencia,
+    exactamente lo mismo que hace una secuencia de Postgres, y no afecta a la
+    unicidad porque el sembrado usa GREATEST y el contador es monotono. Un hueco
+    a cambio de no colgar una peticion es un cambio bueno.
+
+    `SET LOCAL lock_timeout` como cinturon: aunque algo retenga la fila, esto
+    falla en 3 s en vez de esperar para siempre, y el `except` lo absorbe.
 
     Best-effort: si esto tambien falla ya estamos en modo degradado y no puede
     empeorar el alta.
     """
     try:
-        session.connection().execute(
-            text("INSERT INTO id_counters (prefix, year_digit, last_value) "
-                 "VALUES (:p, :y, :v) "
-                 "ON CONFLICT (prefix, year_digit) DO UPDATE "
-                 "SET last_value = GREATEST(id_counters.last_value, :v)"),
-            {"p": prefix, "y": year_digit, "v": valor},
-        )
+        bind = session.get_bind()
+        with bind.connect() as conn:
+            conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+            fila = conn.execute(
+                text("INSERT INTO id_counters (prefix, year_digit, last_value) "
+                     "VALUES (:p, :y, :v) "
+                     "ON CONFLICT (prefix, year_digit) DO UPDATE "
+                     "SET last_value = GREATEST(id_counters.last_value, :base) + 1 "
+                     "RETURNING last_value"),
+                {"p": prefix, "y": year_digit, "v": valor, "base": valor - 1},
+            ).first()
+            conn.commit()
+            return int(fila[0]) if fila else None
     except Exception:
         logger.exception("no se pudo reconciliar id_counters para %s%s",
                          prefix, year_digit)
+    return None
 
 
 def generate_custom_id(session, model, id_field_name: str, prefix: str,
@@ -251,11 +286,25 @@ def generate_custom_id(session, model, id_field_name: str, prefix: str,
     ultimo = _max_en_python(session, model, id_field_name, prefix, year_digit)
     siguiente = ultimo + 1
 
-    # Dejar el contador al dia: si no, la proxima llamada buena repetiria este
-    # mismo numero. Solo en PostgreSQL — en sqlite no existe id_counters.
+    # Reconciliar el contador Y quedarse con el valor que reserve.
+    #
+    # Las DOS cosas importan. Si solo se empujara, la proxima llamada buena
+    # repetiria este numero. Y si solo se leyera la tabla, dos llamadas
+    # seguidas del respaldo DENTRO DE LA MISMA TRANSACCION devolverian el mismo
+    # ID: el `_max_en_python` de arriba ya no autoflushea —a proposito, es lo
+    # que envenenaba la sesion— asi que no ve la fila que el llamador dejo
+    # pendiente. El contador si la recuerda, porque commitea aparte.
+    #
+    # Lo cazo `test_dos_ids_seguidos_por_el_respaldo_no_se_bloquean`. El
+    # algoritmo anterior no tenia el problema justamente por el autoflush.
+    #
+    # Solo en PostgreSQL — en sqlite no existe id_counters y el respaldo es el
+    # camino unico (ahi tampoco hay concurrencia que temer).
     try:
         if session.get_bind().dialect.name == "postgresql":
-            _empujar_contador(session, prefix, year_digit, siguiente)
+            reservado = _empujar_contador(session, prefix, year_digit, siguiente)
+            if reservado:
+                siguiente = reservado
     except Exception:
         logger.exception("no se pudo comprobar el dialecto al reconciliar")
 
