@@ -150,3 +150,85 @@ def test_no_ensucia_la_sesion_del_llamador(tabla):
             "generate_custom_id forzo un flush de la sesion del llamador; "
             "esa es exactamente la cadena que perdio 12 ficheros en agosto")
         s.rollback()
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# El CAMINO DE RESPALDO. Lo saco la revision adversarial: los tests de arriba
+# solo ejercitaban el camino del contador, que es justo el que nunca falla ni
+# hace flush. La red de seguridad estaba sin cubrir — y contenia dos defectos.
+# ─────────────────────────────────────────────────────────────────────────
+
+def _forzar_respaldo(monkeypatch):
+    """Hace que el contador reviente para caer al algoritmo anterior."""
+    from src.utils import id_generator as ig
+
+    def revienta(*a, **k):
+        raise RuntimeError("contador caido (simulado)")
+
+    monkeypatch.setattr(ig, "_siguiente_contador", revienta)
+
+
+def test_el_respaldo_no_ensucia_la_sesion_del_llamador(monkeypatch, tabla):
+    """DEFECTO 1 que encontro la revision: el respaldo hacia autoflush.
+
+    `_max_en_python` usaba `session.exec(select(...))`, y `Session.exec`
+    AUTOFLUSHEA. Es decir: la red de seguridad contenia exactamente el bug del
+    que protege — la cadena que perdio los 12 ficheros de agosto. Y como el
+    respaldo salta bajo carga, saltaria en el peor momento.
+    """
+    from datetime import datetime
+    d = str(datetime.now().year)[-1]
+    _forzar_respaldo(monkeypatch)
+
+    with Session(engine) as s:
+        s.add(_FilaPg(ID_Cosa=f"{tabla}{d}0001"))
+        s.commit()
+
+        s.add(_FilaPg(ID_Cosa=f"{tabla}{d}0001"))   # duplicado pendiente
+        assert len(s.new) == 1
+
+        generate_custom_id(s, _FilaPg, "ID_Cosa", tabla)
+
+        assert len(s.new) == 1, (
+            "el camino de RESPALDO forzo un flush de la sesion ajena; es la "
+            "cadena exacta que perdio 12 ficheros en agosto")
+        s.rollback()
+
+
+def test_el_respaldo_deja_el_contador_al_dia(monkeypatch, tabla):
+    """DEFECTO 2 que encontro la revision: el respaldo no avanzaba el contador.
+
+    Devolvia `max+1` sin tocar `id_counters`. Si el contador estaba sembrado y
+    sincronizado, la SIGUIENTE llamada buena hacia `last_value + 1` y devolvia
+    EL MISMO numero -> duplicate key. En log_activity esa IntegrityError la
+    absorbe audit.py:114 y la fila de auditoria se pierde en silencio.
+
+    Este test reproduce la secuencia completa: respaldo, luego camino normal.
+    """
+    from datetime import datetime
+    d = str(datetime.now().year)[-1]
+
+    # 1 · una llamada BUENA siembra y sincroniza el contador
+    with Session(engine) as s:
+        primero = generate_custom_id(s, _FilaPg, "ID_Cosa", tabla)
+        s.add(_FilaPg(ID_Cosa=primero))
+        s.commit()
+
+    # 2 · una llamada por el RESPALDO
+    _forzar_respaldo(monkeypatch)
+    with Session(engine) as s:
+        segundo = generate_custom_id(s, _FilaPg, "ID_Cosa", tabla)
+        s.add(_FilaPg(ID_Cosa=segundo))
+        s.commit()
+
+    # 3 · vuelve el camino normal: NO puede repetir el numero del respaldo
+    monkeypatch.undo()
+    with Session(engine) as s:
+        tercero = generate_custom_id(s, _FilaPg, "ID_Cosa", tabla)
+        s.add(_FilaPg(ID_Cosa=tercero))
+        s.commit()
+
+    assert len({primero, segundo, tercero}) == 3, (
+        f"IDs repetidos: {primero=} {segundo=} {tercero=}. Sin reconciliar el "
+        f"contador, el tercero repite el segundo y estalla la clave duplicada.")
+    assert tercero != segundo

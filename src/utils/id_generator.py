@@ -72,7 +72,6 @@ anterior de max+1. Un fallo del contador NO puede tumbar un alta.
 from datetime import datetime
 
 from sqlalchemy import text
-from sqlmodel import select
 
 from src.utils.middleware.logs.logs import logger
 
@@ -146,19 +145,78 @@ def _siguiente_contador(bind, tabla: str, columna: str, prefix: str,
 
 def _max_en_python(session, model, id_field_name: str, prefix: str,
                    year_digit: str) -> int:
-    """Algoritmo anterior. Se conserva como respaldo y para no-PostgreSQL."""
-    id_column = getattr(model, id_field_name)
-    ids = session.exec(
-        select(id_column).where(id_column.like(f"{prefix}{year_digit}%"))
-    ).all()
+    """Algoritmo anterior. Se conserva como respaldo y para no-PostgreSQL.
+
+    OJO CON EL AUTOFLUSH — aqui estuvo un defecto que encontro la revision.
+
+    La version original usaba `session.exec(select(...))`, y `Session.exec`
+    AUTOFLUSHEA: fuerza a escribir lo que el llamador tuviera pendiente. Esa es
+    exactamente la cadena que perdio los 12 ficheros de agosto:
+
+        session.add(attachment)      -> INSERT pendiente
+        log_activity -> generate_custom_id -> exec() -> AUTOFLUSH
+        -> UniqueViolation -> se lo traga audit.py:114 -> sesion envenenada
+
+    Es decir: la RED DE SEGURIDAD contenia el bug del que protege. Y como el
+    respaldo salta justo bajo carga, saltaria en el peor momento.
+
+    `session.connection().execute()` va a la MISMA transaccion del llamador
+    pero NO autoflushea. Y el LIKE es portable, asi que sirve igual para el
+    camino de sqlite de los tests de desborde.
+    """
+    tabla = model.__tablename__
+    filas = session.connection().execute(
+        text(f'SELECT "{id_field_name}" FROM "{tabla}" '
+             f'WHERE "{id_field_name}" LIKE :patron'),
+        {"patron": f"{prefix}{year_digit}%"},
+    ).fetchall()
+
     corte = len(prefix) + 1
     ultimo = 0
-    for valor in ids:
+    for (valor,) in filas:
+        # Los IDs legacy sin sufijo numerico (p.ej. "BLGDEP6") se IGNORAN en
+        # vez de contar como 0, que reiniciaria el contador a 1 y colisionaria
+        # con los ya usados.
         try:
             ultimo = max(ultimo, int(valor[corte:]))
         except (ValueError, TypeError, IndexError):
             continue
     return ultimo
+
+
+def _empujar_contador(session, prefix: str, year_digit: str, valor: int) -> None:
+    """Deja `id_counters` al dia despues de usar el respaldo.
+
+    DEFECTO QUE ARREGLA (lo encontro la revision adversarial, dos lentes por
+    separado): el respaldo devolvia `max+1` sin tocar la tabla. Si el contador
+    ya estaba sembrado y sincronizado, la SIGUIENTE llamada buena hacia
+    `UPDATE ... last_value + 1` y devolvia EL MISMO numero que acababa de
+    entregar el respaldo -> duplicate key.
+
+    Peor aun por donde sale: en `log_activity` esa IntegrityError la absorbe
+    `audit.py:114` y la fila de auditoria se pierde EN SILENCIO — el mismo modo
+    de fallo que costo 88 dias. En el resto de llamadores la propaga
+    `save_with_retry`, que documenta que NO reintenta IntegrityError, asi que
+    el alta responde 500.
+
+    Va sobre la conexion del LLAMADOR a proposito: asi se commitea con SU
+    transaccion. Si el llamador hace rollback, ni se usa el ID ni se mueve el
+    contador — que es justo el acoplamiento que se quiere aqui.
+
+    Best-effort: si esto tambien falla ya estamos en modo degradado y no puede
+    empeorar el alta.
+    """
+    try:
+        session.connection().execute(
+            text("INSERT INTO id_counters (prefix, year_digit, last_value) "
+                 "VALUES (:p, :y, :v) "
+                 "ON CONFLICT (prefix, year_digit) DO UPDATE "
+                 "SET last_value = GREATEST(id_counters.last_value, :v)"),
+            {"p": prefix, "y": year_digit, "v": valor},
+        )
+    except Exception:
+        logger.exception("no se pudo reconciliar id_counters para %s%s",
+                         prefix, year_digit)
 
 
 def generate_custom_id(session, model, id_field_name: str, prefix: str,
@@ -181,12 +239,24 @@ def generate_custom_id(session, model, id_field_name: str, prefix: str,
                 year_digit, resincronizar)
             return f"{prefix}{year_digit}{siguiente:0{_ANCHO}}"
     except Exception:
-        # Un fallo del contador no puede impedir un alta. Se registra y se cae
-        # al algoritmo anterior, que sigue siendo correcto (solo vulnerable a
-        # la carrera, que es lo que habia antes de este cambio).
+        # Un fallo del contador no puede impedir un alta: se registra y se cae
+        # al algoritmo anterior. Ese camino SIGUE siendo vulnerable a la
+        # carrera (es el de antes de este cambio), pero ya no reintroduce el
+        # autoflush ni deja el contador desfasado — ver _max_en_python y
+        # _empujar_contador.
         logger.exception(
             "id_counters fallo para %s%s; se usa el calculo en Python",
             prefix, year_digit)
 
     ultimo = _max_en_python(session, model, id_field_name, prefix, year_digit)
-    return f"{prefix}{year_digit}{ultimo + 1:0{_ANCHO}}"
+    siguiente = ultimo + 1
+
+    # Dejar el contador al dia: si no, la proxima llamada buena repetiria este
+    # mismo numero. Solo en PostgreSQL — en sqlite no existe id_counters.
+    try:
+        if session.get_bind().dialect.name == "postgresql":
+            _empujar_contador(session, prefix, year_digit, siguiente)
+    except Exception:
+        logger.exception("no se pudo comprobar el dialecto al reconciliar")
+
+    return f"{prefix}{year_digit}{siguiente:0{_ANCHO}}"
