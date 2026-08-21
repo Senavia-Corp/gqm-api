@@ -10,10 +10,18 @@ from src.utils.middleware.retries.db_route_retries.delete_session import delete_
 from src.utils.id_generator import generate_custom_id
 from src.cloudinary.service import upload_to_cloudinary, delete_from_cloudinary, get_resource_type
 from src.models.AttachmentsModel import Attachments
+from src.utils.failed_sync import record_failed_attachment
+from src.utils.middleware.logs.logs import logger
 from src.models.ClientModel import Client
 from src.models.SubcontractorModel import Subcontractor
 from src.models.ParentMgmtCoModel import ParentMgmtCo
 from src.models.BldgDeptModel import BuildingDept
+
+
+# (conexion, lectura) en segundos. Sin timeout, un cuelgue de Podio deja la
+# transaccion del webhook abierta indefinidamente y con ella todo lo que
+# dependa de esa sesion. requests NO trae timeout por defecto.
+TIMEOUT_PODIO = (5, 60)
 
 
 # ─────────────────────────────────────────────
@@ -234,22 +242,47 @@ def process_file_change_event(
 
     headers = get_podio_headers(app_type, year=year)
 
+    # Red de seguridad: el registro del fallo lee estas dos en los `except`
+    # de las TRES ramas, pero solo la de file_created las asigna. Sin esto,
+    # un fallo en file_deleted o file_replaced lanza NameError DENTRO del
+    # except — peor que el print que sustituyen. Se reinician ademas en cada
+    # iteracion de cada bucle, para que el fallo del fichero N no registre
+    # el Cloudinary del fichero N-1.
+    cloudinary_result = None
+    filename = None
+
     # ── FILE CREATED ──────────────────────────────────────────────
     if action_type == "file_created":
         for file_id in file_id_list:
 
-            existing = session.exec(
-                select(Attachments).where(Attachments.podio_file_id == file_id)
-            ).first()
-            if existing:
-                print(f"⏭️ Archivo {file_id} ya existe, se omite.")
-                continue
+            # Deben existir ANTES del try: el registro del fallo los usa, y
+            # `cloudinary_result` es lo que distingue "nunca se subio" de
+            # "subido a Cloudinary pero no persistido" — esa distincion es la
+            # que permite recuperar el fichero sin volver a bajarlo de Podio.
+            cloudinary_result = None
+            filename = None
 
             try:
+                # El SELECT de dedup va DENTRO del try y con no_autoflush.
+                # Estaba fuera y sin proteger: el autoflush forzaba el INSERT
+                # pendiente del fichero anterior, asi que el IntegrityError se
+                # escapaba del bucle y se llevaba por delante los ficheros
+                # restantes de la MISMA entrega. La idempotencia real la da el
+                # re-chequeo de mas abajo, dentro del savepoint.
+                with session.no_autoflush:
+                    existing = session.exec(
+                        select(Attachments).where(
+                            Attachments.podio_file_id == file_id)
+                    ).first()
+                if existing:
+                    print(f"⏭️ Archivo {file_id} ya existe, se omite.")
+                    continue
+
                 # Obtener metadata del archivo
                 file_meta_resp = requests.get(
                     f"https://api.podio.com/file/{file_id}",
-                    headers=headers
+                    headers=headers,
+                    timeout=TIMEOUT_PODIO
                 )
                 file_meta_resp.raise_for_status()
                 file_meta = file_meta_resp.json()
@@ -261,7 +294,8 @@ def process_file_change_event(
                 file_resp = requests.get(
                     f"https://api.podio.com/file/{file_id}/raw",
                     headers=headers,
-                    stream=True
+                    stream=True,
+                    timeout=TIMEOUT_PODIO
                 )
                 file_resp.raise_for_status()
 
@@ -342,15 +376,38 @@ def process_file_change_event(
                 if guardado:
                     print(f"✅ {filename} → {_fk_field}: {_fk_value}")
                 elif intento == 5:
-                    print(f"❌ No se pudo asignar ID para {file_id} tras 5 intentos")
+                    # Antes se perdia con un print y nadie se enteraba.
+                    logger.error(
+                        "No se pudo asignar ID para el adjunto %s tras 5 intentos",
+                        file_id)
+                    record_failed_attachment(
+                        item_id=item_id, file_id=file_id, app_type=app_type,
+                        action_type="file_created", fk_field=_fk_field,
+                        fk_value=_fk_value, filename=filename,
+                        cloudinary_result=cloudinary_result,
+                        error="No se pudo asignar ID_Attachment tras 5 intentos")
 
             except Exception as e:
-                print(f"❌ Error en file_created {file_id}: {e}")
+                # Antes: print + continue. El fichero desaparecia sin dejar
+                # rastro, el webhook respondia 200 y Podio NUNCA reenvia.
+                logger.exception(
+                    "Fallo procesando el adjunto %s (file_created)", file_id)
+                record_failed_attachment(
+                    item_id=item_id, file_id=file_id, app_type=app_type,
+                    action_type="file_created", fk_field=_fk_field, fk_value=_fk_value,
+                    filename=filename, cloudinary_result=cloudinary_result,
+                    error=e)
                 continue
 
     # ── FILE DELETED ──────────────────────────────────────────────
     elif action_type == "file_deleted":
         for file_id in file_id_list:
+            # Reinicio por iteracion: sin esto el fallo del fichero N
+            # registraria los datos del N-1.
+            cloudinary_result = None
+            filename = None
+            obj = None
+
             try:
                 obj = session.exec(
                     select(Attachments).where(
@@ -379,12 +436,21 @@ def process_file_change_event(
                 print(f"🗑️ Attachment eliminado | podio_file_id={file_id}")
 
             except Exception as e:
-                print(f"❌ Error en file_deleted {file_id}: {e}")
+                logger.exception(
+                    "Fallo procesando el adjunto %s (file_deleted)", file_id)
+                record_failed_attachment(
+                    item_id=item_id, file_id=file_id, app_type=app_type,
+                    action_type="file_deleted", fk_field=_fk_field, fk_value=_fk_value,
+                    filename=filename, cloudinary_result=cloudinary_result,
+                    error=e)
                 continue
 
     # ── FILE REPLACED ─────────────────────────────────────────────
     elif action_type == "file_replaced":
         for file_id in file_id_list:
+            cloudinary_result = None
+            filename = None
+
             try:
                 existing = session.exec(
                     select(Attachments).where(
@@ -410,7 +476,13 @@ def process_file_change_event(
                 )
 
             except Exception as e:
-                print(f"❌ Error en file_replaced {file_id}: {e}")
+                logger.exception(
+                    "Fallo procesando el adjunto %s (file_replaced)", file_id)
+                record_failed_attachment(
+                    item_id=item_id, file_id=file_id, app_type=app_type,
+                    action_type="file_replaced", fk_field=_fk_field, fk_value=_fk_value,
+                    filename=filename, cloudinary_result=cloudinary_result,
+                    error=e)
                 continue
 
     else:
@@ -470,12 +542,16 @@ def process_item_attachments(
             print(f"⏭️ {filename} ya existe, se omite.")
             continue
 
+        # Igual que en file_created: el registro del fallo lo necesita.
+        cloudinary_result = None
+
         try:
             # Descargar de Podio
             response = requests.get(
                 f"https://api.podio.com/file/{file_id}/raw",
                 headers=headers,
-                stream=True
+                stream=True,
+                timeout=TIMEOUT_PODIO
             )
             response.raise_for_status()
 
@@ -508,9 +584,31 @@ def process_item_attachments(
                 **{fk_field: fk_value}
             )
 
-            session.add(attachment)
+            # SAVEPOINT, igual que en file_created. Este `add` iba desnudo:
+            # si el ID chocaba (mismo max+1 de generate_custom_id), la
+            # excepcion no saltaba aqui sino en el flush/commit de mas
+            # arriba en la pila, y se llevaba por delante los `add` de
+            # TODOS los ficheros anteriores del mismo lote.
+            with session.begin_nested():
+                session.add(attachment)
             print(f"✅ {filename} → {fk_field}: {fk_value}")
 
         except Exception as e:
-            print(f"❌ Error procesando archivo {file_id} ({filename}): {e}")
+            # Mismo agujero que file_created, y este corre en el alta y la
+            # actualizacion de items, no solo en file.change. Ademas aqui NO
+            # hay savepoint ninguno.
+            #
+            # OJO con el identificador: esta funcion NO recibe el item_id de
+            # Podio, solo `id_jobs` (p.ej. "QID51894") o `entity_id` (id local
+            # de la otra app). Se guarda el que haya y ademas los dos van al
+            # payload, para que quien recupere sepa cual esta leyendo. No es
+            # un podio_item_id: no mezclarlos al reconciliar.
+            logger.exception(
+                "Fallo procesando el adjunto %s (item_attachments)", file_id)
+            record_failed_attachment(
+                item_id=id_jobs or entity_id, file_id=file_id,
+                app_type=app_type, action_type="item_attachments",
+                fk_field=fk_field, fk_value=fk_value,
+                filename=filename, cloudinary_result=cloudinary_result,
+                error=e)
             continue
