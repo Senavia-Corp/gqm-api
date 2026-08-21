@@ -3,6 +3,7 @@ import traceback
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
+from src.utils.error_sanitizer import sanitize_error
 from ..models.JobModel import Job
 from ..models.OrderModel import Order
 from ..models.ChangeOrderModel import ChangeOrder
@@ -642,7 +643,15 @@ def podio_jobs_webhook(app_type, year, token=None):
                     item_id=str(data.get("item_id")) if 'data' in locals() and data else None,
                     hook_type=f"podio.jobs.{app_type}.{year}.{event_type}" if 'app_type' in locals() and 'year' in locals() and 'event_type' in locals() else "unknown",
                     payload=data if 'data' in locals() and data else {},
-                    error_message=str(e)
+                    # NO `str(e)`: en un IntegrityError SQLAlchemy arrastra
+                    # `[SQL: INSERT ...] [parameters: {...}]` con los valores
+                    # completos de la fila, y `GET /webhook/podio/failed_syncs`
+                    # sirve estas filas enteras por HTTP. Hoy son metadatos de
+                    # adjuntos; el dia que falle un INSERT sobre una tabla con
+                    # una columna de token, ese token acaba literal en esta
+                    # tabla y en una respuesta HTTP. El detalle completo va al
+                    # log, que no se sirve al cliente.
+                    error_message=sanitize_error(e)
                 )
                 error_session.add(failed_sync)
                 error_session.commit()
@@ -783,6 +792,29 @@ def resync_failed_sync(id):
                 app_type = parts[2]
                 year = int(parts[3])
                 event_type = ".".join(parts[4:])
+
+                # GUARD: solo sabemos reintentar estos tres. `file.change`
+                # entraba aqui, no coincidia con NINGUN if de abajo, y caia
+                # directo al `resolved = True` del final devolviendo "Resync
+                # exitoso" SIN HABER HECHO NADA.
+                #
+                # Medido en produccion: los 12 registros de agosto son todos
+                # `file.change`, 7 figuran resueltos, y los 12 ficheros seguian
+                # sin estar. Los updated_at de cinco de ellos son 18:53:10, :12,
+                # :13, :14 y :16 del 14-ago: cinco clics, cinco "exitos", cero
+                # ficheros recuperados. Mentir es peor que no poder.
+                #
+                # NO ponerlo como `else:` de la cadena de abajo: quedaria pegado
+                # al `except` del bloque item.delete y Python lo leeria como el
+                # `else` de un try/except — que se ejecuta cuando NO hay
+                # excepcion. Comprobado: asi no dispara nunca.
+                if event_type not in ("item.create", "item.update", "item.delete"):
+                    return jsonify({
+                        "error": f"el resync no sabe reintentar '{event_type}'; "
+                                 f"para adjuntos usa POST "
+                                 f"/sync_podio/phase2/jobs/attachments/<id_jobs>?year=YYYY",
+                        "event_type": event_type,
+                        "resuelto": False}), 422
                 item_id = failed_sync.item_id
                 
                 # Re-ejecutar la lógica
@@ -848,6 +880,7 @@ def resync_failed_sync(id):
                 except Exception as del_err:
                     if "404" not in str(del_err) and "410" not in str(del_err):
                         return jsonify({"error": f"no se pudo borrar el item huérfano: {del_err}"}), 502
+
 
             else:
                 return jsonify({
