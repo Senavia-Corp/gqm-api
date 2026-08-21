@@ -3,6 +3,7 @@ import traceback
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
+from src.utils import podio_webhook_core as _pwc
 from src.utils.error_sanitizer import sanitize_error
 from ..models.JobModel import Job
 from ..models.OrderModel import Order
@@ -369,6 +370,45 @@ def _cascade_delete_job_from_podio(session, item_id, app_type=None, year=None):
     ref = str(item_id)
     job = session.exec(select(Job).where(Job.podio_item_id == ref)).first()
     job_id = job.ID_Jobs if job else None
+
+    # ── LA CONFIRMACION VA AQUI, ANTES DE BORRAR NADA ────────────────────
+    #
+    # Estaba abajo, dentro de `event_delete` (que la sigue teniendo, y hace
+    # bien: la usan otros modelos). Pero para la CASCADA llegaba tarde: los
+    # hijos —change orders, documentos financieros, orders y los links— ya se
+    # habian borrado en las lineas de abajo. Si Podio respondia "sigue vivo" o
+    # "no puedo confirmar", `event_delete` se plantaba y no borraba el Job...
+    # y el `session.commit()` del handler del webhook confirmaba igualmente el
+    # borrado de todos sus hijos.
+    #
+    # Resultado: un job VIVO sin sus orders, sin sus change orders y sin sus
+    # documentos financieros. Y silencioso: `sentinela_huerfanos` cuenta filas
+    # sin job, no jobs sin filas, asi que no lo ve.
+    #
+    # Mientras PODIO_WEBHOOK_TOKEN siga sin definirse, ademas, ese camino lo
+    # alcanza un POST SIN AUTENTICAR: la guarda que se anadio para impedir que
+    # un anonimo borrase jobs solo cubria el Job, no su cascada.
+    #
+    # En produccion cuelgan 9.711 orders, 1.281 change orders y 2.979
+    # documentos financieros de 7.620 jobs.
+    #
+    # Comprobar primero no cuesta nada: es la misma peticion a Podio que ya se
+    # hacia, solo que antes en vez de despues.
+    if job_id and app_type:
+        # Por modulo, no por nombre importado: asi el mismo monkeypatch
+        # cubre este camino y el de `event_delete`.
+        vivo = _pwc.item_sigue_vivo_en_podio(ref, app_type, year=year)
+        if vivo is True:
+            logger.warning(
+                "item %s SIGUE VIVO en Podio: no se borra el job %s ni su cascada",
+                ref, job_id)
+            return job_id, 0, 0
+        if vivo is None:
+            logger.warning(
+                "item %s: no se pudo confirmar en Podio; no se borra el job %s "
+                "ni su cascada. La entrega legitima vuelve por el siguiente "
+                "item.delete o por la reconciliacion diaria.", ref, job_id)
+            return job_id, 0, 0
 
     order_ids = [o for o in session.exec(
         select(Order.ID_Order).where(Order.job_podio_id == ref)).all() if o]
