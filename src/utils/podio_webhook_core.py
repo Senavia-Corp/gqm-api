@@ -219,25 +219,71 @@ def process_file_change_event(
                     folder=folder
                 )
 
-                # Guardar en DB
-                new_id = generate_custom_id(
-                    session, Attachments, "ID_Attachment", "ATT")
+                # Guardar en DB — con la carrera contemplada.
+                #
+                # La comprobacion de `podio_file_id` de arriba se hace ANTES de
+                # descargar de Podio y subir a Cloudinary, que tarda segundos.
+                # Con varias entregas simultaneas del mismo evento las cinco
+                # pasan esa comprobacion (ninguna ha insertado todavia), hacen
+                # la subida, y `generate_custom_id` les da a todas el mismo
+                # max+1. Cuatro estallan con:
+                #   duplicate key value violates unique constraint
+                #   "attachments_pkey" DETAIL: Key ("ID_Attachment")=(ATT62498)
+                #
+                # Medido en produccion el 20-ago-2026: el item 3345393757
+                # (PAR6171) entro CINCO veces en 1,6 s y dejo 5 registros en
+                # `podio_failed_syncs`, todos `file.change`.
+                #
+                # Dos defensas, en este orden:
+                #  1. Re-comprobar `podio_file_id` justo antes de insertar. La
+                #     ventana pasa de segundos a microsegundos.
+                #  2. Reintentar con un ID nuevo si aun asi choca la PK. Si lo
+                #     que choca es el fichero, es que otra entrega gano: no es
+                #     un error, es idempotencia.
+                from sqlalchemy.exc import IntegrityError
 
-                attachment = Attachments(
-                    ID_Attachment=new_id,
-                    Document_name=filename,
-                    Attachment_descr=description,
-                    Link=cloudinary_result["secure_url"],
-                    Document_type=cloudinary_result["format"].lower(
-                    ) or mimetype,
-                    cloudinary_public_id=cloudinary_result["public_id"],
-                    cloudinary_resource_type=cloudinary_result["resource_type"],
-                    podio_file_id=file_id,
-                    **{_fk_field: _fk_value}
-                )
+                ya_esta = session.exec(
+                    select(Attachments).where(
+                        Attachments.podio_file_id == file_id)
+                ).first()
+                if ya_esta:
+                    print(f"⏭️ Archivo {file_id} lo guardo otra entrega, se omite.")
+                    continue
 
-                session.add(attachment)
-                print(f"✅ {filename} → {_fk_field}: {_fk_value}")
+                guardado = False
+                for intento in range(1, 6):
+                    new_id = generate_custom_id(
+                        session, Attachments, "ID_Attachment", "ATT")
+                    attachment = Attachments(
+                        ID_Attachment=new_id,
+                        Document_name=filename,
+                        Attachment_descr=description,
+                        Link=cloudinary_result["secure_url"],
+                        Document_type=cloudinary_result["format"].lower(
+                        ) or mimetype,
+                        cloudinary_public_id=cloudinary_result["public_id"],
+                        cloudinary_resource_type=cloudinary_result["resource_type"],
+                        podio_file_id=file_id,
+                        **{_fk_field: _fk_value}
+                    )
+                    try:
+                        # SAVEPOINT: si choca, no se lleva por delante la
+                        # transaccion del webhook entero (que es lo que producia
+                        # el "This Session's transaction has been rolled back").
+                        with session.begin_nested():
+                            session.add(attachment)
+                        guardado = True
+                        break
+                    except IntegrityError as choque:
+                        if "podio_file_id" in str(choque.orig):
+                            print(f"⏭️ Archivo {file_id} guardado en paralelo, se omite.")
+                            break
+                        print(f"↻ {new_id} ocupado (intento {intento}), reintentando")
+
+                if guardado:
+                    print(f"✅ {filename} → {_fk_field}: {_fk_value}")
+                elif intento == 5:
+                    print(f"❌ No se pudo asignar ID para {file_id} tras 5 intentos")
 
             except Exception as e:
                 print(f"❌ Error en file_created {file_id}: {e}")
