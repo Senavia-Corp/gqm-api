@@ -415,13 +415,40 @@ def process_file_change_event(
             obj = None
 
             try:
+                # ACOTADO A LA ENTIDAD DEL EVENTO. Antes el filtro era solo
+                # `podio_file_id == file_id`, sin mirar a que job/cliente/etc
+                # pertenecia el adjunto — y `file_ids` viene del CUERPO de la
+                # peticion, sin validar.
+                #
+                # Con la compuerta del webhook aun abierta (PODIO_WEBHOOK_TOKEN
+                # sin definir), la cadena completa era:
+                #
+                #   1. un `item_id` de job REAL — hay 7.625 y los podio_item_id
+                #      son visibles en Podio
+                #   2. `file_ids` a eleccion de quien manda la peticion
+                #   3. el SELECT casaba GLOBALMENTE
+                #   4. borrado de Cloudinary Y de la BD
+                #
+                # O sea: con el id de UN job se podian borrar los 2.466
+                # adjuntos del sistema. Y el rastro enganaba, porque
+                # `log_activity` lo atribuye al usuario de Podio que figure en
+                # la revision del item.
+                #
+                # Acotando por la FK, un evento de un job solo puede tocar los
+                # adjuntos DE ESE job — que es lo unico que un webhook legitimo
+                # de Podio para ese job deberia hacer.
                 obj = session.exec(
                     select(Attachments).where(
-                        Attachments.podio_file_id == file_id)
+                        Attachments.podio_file_id == file_id,
+                        getattr(Attachments, _fk_field) == _fk_value)
                 ).first()
 
                 if not obj:
-                    print(f"⚠️ Archivo {file_id} no existe en DB, se omite.")
+                    # Ojo al matiz: puede que el fichero exista pero pertenezca
+                    # a OTRA entidad. Se omite igual, y eso es lo correcto: un
+                    # evento de este job no tiene por que borrar los de otro.
+                    print(f"⚠️ Archivo {file_id} no existe en DB para "
+                          f"{_fk_field}={_fk_value}, se omite.")
                     continue
 
                 # ----------- 🔴 ELIMINAR DE CLOUDINARY
