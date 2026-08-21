@@ -232,3 +232,64 @@ def test_el_respaldo_deja_el_contador_al_dia(monkeypatch, tabla):
         f"IDs repetidos: {primero=} {segundo=} {tercero=}. Sin reconciliar el "
         f"contador, el tercero repite el segundo y estalla la clave duplicada.")
     assert tercero != segundo
+
+
+def test_el_respaldo_no_retiene_el_lock_de_id_counters(monkeypatch, tabla):
+    """El respaldo no puede bloquear la fila del contador durante la transaccion.
+
+    DEFECTO QUE CUBRE (verificacion adversarial del 21-ago-2026): la primera
+    version de `_empujar_contador` escribia con `session.connection()`, o sea la
+    transaccion del LLAMADOR. Eso toma el row lock de (prefix, year_digit) y lo
+    retiene hasta que esa transaccion commitee — que en el webhook de adjuntos
+    incluye dos requests.get a Podio y una subida a Cloudinary.
+
+    Es exactamente el problema por el que el diseno descarto
+    `pg_advisory_xact_lock`, reintroducido por la puerta de atras. Y el caso
+    peor no es entre peticiones: la siguiente llamada del MISMO request usa la
+    conexion autonoma y espera un lock que retiene su propia transaccion. Sin
+    ciclo de esperas, el detector de deadlocks de PostgreSQL nunca dispara, y en
+    produccion lock_timeout=0.
+
+    Este test comprueba que, tras usar el respaldo, la transaccion del llamador
+    NO tiene ningun lock sobre id_counters.
+    """
+    _forzar_respaldo(monkeypatch)
+
+    with Session(engine) as s:
+        generate_custom_id(s, _FilaPg, "ID_Cosa", tabla)
+
+        # la transaccion del llamador sigue ABIERTA aqui
+        locks = s.connection().execute(text("""
+            SELECT count(*)
+              FROM pg_locks l
+              JOIN pg_class c ON c.oid = l.relation
+             WHERE c.relname = 'id_counters'
+               AND l.pid = pg_backend_pid()
+               AND l.locktype = 'relation'
+        """)).scalar()
+
+        assert locks == 0, (
+            f"la transaccion del llamador retiene {locks} lock(s) sobre "
+            f"id_counters con la transaccion aun abierta. Esa retencion dura "
+            f"hasta el commit — que en el webhook de adjuntos incluye descargas "
+            f"de Podio y subidas a Cloudinary.")
+        s.rollback()
+
+
+def test_dos_ids_seguidos_por_el_respaldo_no_se_bloquean(monkeypatch, tabla):
+    """El caso que colgaba: dos IDs del mismo prefijo en una transaccion.
+
+    Con el lock retenido por la transaccion del llamador, la segunda llamada
+    (por la conexion autonoma) esperaba un lock de su propio request. Sin ciclo
+    de esperas, PostgreSQL no lo detecta como deadlock: se cuelga hasta que
+    Vercel mata la funcion.
+    """
+    _forzar_respaldo(monkeypatch)
+
+    with Session(engine) as s:
+        primero = generate_custom_id(s, _FilaPg, "ID_Cosa", tabla)
+        s.add(_FilaPg(ID_Cosa=primero))
+        # sin commit: la transaccion sigue abierta, como en el bucle real
+        segundo = generate_custom_id(s, _FilaPg, "ID_Cosa", tabla)
+        assert segundo != primero
+        s.rollback()

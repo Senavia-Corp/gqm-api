@@ -97,7 +97,13 @@ def upsert_order(
 
     # 🔥 Generar ID
     prefix = "ORD"
-    new_id = generate_custom_id(
+    # OJO: `generate_custom_id` ya NO es un SELECT sin efectos. Desde que el
+    # contador vive en `id_counters` (c5a8e3f24b17), pedir un ID hace un
+    # UPDATE que COMMITEA en su propia conexion — fuera de la transaccion
+    # del llamador, asi que ni el `if not dry_run` de abajo ni un rollback lo
+    # deshacen. Pedirlo aqui hacia que una SIMULACION quemara numeros reales.
+    # Un dry_run no puede tener efectos: ese es todo su contrato.
+    new_id = f"{prefix}-DRYRUN" if dry_run else generate_custom_id(
         session,
         Order,
         "ID_Order",
@@ -176,7 +182,13 @@ def upsert_change_order(
 
     # 🔥 Generar ID
     prefix = "ChO"
-    new_id = generate_custom_id(
+    # OJO: `generate_custom_id` ya NO es un SELECT sin efectos. Desde que el
+    # contador vive en `id_counters` (c5a8e3f24b17), pedir un ID hace un
+    # UPDATE que COMMITEA en su propia conexion — fuera de la transaccion
+    # del llamador, asi que ni el `if not dry_run` de abajo ni un rollback lo
+    # deshacen. Pedirlo aqui hacia que una SIMULACION quemara numeros reales.
+    # Un dry_run no puede tener efectos: ese es todo su contrato.
+    new_id = f"{prefix}-DRYRUN" if dry_run else generate_custom_id(
         session,
         ChangeOrder,
         "ID_ChangeOrder",

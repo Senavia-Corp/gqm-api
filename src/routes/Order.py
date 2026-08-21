@@ -260,6 +260,22 @@ def create_order():
 
     with get_session() as session:
         # ----------- 💾 GENERAR ID Y PRE-GUARDAR
+        #
+        # El ID se pide ANTES de la validacion de "formula 0" de mas abajo,
+        # y eso es inevitable: esa validacion necesita que
+        # `recalculate_order_formulas` haya corrido, lo que exige el objeto
+        # ya guardado con sus estimate_costs.
+        #
+        # Consecuencia asumida: una orden rechazada por formula 0 quema un
+        # numero de ORD. Desde c5a8e3f24b17 el contador vive en `id_counters`
+        # y commitea aparte, asi que el rollback ya no lo devuelve — antes se
+        # recalculaba desde la tabla y el hueco se reutilizaba.
+        #
+        # Se deja a proposito: es un hueco en la secuencia, que es justo lo
+        # que hace cualquier secuencia de Postgres ante un rollback. No
+        # afecta a la unicidad (el contador es monotono y el sembrado usa
+        # GREATEST) ni a ningun dato. Reordenar el flujo de validacion sobre
+        # produccion viva costaria mas de lo que vale.
         new_id = generate_custom_id(session, Order, "ID_Order", "ORD")
         obj.ID_Order = new_id
         session.add(obj)

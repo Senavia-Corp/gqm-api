@@ -80,7 +80,10 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
     # ---------  🆕 CREATE
     print("🆕 Documento NO existe → creando nuevo")
 
-    new_id = generate_custom_id(
+    # dry_run no puede tener efectos: `generate_custom_id` ya no es un SELECT
+    # sin consecuencias — desde c5a8e3f24b17 reserva en `id_counters` y
+    # commitea en su propia conexion, fuera de la transaccion del llamador.
+    new_id = "FD-DRYRUN" if dry_run else generate_custom_id(
         session, FinancialDocument, "ID_FinancialDoc", "FD")
 
     new_doc = FinancialDocument(
@@ -102,7 +105,11 @@ def upsert_financial_document(session, data, doc_type, dry_run=False):
 def upsert_financial_doc_items(session, data, doc_id, dry_run=False):
 
     # ---------  🆕 CREATE
-    new_id = generate_custom_id(session, FinancialDoc_Item, "ID_FDItem", "FDI")
+    # dry_run no puede tener efectos: `generate_custom_id` ya no es un SELECT
+    # sin consecuencias — desde c5a8e3f24b17 reserva en `id_counters` y
+    # commitea en su propia conexion, fuera de la transaccion del llamador.
+    new_id = "FDI-DRYRUN" if dry_run else generate_custom_id(
+        session, FinancialDoc_Item, "ID_FDItem", "FDI")
 
     new_doc_item = FinancialDoc_Item(
         ID_FDItem=new_id,
@@ -161,7 +168,10 @@ def upsert_financial_transaction(session, data, trans_type, dry_run=False):
     # ---------  🆕 CREATE
     print("🆕    Transacción NO existe → creando nueva")
 
-    new_id = generate_custom_id(
+    # dry_run no puede tener efectos: `generate_custom_id` ya no es un SELECT
+    # sin consecuencias — desde c5a8e3f24b17 reserva en `id_counters` y
+    # commitea en su propia conexion, fuera de la transaccion del llamador.
+    new_id = "FT-DRYRUN" if dry_run else generate_custom_id(
         session, FinancialTransaction, "ID_FTransaction", "FT")
 
     new_trans = FinancialTransaction(
