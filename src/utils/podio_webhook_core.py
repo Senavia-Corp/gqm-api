@@ -595,8 +595,24 @@ def process_item_attachments(
             # excepcion no saltaba aqui sino en el flush/commit de mas
             # arriba en la pila, y se llevaba por delante los `add` de
             # TODOS los ficheros anteriores del mismo lote.
-            with session.begin_nested():
-                session.add(attachment)
+            try:
+                with session.begin_nested():
+                    session.add(attachment)
+            except IntegrityError as choque:
+                # Que OTRA entrega haya guardado ya este fichero no es un
+                # error: es idempotencia. El camino de file_created ya lo
+                # trataba asi; aqui faltaba, y una colision acababa en el
+                # `except` ancho de abajo -> fila de ruido en la
+                # dead-letter por algo que salio BIEN, y un asset de
+                # Cloudinary huerfano (la subida ya ocurrio).
+                #
+                # Solo aplica desde que existe ux_attachments_podio_file_id
+                # (migracion b4f7c2e18d09): sin ese indice, este choque no
+                # podia producirse.
+                if "podio_file_id" not in str(choque.orig):
+                    raise
+                print(f"⏭️ {filename} lo guardo otra entrega, se omite.")
+                continue
             print(f"✅ {filename} → {fk_field}: {fk_value}")
 
         except Exception as e:

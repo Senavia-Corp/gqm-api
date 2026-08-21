@@ -73,9 +73,27 @@ encadenadas y la primera cuelga del MISMO padre:
 Al mezclar #94 habra DOS CABEZAS y `alembic upgrade head` se negara a correr
 ("Multiple head revisions are present").
 
-COMO RESOLVERLO cuando se retome #94: cambiar en `b1d4a7c05e11` su
-`down_revision` de `c3b8d5a1f740` a `b4f7c2e18d09`. Una linea, y el arbol
-queda lineal. Es preferible a una revision de merge.
+COMO RESOLVERLO cuando se retome #94: re-apuntar el `down_revision` de
+`b1d4a7c05e11` a la CABEZA ACTUAL de main. Una linea, y el arbol queda lineal;
+es preferible a una revision de merge.
+
+  ⚠️ NO hardcodees aqui cual es esa cabeza. Esta nota decia «apuntar a
+  b4f7c2e18d09» y CADUCO el mismo dia: el paso 3 encadeno c5a8e3f24b17 encima,
+  asi que seguir la instruccion literal dejaba DOS cabezas igualmente y alembic
+  se negaba a correr. Peor que no documentarlo, porque daba confianza falsa.
+
+  Averigua la cabeza en el momento de hacerlo, no la leas de aqui:
+
+      alembic heads          # o: python -c "from alembic.script import ...
+                             #     ScriptDirectory.from_config(cfg).get_heads()"
+
+  Y COMPRUEBALO despues, que es lo que no se hizo la primera vez: tras el
+  cambio, `alembic heads` debe devolver UNA sola. Simulado el 21-ago-2026 con
+  alembic 1.18.1 sobre copias del arbol:
+      main sin tocar ......................... ['c5a8e3f24b17']      1 cabeza
+      main + las 6 de #94 .................... [..., 'f6c9a3e18b55'] 2 cabezas
+      + remedio literal (-> b4f7c2e18d09) .... [..., 'f6c9a3e18b55'] 2 cabezas
+      + apuntando a la cabeza real ........... ['f6c9a3e18b55']      1 cabeza
 
 TRAMPA AL HACERLO — la base de datos `develop` ya tiene aplicada la cadena
 entera de #94 (esta en `f6c9a3e18b55`) SIN este indice. Si se re-apunta la
