@@ -189,8 +189,10 @@ def podio_general_webhook(app_type, token=None):
                              item_id=item_id, item_data=item_data)
                 action = f"{entity_type} updated from Podio"
             elif event_type == "item.delete":
+                # app_type => se confirma contra Podio antes de borrar
                 event_delete(session=session, Model=Model,
-                             item_unique_id=item_unique_id)
+                             item_unique_id=item_unique_id,
+                             app_type=app_type)
                 action = f"{entity_type} deleted from Podio"
 
             elif event_type == "file.change":
@@ -267,7 +269,8 @@ def podio_relations_webhook(app_type, token=None):
                 processor(session, podio_item)
             elif event_type == "item.delete":
                 event_delete(session=session, Model=Model,
-                             item_unique_id=str(item_id))
+                             item_unique_id=str(item_id),
+                             app_type=app_type)
 
             elif event_type == "file.change":
                 updated_entity = session.exec(
@@ -339,7 +342,7 @@ def _webhook_state_converged(event_type, item_id, intentos=1, espera=0.0) -> boo
     return False
 
 
-def _cascade_delete_job_from_podio(session, item_id):
+def _cascade_delete_job_from_podio(session, item_id, app_type=None, year=None):
     """Cascada del delete de jobs venido de Podio — COMPARTIDA entre el webhook
     y el resync de failed_syncs. Simétrica al DELETE por API (Job.py).
 
@@ -420,7 +423,11 @@ def _cascade_delete_job_from_podio(session, item_id):
     #    Si no hay job (carrera ya resuelta), commit de la limpieza bulk.
     session.expire_all()  # las colecciones cacheadas ya no reflejan la BD
     if job_id:
-        event_delete(session=session, Model=Job, item_unique_id=ref)
+        # app_type => se confirma contra Podio que el item ya no existe antes de
+        # borrar el job. Sin esto, un POST sin autenticar con un item_id
+        # cualquiera borraba jobs reales.
+        event_delete(session=session, Model=Job, item_unique_id=ref,
+                     app_type=app_type, year=year)
     else:
         session.commit()
 
@@ -530,7 +537,8 @@ def podio_jobs_webhook(app_type, year, token=None):
             # ── DELETE ────────────────────────────────────────────────────
             elif event_type == "item.delete":
                 job_id_for_log, n_orders, n_cos = \
-                    _cascade_delete_job_from_podio(session, item_id)
+                    _cascade_delete_job_from_podio(session, item_id,
+                                                   app_type=app_type, year=year)
                 if n_orders or n_cos:
                     print(f"🗑️ {n_orders} Orders y {n_cos} Change Orders "
                           f"eliminados para Job {item_id}")

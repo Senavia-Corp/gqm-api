@@ -112,16 +112,75 @@ def event_update(session, Model, item_id, item_data):
             f"🆕 {Model.__name__} creado durante update.")
 
 
+def item_sigue_vivo_en_podio(item_id, app_type: str, year: Optional[int] = None):
+    """¿El item existe todavía en Podio?  True / False / None (no se pudo saber).
+
+    **Solo un 2xx confirma que sigue vivo.** 404, 410 y también 403 cuentan como
+    «no está»: Podio responde 403 para items que no existen, no 404 — medido el
+    18-ago-2026 con dos `podio_item_id` fabricados (900048090 y 930017423), los
+    dos dieron 403. Tratar el 403 como «no lo sé» bloqueaba borrados legítimos y
+    rompía la sincronización de bajas.
+
+    Eso no debilita la defensa. Un `item_id` inventado no tiene fila local, así
+    que `event_delete` sale antes sin borrar nada; el ataque exige un item REAL
+    y enlazado, y ésos devuelven 2xx, que es justo lo que bloquea.
+
+    5xx o error de red → None: ahí sí hay un item probablemente vivo y no se
+    puede confirmar, así que no se borra.
+    """
+    try:
+        resp = requests.get(
+            f"https://api.podio.com/item/{item_id}/basic",
+            headers=get_podio_headers(app_type, year=year),
+            timeout=15,
+        )
+    except Exception as e:
+        print(f"⚠️ No se pudo comprobar el item {item_id} en Podio: {e}")
+        return None
+
+    if resp.ok:
+        return True
+    if resp.status_code in (403, 404, 410):
+        return False
+    print(f"⚠️ Comprobación de {item_id} devolvió {resp.status_code}")
+    return None
+
+
 # Función para el evento DELETE
-def event_delete(session, Model, item_unique_id):
+def event_delete(session, Model, item_unique_id, app_type: Optional[str] = None,
+                 year: Optional[int] = None):
+    """Borra la fila local que apunta a un item de Podio ya eliminado.
+
+    **Se confirma contra Podio antes de borrar.** Sin esa confirmación, un
+    `POST` con `type: item.delete` y un `item_id` cualquiera borraba esa fila —
+    y el endpoint acepta SIN autenticar mientras `PODIO_WEBHOOK_TOKEN` no esté
+    configurada (medido el 20-ago-2026: `POST /webhook/podio/jobs/QID/2026` sin
+    token devuelve 200, no 403). Es decir: cualquiera con la URL podía borrar
+    jobs.
+
+    Falla CERRADO. Si el item sigue vivo, no se borra. Si la comprobación no se
+    puede completar (Podio caído, credenciales), tampoco: es preferible dejar una
+    fila de más que perder un job por un hipo de red. La entrega legítima que se
+    pierda vuelve por el `item.delete` siguiente o por la reconciliación diaria.
+    """
     obj = session.exec(select(Model).where(
         getattr(Model, "podio_item_id") == item_unique_id)).first()
-    if obj:
-        delete_with_retry(session, obj)
-        print(f"🗑️ {Model.__name__} eliminado.")
 
-    else:
+    if not obj:
         print(f"⚠️ {Model.__name__} {item_unique_id} no existe")
+        return
+
+    if app_type:
+        vivo = item_sigue_vivo_en_podio(item_unique_id, app_type, year=year)
+        if vivo is True:
+            print(f"🛑 {Model.__name__} {item_unique_id} SIGUE en Podio: no se borra")
+            return
+        if vivo is None:
+            print(f"🛑 {Model.__name__} {item_unique_id}: sin confirmar en Podio, no se borra")
+            return
+
+    delete_with_retry(session, obj)
+    print(f"🗑️ {Model.__name__} eliminado.")
 
 
 # ─────────────────────────────────────────────
