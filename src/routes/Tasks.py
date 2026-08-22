@@ -29,7 +29,7 @@ tasks_bp = Blueprint("tasks_blueprint", __name__, url_prefix="/tasks")
 # ── GETs ─────────────────────────────────────────────────────────────────────
 
 @tasks_bp.get("/")
-@require_permission(["tasks:read", "tasks:read_own"])
+@require_permission("tasks:read")
 @handle_exceptions()
 @paginate()
 def list_tasks():
@@ -45,12 +45,18 @@ def list_tasks():
 
 
 @tasks_bp.get("/weekly")
-@require_permission(["tasks:read", "tasks:read_own"])
+@require_permission("tasks:read")
 @handle_exceptions()
 def get_weekly_tasks():
     """
-    Retorna tareas cuya Delivery_date cae dentro de la semana actual (lun–dom).
-    Query param opcional: ?job_type=QID | PTL | PAR
+    Retorna las tareas que SOLAPAN con la semana pedida (lun–dom).
+
+    Ojo: el WHERE incluye los NULL a propósito, así que una tarea sin fechas
+    aparece en TODAS las semanas (T-20). El docstring anterior decía
+    "Delivery_date cae dentro de la semana", que no es lo que hace el código.
+
+    Query params: ?week_offset= &job_type=QID|PTL|PAR &member_id= 
+    &subcontractor_id= &technician_id=
     Incluye relaciones: job y member.
     """
     today = date.today()
@@ -61,6 +67,9 @@ def get_weekly_tasks():
     job_type_param = request.args.get("job_type", None)
     member_id_param = request.args.get("member_id", None)
     subcontractor_id_param = request.args.get("subcontractor_id", None)
+    # T-06: el panel enviaba technician_id desde weekly/route.ts:41 y aquí no se
+    # leía nunca, así que filtrar por técnico devolvía TODO sin avisar.
+    technician_id_param = request.args.get("technician_id", None)
 
     with get_session() as session:
         query = (
@@ -92,6 +101,9 @@ def get_weekly_tasks():
                     Tasks.job.has(Job.members.any(Member.ID_Member == member_id_param))
                 )
             )
+
+        if technician_id_param:
+            query = query.where(Tasks.ID_Technician == technician_id_param)
 
         if subcontractor_id_param:
             from src.models.TechnicianModel import Technician
@@ -129,6 +141,9 @@ def get_weekly_tasks():
                 "Designation_date":  t.Designation_date.isoformat() if t.Designation_date else None,
                 "Delivery_date":     t.Delivery_date.isoformat() if t.Delivery_date else None,
                 "ID_Subcontractor":  t.ID_Subcontractor,
+                # T-06: sin esto el panel no puede mostrar de quién es la tarea
+                # aunque ya sepa filtrarla por técnico.
+                "ID_Technician":     t.ID_Technician,
                 "job":               t.job.model_dump() if t.job else None,
                 "member":            t.member.model_dump() if t.member else None,
                 "subcontractor":     {
@@ -142,7 +157,7 @@ def get_weekly_tasks():
 
 
 @tasks_bp.get("/<id_tasks>")
-@require_permission(["tasks:read", "tasks:read_own"])
+@require_permission("tasks:read")
 @handle_exceptions()
 def get_tasks(id_tasks):
     with get_session() as session:
@@ -157,7 +172,7 @@ def get_tasks(id_tasks):
 
 
 @tasks_bp.get("/job/<id_jobs>/tech/<id_tech>")
-@require_permission(["tasks:read", "tasks:read_own"])
+@require_permission("tasks:read")
 @handle_exceptions()
 @paginate()
 def get_tasks_by_job(id_jobs, id_tech):
@@ -182,7 +197,8 @@ def get_tasks_by_job(id_jobs, id_tech):
 @tasks_bp.post("/")
 @require_permission("tasks:create")
 @handle_exceptions()
-@audit("Task created", entity_type="Tasks", id_from="response")
+@audit("Task created", entity_type="Tasks", id_from="response",
+       job_id_from="response")
 def create_tasks():
     data = request.get_json()
     create_tasks = TasksCreate.model_validate(data)
@@ -203,7 +219,8 @@ def create_tasks():
 @tasks_bp.patch("/<task_id>")
 @require_permission("tasks:update")
 @handle_exceptions()
-@audit("Task updated", entity_type="Tasks", id_param="task_id")
+@audit("Task updated", entity_type="Tasks", id_param="task_id",
+       job_id_from="response")
 def update_tasks(task_id):
     data = request.get_json()
     with get_session() as session:

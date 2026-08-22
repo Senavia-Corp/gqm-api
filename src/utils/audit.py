@@ -79,10 +79,12 @@ def log_activity(
             "Technician": "ID_Technician",
             "ParentMgmtCo": "ID_Community_Tracking",
             "Client": "ID_Client",
-            "Tasks": "ID_Tasks",
-            "Order": "ID_Order",
-            "EstimateCost": "ID_EstimateCost",
-            "ChangeOrder": "ID_ChangeOrder"
+            # T-01: tlactivity NO tiene columnas ID_Tasks/ID_Order/ID_EstimateCost/
+        # ID_ChangeOrder. SQLModel descarta las claves desconocidas EN SILENCIO
+        # (_compat.py:271-290), así que estas 4 entradas nunca hicieron nada y
+        # daban la falsa impresión de que el evento quedaba enlazado.
+        # Se mantienen fuera del mapa a propósito: el enlace útil es ID_Jobs,
+        # vía job_id_from en el decorador.
         }
 
         # Preparamos los datos base
