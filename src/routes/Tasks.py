@@ -210,6 +210,22 @@ def create_tasks():
         if not task_belongs_to_portal_user(session, obj):
             raise AppException(
                 "Forbidden: la tarea no pertenece a tus jobs.", "forbidden", 403)
+        # T-09: la tarea automática de certificado (sin job, con subcontratista)
+        # se dedupe SOLO en localStorage, que es por navegador y dispositivo:
+        # dos admins, dos equipos o un incógnito creaban duplicados, y el
+        # .catch(() => null) del panel se tragaba los fallos. Aquí se hace
+        # idempotente en servidor, que es donde el dedupe funciona para todos.
+        if obj.ID_Subcontractor and not obj.ID_Jobs and obj.Name:
+            ya = session.exec(
+                select(Tasks).where(
+                    Tasks.Name == obj.Name,
+                    Tasks.ID_Subcontractor == obj.ID_Subcontractor,
+                )).first()
+            if ya is not None:
+                logger.info("↩️  Task de certificado ya existía | task_id=%s",
+                            ya.ID_Tasks)
+                return ya.model_dump(), 200
+
         obj.ID_Tasks = generate_custom_id(session, Tasks, "ID_Tasks", "TSK")
         save_with_retry(session, obj)
         logger.info("✅ Task creada | task_id=%s", obj.ID_Tasks)

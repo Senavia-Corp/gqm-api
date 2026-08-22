@@ -153,3 +153,77 @@ def test_by_type_year_no_filtra_el_bloque_financiero_al_tecnico(client, tech, mu
     for j in filas:
         assert "Gqm_final_sold_pricing" not in j, (
             "by-type-year entregó precios de venta a un técnico (solo tiene job:read_basics)")
+
+
+# ── T-09 ──────────────────────────────────────────────────────────────────────
+def test_tarea_de_certificado_no_se_duplica(client, admin, sub):
+    """El dedupe vivía en localStorage: por navegador y por dispositivo."""
+    headers, _ = admin
+    _, sub_id = sub
+    nombre = f"Update Certificate {uuid.uuid4().hex[:6]} - Expire in 30 days"
+    payload = {"Name": nombre, "Task_status": "Not started",
+               "Priority": "High", "ID_Subcontractor": sub_id}
+    try:
+        primero = client.post("/tasks/", headers=headers, json=payload)
+        assert primero.status_code == 201
+        tid = primero.get_json()["ID_Tasks"]
+
+        for _ in range(2):
+            repe = client.post("/tasks/", headers=headers, json=payload)
+            assert repe.status_code == 200, "creó un duplicado en vez de devolver la existente"
+            assert repe.get_json()["ID_Tasks"] == tid
+
+        with get_session() as s:
+            filas = s.exec(select(Tasks).where(Tasks.Name == nombre)).all()
+            assert len(filas) == 1, f"quedaron {len(filas)} filas idénticas"
+    finally:
+        with get_session() as s:
+            for f in s.exec(select(Tasks).where(Tasks.Name == nombre)).all():
+                s.delete(f)
+            s.commit()
+
+
+# ── Actor de portal ───────────────────────────────────────────────────────────
+def test_la_accion_de_un_sub_queda_atribuida(client, sub, mundo):
+    """tlactivity tiene ID_Subcontractor, pero solo se rellenaba ID_Member:
+    toda acción de portal se auditaba sin autor."""
+    headers, sub_id = sub
+    nombre = f"AUDIT actor {uuid.uuid4().hex[:6]}"
+    try:
+        resp = client.post("/tasks/", headers=headers,
+                           json={"Name": nombre, "ID_Jobs": mundo["mio"]})
+        assert resp.status_code == 201
+        with get_session() as s:
+            ev = s.exec(select(TLActivity)
+                        .where(TLActivity.Action == "Task created")
+                        .order_by(TLActivity.Action_datetime.desc())).first()
+            assert ev is not None
+            assert ev.ID_Subcontractor == sub_id, "la acción del sub quedó sin autor"
+            assert ev.ID_Jobs == mundo["mio"], "el evento no cuelga del job"
+    finally:
+        with get_session() as s:
+            for f in s.exec(select(Tasks).where(Tasks.Name == nombre)).all():
+                s.delete(f)
+            s.commit()
+
+
+# ── Validación: debe ser 400 con motivo, no 500 mudo ──────────────────────────
+@pytest.mark.parametrize("cuerpo,fragmento", [
+    ({}, "ID_Jobs o ID_Subcontractor"),
+    ({"Name": "x", "Task_status": "Not Started"}, "Task_status"),
+    ({"Name": "x", "Priority": "Critical"}, "Priority"),
+])
+def test_los_errores_de_validacion_son_400_con_motivo(client, admin, mundo,
+                                                      cuerpo, fragmento):
+    """ve.errors() lleva la excepción original en `ctx`, que NO es serializable:
+    jsonify reventaba y Flask devolvía un 500 mudo en vez del 400 con detalle."""
+    headers, _ = admin
+    payload = {**cuerpo}
+    if "Name" in payload:
+        payload.setdefault("ID_Jobs", mundo["mio"])
+    resp = client.post("/tasks/", headers=headers, json=payload)
+    assert resp.status_code == 400, f"esperaba 400, llegó {resp.status_code}"
+    cuerpo_resp = resp.get_json()
+    assert cuerpo_resp["code"] == "validation_error"
+    texto = str(cuerpo_resp["errors"])
+    assert fragmento in texto, f"el motivo no menciona {fragmento!r}: {texto[:200]}"
