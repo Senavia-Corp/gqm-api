@@ -1,7 +1,7 @@
 from __future__ import annotations
 from flask import Blueprint, jsonify, request
 from sqlmodel import select
-from sqlalchemy import func
+from sqlalchemy import func, nulls_last
 from src.models.ClientModel import Client
 from src.database.db_sqlmodel import get_session
 from src.models.JobModel import Job
@@ -9,10 +9,13 @@ from src.models.MemberModel import Member
 from src.models.link_models.JobMember import JobMemberLink
 from src.services.metrics.jobs_metrics_service import get_jobs_dashboard_data
 from src.services.metrics.metrics_shared import (
+    _apply_year_filter,
     _norm_job_type,
     _norm_year,
     _normalize_status_str,
-    PENDING_ALL,
+    QUOTE_PIPELINE_BY_TYPE,
+    quote_owner_id_expr,
+    universo_cotizaciones,
 )
 from src.services.metrics.aux_func_metrics import _safe_int, _year_expr
 from sqlalchemy import and_
@@ -43,147 +46,149 @@ def jobs_status_metrics():
 
 
 # =============================================================================
-# ENDPOINT: Jobs Member Pipeline (Active jobs by Member)
+# ENDPOINT: Jobs Member Pipeline (cotizaciones abiertas por miembro)
 # =============================================================================
+
+def _pipeline_statuses_payload(job_type: str):
+    """Los estados que ESTA respuesta esta mostrando, para que la UI los nombre."""
+    if job_type == "ALL":
+        return {t: sorted(s) for t, s in QUOTE_PIPELINE_BY_TYPE.items()}
+    return sorted(QUOTE_PIPELINE_BY_TYPE.get(job_type, set()))
+
 
 @job_metrics_bp.get("/member-pipeline")
 def jobs_member_pipeline():
     """
     GET /job_metrics/member-pipeline?type=ALL|QID|PTL|PAR&year=2025&page=1&limit=10
-    List members and their active jobs (P/Quote for QID, In Progress for PAR/PTL)
+
+    Miembros con cotizaciones abiertas, UNA fila por job y UN solo dueno.
+
+    Filtraba por `PENDING_ALL`, la union aplanada de los buckets pendientes de los
+    tres tipos, y encima sin emparejar estado con tipo de job. En produccion eso
+    daba 1.843 filas de las que 1.697 eran `Waiting for Approval` y 93 `HOLD`: la
+    seccion se llama «P/Quote» y el estado del titulo era el 3% de lo que mostraba.
+    Ademas unia `job_member` por los dos roles a la vez, asi que un job con Acc Rep
+    y Mgmt Member aparecia bajo los dos miembros y la tabla no sumaba (Paola Colman
+    salia con 658 filas para 553 jobs).
     """
     job_type = _norm_job_type(request.args.get("type")) or "ALL"
     year = _norm_year(request.args.get("year"))
 
-    page = _safe_int(request.args.get("page"), 1)
+    page = max(_safe_int(request.args.get("page"), 1), 1)
     limit = _safe_int(request.args.get("limit"), 10)
-    offset = (max(page, 1) - 1) * limit
+    offset = (page - 1) * limit
 
-    # Define active statuses specifically for this "Pipeline" view
-    # Based on user request: Jobs in P/Quote or pending stage
-    target_statuses = list(PENDING_ALL)
+    tipos = ["QID", "PTL", "PAR"] if job_type == "ALL" else [job_type]
+    tipos_cotizables = [t for t in tipos if QUOTE_PIPELINE_BY_TYPE.get(t)]
 
-    if job_type == "ALL":
-        roles_to_use = ["Acc Rep Selling", "Mgmt Member"]
-    else:
-        roles_to_use = ["Mgmt Member"] if job_type == "PTL" else ["Acc Rep Selling"]
+    def _respuesta(members, total_members, unassigned, reason=None):
+        total_pages = (total_members + limit - 1) // limit if total_members else 1
+        payload = {
+            "type": job_type,
+            "year": year,
+            "pipeline_statuses": _pipeline_statuses_payload(job_type),
+            "unassigned_count": int(unassigned),
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total_members": int(total_members),
+                "total_pages": int(total_pages),
+            },
+            "members": members,
+        }
+        if reason:
+            payload["reason"] = reason
+        return jsonify(payload), 200
+
+    # PAR no tiene etapa de cotizacion: nace aprobado y entra en In Progress. Se
+    # responde sin tocar la BD y DICIENDO por que, en vez de una lista vacia muda.
+    if not tipos_cotizables:
+        return _respuesta([], 0, 0, reason="no_quote_stage")
+
+    universo = universo_cotizaciones(tipos_cotizables, year)
 
     with get_session() as session:
-        # 1. Count total members who have jobs in these statuses
-        # (Or just total members in general if we want a full list)
-        # The user said "Jobs de cada miembro que están en...", implying we should list members.
+        # Cotizaciones sin nadie en el rol dueno. No se inventa una asignacion: se
+        # cuentan aparte para poder decirlo en la UI. Hoy son 3 = QID41283 y QID6591
+        # (sin NINGUN miembro enlazado) + el unico PTL en `Received-Stand By`, que
+        # no tiene Mgmt Member. Por eso la pestana PTL sale vacia y es correcto.
+        unassigned = session.exec(
+            select(func.count())
+            .select_from(universo)
+            .where(universo.c.owner_id.is_(None))
+        ).one() or 0
 
-        base_stmt = (
-            select(Member)
-            .join(JobMemberLink, JobMemberLink.member_id == Member.ID_Member)
-            .join(Job, Job.ID_Jobs == JobMemberLink.job_id)
-            .where(
-                JobMemberLink.rol.in_(roles_to_use),
-                Job.Job_status.in_(target_statuses)
+        conteo = (
+            select(
+                universo.c.owner_id.label("owner_id"),
+                func.count().label("n"),
             )
+            .where(universo.c.owner_id.is_not(None))
+            .group_by(universo.c.owner_id)
+            .subquery("conteo")
         )
-        if job_type != "ALL":
-            base_stmt = base_stmt.where(Job.Job_type == job_type)
-        if year:
-            from src.services.metrics.metrics_shared import _apply_year_filter
-            base_stmt = _apply_year_filter(base_stmt, job_type, year)
 
-        total_members_stmt = select(func.count(func.distinct(
-            Member.ID_Member))).select_from(base_stmt.subquery())
-        total_members = session.exec(total_members_stmt).one() or 0
+        total_members = session.exec(
+            select(func.count()).select_from(conteo)
+        ).one() or 0
 
-        # 2. Get members for the current page
-        members_stmt = (
+        members_list = session.exec(
             select(Member)
-            .distinct()
-            .join(JobMemberLink, JobMemberLink.member_id == Member.ID_Member)
-            .join(Job, Job.ID_Jobs == JobMemberLink.job_id)
-            .where(
-                JobMemberLink.rol.in_(roles_to_use),
-                Job.Job_status.in_(target_statuses)
-            )
-            .order_by(Member.Member_Name)
+            .join(conteo, conteo.c.owner_id == Member.ID_Member)
+            .order_by(conteo.c.n.desc(), Member.Member_Name)
             .offset(offset)
             .limit(limit)
-        )
-        if job_type != "ALL":
-            members_stmt = members_stmt.where(Job.Job_type == job_type)
-        if year:
-            members_stmt = _apply_year_filter(members_stmt, job_type, year)
-
-        members_list = session.exec(members_stmt).all()
+        ).all()
         member_ids = [m.ID_Member for m in members_list]
 
-        # 3. Get all jobs for these members in a single query
-        jobs_data = []
+        mem_jobs_map: dict[str, list] = {}
         if member_ids:
-            jobs_stmt = (
-                select(Job, JobMemberLink.member_id, Client)
+            # Orden determinista: antes no habia ORDER BY ninguno y las filas
+            # salian en el orden que le diera a la BD.
+            fecha = func.coalesce(Job.Date_assigned, Job.Estimated_start_date)
+            raw_jobs = session.exec(
+                select(Job, universo.c.owner_id, Client)
+                .select_from(universo)
+                .join(Job, Job.ID_Jobs == universo.c.job_id)
                 .outerjoin(Client, Client.ID_Client == Job.ID_Client)
-                .join(JobMemberLink, JobMemberLink.job_id == Job.ID_Jobs)
-                .where(
-                    JobMemberLink.member_id.in_(member_ids),
-                    JobMemberLink.rol.in_(roles_to_use),
-                    Job.Job_status.in_(target_statuses)
-                )
-            )
-            if job_type != "ALL":
-                jobs_stmt = jobs_stmt.where(Job.Job_type == job_type)
-            if year:
-                jobs_stmt = _apply_year_filter(jobs_stmt, job_type, year)
+                .where(universo.c.owner_id.in_(member_ids))
+                .order_by(nulls_last(fecha.desc()), Job.ID_Jobs.desc())
+            ).all()
 
-            raw_jobs = session.exec(jobs_stmt).all()
-
-            # Group jobs by member — deduplicate by (member_id, job_id) to
-            # prevent the same job appearing twice when a member holds multiple
-            # roles (e.g. "Acc Rep Selling" + "Mgmt Member") on the same job.
-            mem_jobs_map: dict[str, list] = {}
-            seen_job_keys: set[tuple] = set()
-            for j, m_id, cl in raw_jobs:
-                key = (m_id, j.ID_Jobs)
-                if key in seen_job_keys:
-                    continue
-                seen_job_keys.add(key)
-                amount = float(j.Gqm_target_sold_pricing or 0)
-                job_dict = {
+            for j, owner_id, cl in raw_jobs:
+                # NULL no es 0: en produccion 38 de las 50 cotizaciones no tienen
+                # `Gqm_target_sold_pricing` y ninguna lo tiene a 0 de verdad, asi
+                # que todos los «$0.00» que se veian eran datos ausentes.
+                target = j.Gqm_target_sold_pricing
+                target = float(target) if target is not None else None
+                d = j.Date_assigned or j.Estimated_start_date
+                mem_jobs_map.setdefault(owner_id, []).append({
                     "job_id": j.ID_Jobs,
                     "type": j.Job_type,
                     "client": cl.Client_Community if cl else "—",
                     "status": _normalize_status_str(j.Job_status),
                     "service": j.Service_type or "—",
-                    "date": (j.Date_assigned or j.Estimated_start_date).strftime("%Y-%m-%d") if (j.Date_assigned or j.Estimated_start_date) else "—",
-                    "quoted_target_sold": float(j.Gqm_target_sold_pricing or 0),
-                    "amount": amount,
+                    "date": d.strftime("%Y-%m-%d") if d else "—",
+                    "quoted_target_sold": target,
+                    "amount": target,
                     "adj_formula": float(j.Gqm_adj_formula_pricing or 0),
-                    "pct": float((j.Gqm_target_return if j.Job_type in ("PTL", "PAR") else j.Gqm_final_percentage) or 0)
-                }
-                mem_jobs_map.setdefault(m_id, []).append(job_dict)
-
-            for m in members_list:
-                m_jobs = mem_jobs_map.get(m.ID_Member, [])
-                jobs_data.append({
-                    "id":           m.ID_Member,
-                    "name":         m.Member_Name,
-                    "company_role": m.Company_Role,
-                    "job_count":    len(m_jobs),
-                    "total_quoted": sum(j["quoted_target_sold"] for j in m_jobs),
-                    "jobs":         m_jobs,
+                    "pct": float((j.Gqm_target_return if j.Job_type in ("PTL", "PAR") else j.Gqm_final_percentage) or 0),
                 })
 
-    total_pages = (total_members + limit - 1) // limit if total_members else 1
+        jobs_data = []
+        for m in members_list:
+            m_jobs = mem_jobs_map.get(m.ID_Member, [])
+            montos = [j["quoted_target_sold"] for j in m_jobs if j["quoted_target_sold"] is not None]
+            jobs_data.append({
+                "id":           m.ID_Member,
+                "name":         m.Member_Name,
+                "company_role": m.Company_Role,
+                "job_count":    len(m_jobs),
+                "total_quoted": sum(montos) if montos else None,
+                "jobs":         m_jobs,
+            })
 
-    return jsonify({
-        "type": job_type,
-        "year": year,
-        "pipeline_statuses": target_statuses,
-        "pagination": {
-            "page": page,
-            "limit": limit,
-            "total_members": int(total_members),
-            "total_pages": int(total_pages),
-        },
-        "members": jobs_data
-    }), 200
+    return _respuesta(jobs_data, total_members, unassigned)
 
 
 # =============================================================================

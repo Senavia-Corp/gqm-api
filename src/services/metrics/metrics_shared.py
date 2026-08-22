@@ -1,6 +1,8 @@
 # src/services/metrics/metrics_shared.py
 from sqlalchemy import func, case
+from sqlmodel import select
 from ...models.JobModel import Job
+from ...models.link_models.JobMember import JobMemberLink
 from src.utils.job_app_year import expr_anio_app
 
 # ---------------------------------------------------------------------------
@@ -175,3 +177,85 @@ def _apply_year_filter(stmt, job_type: str, year: int):
     firma porque hay ~13 llamadas y cambiarla no aporta nada.
     """
     return stmt.where(expr_anio_app() == year)
+
+# ---------------------------------------------------------------------------
+# Pipeline de cotizaciones por miembro  (sección «P/Quote Pipeline per Member»)
+# ---------------------------------------------------------------------------
+# Estos nombres son EXCLUSIVOS de esa sección. No reutilizan PENDING_BY_TYPE a
+# propósito: ese bucket mete `Waiting for Approval` y `HOLD`, y lo consumen los
+# KPIs de Communities/Clients/Parent Companies. Tocarlo movería esos KPIs.
+
+# Estado QID que representa una cotización aún por emitir ("Pending Vendor Quote").
+PENDING_VENDOR_QUOTE_STATUS = "Assigned/P. Quote"
+
+# Criterio de negocio (22-ago-2026): ESTRICTO — solo el estado que da nombre a la
+# sección. La tabla llevaba filtrando por la unión aplanada `PENDING_ALL`, así que
+# en producción mostraba 1.843 filas de las cuales 1.697 eran `Waiting for Approval`
+# y 93 `HOLD`; el estado del título era el 3% de lo que se veía.
+#   - `Waiting for Approval` = la cotización ya salió, decide el cliente.
+#   - `HOLD` = congelado a propósito.
+# Ninguno de los dos es «por cotizar», que es lo que esta tabla responde.
+QUOTE_PIPELINE_BY_TYPE = {
+    "QID": {PENDING_VENDOR_QUOTE_STATUS},
+    "PTL": {"Received-Stand By"},
+    "PAR": set(),   # PAR no tiene etapa de cotización: nace aprobado, entra en In Progress
+}
+
+# Quién «es dueño» de la cotización, en orden de preferencia. Para QID el vendedor
+# es el Acc Rep y el Mgmt Member solo cubre el hueco cuando no hay Acc Rep (84 QID
+# en producción están en ese caso). Misma preferencia que el `rep_map` de
+# `jobs_summary` en JobsM.py: "Prefer Acc Rep Selling when both roles exist".
+QUOTE_OWNER_ROLE_PREFERENCE = {
+    "QID": ["Acc Rep Selling", "Mgmt Member"],
+    "PTL": ["Mgmt Member"],
+    "PAR": [],
+}
+
+
+def quote_owner_id_expr(job_type: str):
+    """`member_id` del ÚNICO dueño de la cotización, por preferencia de rol.
+
+    Antes la tabla unía `job_member` sin más, así que un job con Acc Rep y Mgmt
+    Member salía bajo LOS DOS miembros y la suma de la tabla no era el pipeline
+    (Paola Colman: 564 como Acc Rep + 520 como Mgmt = 658 filas para 553 jobs).
+
+    Usa `min(member_id)` dentro de cada rol y no `LIMIT 1`: en producción hay 15
+    jobs con dos `Acc Rep Selling` y 25 con dos `Mgmt Member`, y sin el `min` el
+    dueño sería arbitrario entre ejecuciones.
+
+    Devuelve None si el tipo no tiene etapa de cotización (PAR).
+    """
+    roles = QUOTE_OWNER_ROLE_PREFERENCE.get(job_type, [])
+    if not roles:
+        return None
+
+    candidatos = [
+        select(func.min(JobMemberLink.member_id))
+        .where(JobMemberLink.job_id == Job.ID_Jobs, JobMemberLink.rol == rol)
+        .correlate(Job)
+        .scalar_subquery()
+        for rol in roles
+    ]
+    return candidatos[0] if len(candidatos) == 1 else func.coalesce(*candidatos)
+
+
+def universo_cotizaciones(tipos, year=None):
+    """Subconsulta `(job_id, owner_id)` con las cotizaciones abiertas de esos tipos.
+
+    Una fila por job y un unico dueno, asi que agrupar por `owner_id` da el
+    pipeline real: antes se unia `job_member` por los dos roles y el mismo job
+    salia bajo el Acc Rep Y bajo el project manager.
+    """
+    partes = []
+    for tipo in tipos:
+        stmt = select(
+            Job.ID_Jobs.label("job_id"),
+            quote_owner_id_expr(tipo).label("owner_id"),
+        ).where(
+            Job.Job_type == tipo,
+            Job.Job_status.in_(sorted(QUOTE_PIPELINE_BY_TYPE[tipo])),
+        )
+        partes.append(_apply_year_filter(stmt, tipo, year) if year else stmt)
+
+    combinado = partes[0] if len(partes) == 1 else partes[0].union_all(*partes[1:])
+    return combinado.subquery("cotizaciones")
