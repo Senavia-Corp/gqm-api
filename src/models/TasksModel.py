@@ -26,8 +26,6 @@ class Tasks(TasksBase, table=True):
     ID_Tasks: Optional[str] = Field(default=None, primary_key=True)
 
     # Referencias a Podio
-    podio_item_id: Optional[str] = Field(
-        default=None, index=True)
 
     # Relaciones foráneas M:1
     ID_Jobs: Optional[str] = Field(
