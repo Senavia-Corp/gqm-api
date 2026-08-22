@@ -16,6 +16,7 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.auth.routes_protection import (
     require_permission,
+    job_belongs_to_portal_user,
     scope_tasks_statement,
     task_belongs_to_portal_user,
 )
@@ -219,6 +220,15 @@ def update_tasks(task_id):
         # ID_Jobs/ID_Technician/ID_Subcontractor y mover su tarea a un job
         # ajeno (el guard de arriba solo mira el estado previo).
         if not task_belongs_to_portal_user(session, obj):
+            raise AppException(
+                "Forbidden: no puedes reasignar la tarea fuera de tus jobs.",
+                "forbidden", 403)
+        # T-26: para un TÉCNICO, task_belongs_to_portal_user solo compara
+        # ID_Technician, que no cambia al reasignar ID_Jobs — así que la guarda
+        # de arriba lo dejaba pasar y podía mover su tarea a un job ajeno.
+        # (El sub sí quedaba cubierto porque su pertenencia es por job.)
+        if "ID_Jobs" in update_data and not job_belongs_to_portal_user(
+                session, obj.ID_Jobs):
             raise AppException(
                 "Forbidden: no puedes reasignar la tarea fuera de tus jobs.",
                 "forbidden", 403)

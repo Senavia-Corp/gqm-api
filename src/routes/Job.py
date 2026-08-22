@@ -583,6 +583,11 @@ def get_jobs_by_type_year():
                 joinedload(Job.building_dept))
             .where(Job.Job_type == job_type, expr_anio_app() == year_int)
         )
+        # T-27: sin esto, un sub/técnico recibía TODOS los jobs del tipo y año
+        # —con su bloque financiero— aunque no estuviera asignado a ninguno.
+        # `/jobs/` y `/jobs/<id>` sí lo hacían; este endpoint se quedó fuera del
+        # endurecimiento de REG-037/110/111.
+        statement = scope_jobs_statement(statement)
         results = session.exec(statement).unique().all()
         if not results:
             return [], 200
@@ -600,7 +605,10 @@ def get_jobs_by_type_year():
                 key = (job.ID_Jobs, member["ID_Member"])
                 member["rol"] = roles_map.get(key)
             jobs_data.append(job_dict)
-        return jobs_data, 200
+        # T-27: este endpoint tampoco recortaba a JobReadBasic, así que un rol
+        # con solo `job:read_basics` recibía el payload completo.
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(j, policies) for j in jobs_data], 200
 
 
 @job_bp.get("/status/<status>")
