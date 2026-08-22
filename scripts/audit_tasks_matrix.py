@@ -240,9 +240,13 @@ try:
     tla_id = muestra.ID_TLActivity if muestra else None
     print(f"  fila de muestra: {tla_id}")
 
+    # Contrato tras el arreglo: el volcado sin filtrar y las tres escrituras
+    # exigen admin:sync → solo Full Admin. GQM Member las pierde porque su
+    # política lleva Deny admin:*; conserva los timelines por job/cliente/sub,
+    # que es lo único que consume el panel.
     for rol in ("full_admin", "gqm_member", "subcontractor", "technical"):
         tok = SUJ[rol]["token"]
-        portal = rol in ("subcontractor", "technical")
+        portal = rol != "full_admin"
 
         st, body = call("GET", "/tlactivity/?limit=5", tok)
         registra(rol, "GET /tlactivity/", "log completo", st, 403 if portal else 200,
