@@ -8,6 +8,8 @@ from .MemberModel import Member
 from .SubcontractorModel import Subcontractor
 from datetime import date
 
+from pydantic import field_validator, model_validator
+
 
 class TasksBase(SQLModel):
     Task_description: Optional[str] = Field(default=None)
@@ -42,14 +44,65 @@ class Tasks(TasksBase, table=True):
     subcontractor: Optional[Subcontractor] = Relationship(back_populates="tasks")
 
 
-class TasksCreate(TasksBase):
+# T-01/T-02/T-04/T-07 — vocabulario canónico. Antes eran strings libres, así que
+# la página del portal escribía "Not Started"/"In Progress" y esas tareas
+# quedaban invisibles en el kanban (que filtra por igualdad exacta).
+ESTADOS = ("Not started", "Work-in-progress", "Completed")
+PRIORIDADES = ("High", "Medium", "Low")
+
+
+class _ValidacionTasks(SQLModel):
+    """Reglas comunes a crear y actualizar (aprobadas en la Fase 1 de la auditoría)."""
+
+    @field_validator("Task_status", check_fields=False)
+    @classmethod
+    def _estado_valido(cls, v):
+        if v is not None and v not in ESTADOS:
+            raise ValueError(f"Task_status debe ser uno de {ESTADOS}, no {v!r}")
+        return v
+
+    @field_validator("Priority", check_fields=False)
+    @classmethod
+    def _prioridad_valida(cls, v):
+        if v is not None and v not in PRIORIDADES:
+            raise ValueError(f"Priority debe ser una de {PRIORIDADES}, no {v!r}")
+        return v
+
+    @model_validator(mode="after")
+    def _fechas_coherentes(self):
+        if (self.Delivery_date and self.Designation_date
+                and self.Delivery_date < self.Designation_date):
+            raise ValueError(
+                "Delivery_date no puede ser anterior a Designation_date "
+                f"({self.Delivery_date} < {self.Designation_date})")
+        return self
+
+
+class TasksCreate(TasksBase, _ValidacionTasks):
     ID_Jobs: Optional[str] = None
     ID_Technician: Optional[str] = None
     ID_Member: Optional[str] = None
     ID_Subcontractor: Optional[str] = None
 
+    @field_validator("Name", check_fields=False)
+    @classmethod
+    def _nombre_obligatorio(cls, v):
+        if v is None or not str(v).strip():
+            raise ValueError("Name es obligatorio")
+        return str(v).strip()
 
-class TasksUpdate(TasksBase):
+    @model_validator(mode="after")
+    def _debe_colgar_de_algo(self):
+        # R4: la tarea automática de certificado NO lleva job por diseño, lleva
+        # subcontratista. Por eso la regla es «job O subcontratista», nunca
+        # «job obligatorio» a secas: eso rompería esa automatización.
+        if not self.ID_Jobs and not self.ID_Subcontractor:
+            raise ValueError(
+                "La tarea debe llevar ID_Jobs o ID_Subcontractor")
+        return self
+
+
+class TasksUpdate(TasksBase, _ValidacionTasks):
     ID_Jobs: Optional[str] = None
     ID_Technician: Optional[str] = None
     ID_Member: Optional[str] = None

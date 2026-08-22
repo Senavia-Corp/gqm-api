@@ -74,7 +74,7 @@ ROLE_POLICIES = {
         "Document": {"Statement": [{"Effect": "Allow", "Action": [
             "job:read", "job:read_basics",
             "finance:read",
-            "tasks:read", "tasks:read_own", "tasks:create", "tasks:update",
+            "tasks:read", "tasks:create", "tasks:update",
             "subcontractor:read", "technician:read", "skill:read",
             "attachment:read", "attachment:read_technicians",
             "attachment:create",  # certificados propios (review final)
@@ -87,7 +87,7 @@ ROLE_POLICIES = {
         "Description": "Portal de técnico: solo lo asignado (scoping en API)",
         "Document": {"Statement": [{"Effect": "Allow", "Action": [
             "job:read_basics",
-            "tasks:read", "tasks:read_own", "tasks:update",
+            "tasks:read", "tasks:update",
             "technician:read", "skill:read",
             "attachment:read", "attachment:read_technicians",
             "profile:update_own",  # editar SU registro vía self_profile_guard
