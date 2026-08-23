@@ -47,6 +47,7 @@ es JSON consultable en vez de texto que hay que rascar con una regex.
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 revision: str = 'd6b9f4a37c28'
 down_revision: Union[str, Sequence[str], None] = 'c5a8e3f24b17'
@@ -90,15 +91,15 @@ SQL_CONTAR = ("SELECT count(*) FROM podio_failed_syncs "
 def upgrade() -> None:
     c = op.get_bind()
 
-    antes = c.exec_driver_sql(SQL_CONTAR).scalar()
-    c.exec_driver_sql(SQL_RESCATAR)
+    antes = c.execute(sa.text(SQL_CONTAR)).scalar()
+    c.execute(sa.text(SQL_RESCATAR))
 
-    rescatadas = c.exec_driver_sql(
+    rescatadas = c.execute(sa.text(
         "SELECT count(*) FROM podio_failed_syncs "
-        "WHERE payload::jsonb ? 'cloudinary_public_id'").scalar()
+        "WHERE payload::jsonb ? 'cloudinary_public_id'")).scalar()
 
-    c.exec_driver_sql(SQL_SANEAR)
-    despues = c.exec_driver_sql(SQL_CONTAR).scalar()
+    c.execute(sa.text(SQL_SANEAR))
+    despues = c.execute(sa.text(SQL_CONTAR)).scalar()
 
     print(f"[sanear] con volcado: antes={antes} despues={despues} · "
           f"filas con datos de recuperacion rescatados al payload={rescatadas}")
