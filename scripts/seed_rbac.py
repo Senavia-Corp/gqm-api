@@ -3,17 +3,22 @@
 
 Dos modos, porque el cutover NO puede crear usuarios de prueba en producción:
 
-  --roles-only   Solo los 4 roles y sus 4 documentos de política.
-                 APTO PARA PRODUCCIÓN (no crea ninguna cuenta ni toca
-                 passwords). Es el que usa el cutover.
+  --roles-only   Solo los 4 roles y sus 4 documentos de política
+                 (no crea ninguna cuenta ni toca passwords).
 
   (sin flag)     Lo anterior + los usuarios @senavia-test.com con
                  SEED_DEV_PASSWORD + desactivación del insider.
-                 SOLO DESARROLLO: exige Neon develop y APP_ENV=test.
+
+Guardas: SIEMPRE exige Neon develop y APP_ENV=test, salvo con el flag
+explícito --produccion, que además exige --roles-only (en producción jamás
+se siembran usuarios). Ojo: --produccion REESCRIBE los 4 documentos de
+política con los de este fichero — mantenerlos iguales a la BD de prod
+(rbac_spec_produccion.py es la vía normal para cambiar prod).
 
 Uso:
     SEED_DEV_PASSWORD=... .venv/bin/python scripts/seed_rbac.py
     .venv/bin/python scripts/seed_rbac.py --roles-only
+    .venv/bin/python scripts/seed_rbac.py --roles-only --produccion
 """
 import os
 import sys
@@ -23,16 +28,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from decouple import config  # noqa: E402
 
 ROLES_ONLY = "--roles-only" in sys.argv
+PRODUCCION = "--produccion" in sys.argv
 
-# Guardas de aislamiento: sembrar USUARIOS de prueba solo contra Neon develop.
-# Con --roles-only no hay cuentas ni passwords, así que es apto para prod.
-if not ROLES_ONLY:
+# Guardas de aislamiento: por defecto SOLO Neon develop + APP_ENV=test.
+# El bypass es un flag explícito (antes --roles-only las saltaba en silencio).
+if PRODUCCION and not ROLES_ONLY:
+    sys.exit("⛔ --produccion exige --roles-only (en producción no se siembran usuarios)")
+if not PRODUCCION:
     if "ep-sparkling-sound" not in config("DATABASE_URL", default=""):
         sys.exit("⛔ DATABASE_URL no apunta a Neon develop — abortado "
-                 "(¿buscabas --roles-only, el modo apto para producción?)")
+                 "(contra producción hace falta --roles-only --produccion)")
     if config("APP_ENV", default="") != "test":
-        sys.exit("⛔ APP_ENV != test — abortado "
-                 "(¿buscabas --roles-only, el modo apto para producción?)")
+        sys.exit("⛔ APP_ENV != test — abortado")
 
 from sqlmodel import select  # noqa: E402
 from src.database.db_sqlmodel import get_session  # noqa: E402
@@ -65,6 +72,10 @@ ROLE_POLICIES = {
                 "permission:create", "permission:update", "permission:delete",
                 "member:create", "member:update", "member:delete",
                 "job:force_delete",
+                "commission:*",        # entrega 19-ago (INFORME §5): ningún módulo de comisiones
+                "job:delete",          # spec: no borrar jobs (los desenlaces de job_* van por job:update)
+                "member:read",         # spec: no módulo GQM Members (conserva member:read_basics por Allow *)
+                "multiplier:create", "multiplier:update", "multiplier:delete",  # spec: no usar Pricing Multipliers
             ], "Resource": ["*"]},
         ]},
     },
@@ -73,8 +84,8 @@ ROLE_POLICIES = {
         "Description": "Portal de subcontratista: solo lo suyo (scoping en API)",
         "Document": {"Statement": [{"Effect": "Allow", "Action": [
             "job:read", "job:read_basics",
-            "finance:read",
-            "tasks:read", "tasks:create", "tasks:update",
+            # finance:read retirado (Fase A): las finanzas no tienen scoping de portal
+            "tasks:read", "tasks:read_own", "tasks:create", "tasks:update",
             "subcontractor:read", "technician:read", "skill:read",
             "attachment:read", "attachment:read_technicians",
             "attachment:create",  # certificados propios (review final)
@@ -87,7 +98,7 @@ ROLE_POLICIES = {
         "Description": "Portal de técnico: solo lo asignado (scoping en API)",
         "Document": {"Statement": [{"Effect": "Allow", "Action": [
             "job:read_basics",
-            "tasks:read", "tasks:update",
+            "tasks:read", "tasks:read_own", "tasks:update",
             "technician:read", "skill:read",
             "attachment:read", "attachment:read_technicians",
             "profile:update_own",  # editar SU registro vía self_profile_guard
