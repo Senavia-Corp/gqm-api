@@ -7,7 +7,7 @@ from ..models.MemberModel import Member, MemberCreate, MemberUpdate
 from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
-from sqlalchemy.orm import joinedload, load_only
+from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy import func, or_
 from ..utils.middleware.auth.password_hashing import hash_password
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -33,15 +33,26 @@ def list_members():
 
     with get_session() as session:
         # Trae los miembros GQM con sus trabajos en una sola consulta
+        # `joinedload` sobre VARIAS colecciones a la vez las cruza en un solo
+        # result set: jobs x tlactivity x commissions x permissions. Medido en
+        # producción, solo jobs x tlactivity ya daba 650.793 filas (334.410 de
+        # un único miembro), cada una arrastrando las columnas completas de las
+        # tres tablas. La función se quedaba sin memoria y Vercel la mataba:
+        # «instance was killed because it ran out of available memory».
+        # `selectinload` emite un SELECT por relación con un IN — sin cruce.
         statement = (
             select(Member)
             .options(
-                joinedload(Member.jobs),
-                joinedload(Member.permissions),
-                joinedload(Member.role),
-                joinedload(Member.tlactivity),
-                joinedload(Member.commissions),
+                selectinload(Member.jobs),
+                selectinload(Member.permissions),
+                joinedload(Member.role),          # M:1, aquí no multiplica
+                selectinload(Member.tlactivity),
+                selectinload(Member.commissions),
             )
+            # Nunca hubo ORDER BY: el orden ya era indeterminado, y al cambiar
+            # de joinedload a selectinload se nota. Se fija para que el
+            # desplegable de miembros no baile entre recargas.
+            .order_by(Member.Member_Name)
         )
         results = session.exec(statement).unique().all()
 
@@ -65,14 +76,17 @@ def list_members():
 def get_member_by_id(id_member):
 
     with get_session() as session:
+        # Mismo cruce que en el listado, y además `tlactivity` estaba
+        # DUPLICADO donde debía ir `commissions` — que add_relationships sí pide
+        # justo debajo, así que se cargaba con un N+1 en vez de por adelantado.
         statement = (
             select(Member)
             .options(
-                joinedload(Member.jobs),
-                joinedload(Member.permissions),
+                selectinload(Member.jobs),
+                selectinload(Member.permissions),
                 joinedload(Member.role),
-                joinedload(Member.tlactivity),
-                joinedload(Member.tlactivity),
+                selectinload(Member.tlactivity),
+                selectinload(Member.commissions),
             )
             .where(Member.ID_Member == id_member)
         )
