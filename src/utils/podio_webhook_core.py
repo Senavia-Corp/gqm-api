@@ -1,5 +1,6 @@
 from flask import request, jsonify
 from sqlmodel import select
+from sqlalchemy.exc import IntegrityError
 import requests
 from typing import Optional
 from src.podio.podio_auth import get_podio_headers
@@ -333,8 +334,6 @@ def process_file_change_event(
                 #  2. Reintentar con un ID nuevo si aun asi choca la PK. Si lo
                 #     que choca es el fichero, es que otra entrega gano: no es
                 #     un error, es idempotencia.
-                from sqlalchemy.exc import IntegrityError
-
                 ya_esta = session.exec(
                     select(Attachments).where(
                         Attachments.podio_file_id == file_id)
@@ -601,44 +600,74 @@ def process_item_attachments(
                 folder=folder
             )
 
-            # Guardar en DB
-            new_id = generate_custom_id(
-                session, Attachments, "ID_Attachment", "ATT")
+            # Guardar en DB. El ID se pedia UNA sola vez: si chocaba, el
+            # fichero se iba a la dead-letter al primer intento. Y la
+            # colision de `attachments_pkey` es justo la que perdio los 12
+            # adjuntos de agosto de 2026. Mismo bucle que file_created.
+            guardado = False
+            duplicado = False
+            for intento in range(1, 6):
+                # `resincronizar` a partir del 2.o intento: si el ID choco,
+                # el contador puede estar por detras de la tabla. Sin esto
+                # se reintentaria cinco veces contra el mismo numero.
+                new_id = generate_custom_id(
+                    session, Attachments, "ID_Attachment", "ATT",
+                    resincronizar=(intento > 1))
 
-            attachment = Attachments(
-                ID_Attachment=new_id,
-                Document_name=filename,
-                Attachment_descr=description,
-                Link=cloudinary_result["secure_url"],
-                Document_type=cloudinary_result["format"].lower() or mimetype,
-                cloudinary_public_id=cloudinary_result["public_id"],
-                cloudinary_resource_type=cloudinary_result["resource_type"],
-                podio_file_id=file_id,
-                **{fk_field: fk_value}
-            )
+                attachment = Attachments(
+                    ID_Attachment=new_id,
+                    Document_name=filename,
+                    Attachment_descr=description,
+                    Link=cloudinary_result["secure_url"],
+                    Document_type=cloudinary_result["format"].lower() or mimetype,
+                    cloudinary_public_id=cloudinary_result["public_id"],
+                    cloudinary_resource_type=cloudinary_result["resource_type"],
+                    podio_file_id=file_id,
+                    **{fk_field: fk_value}
+                )
 
-            # SAVEPOINT, igual que en file_created. Este `add` iba desnudo:
-            # si el ID chocaba (mismo max+1 de generate_custom_id), la
-            # excepcion no saltaba aqui sino en el flush/commit de mas
-            # arriba en la pila, y se llevaba por delante los `add` de
-            # TODOS los ficheros anteriores del mismo lote.
-            try:
-                with session.begin_nested():
-                    session.add(attachment)
-            except IntegrityError as choque:
-                # Que OTRA entrega haya guardado ya este fichero no es un
-                # error: es idempotencia. El camino de file_created ya lo
-                # trataba asi; aqui faltaba, y una colision acababa en el
-                # `except` ancho de abajo -> fila de ruido en la
-                # dead-letter por algo que salio BIEN, y un asset de
-                # Cloudinary huerfano (la subida ya ocurrio).
-                #
-                # Solo aplica desde que existe ux_attachments_podio_file_id
-                # (migracion b4f7c2e18d09): sin ese indice, este choque no
-                # podia producirse.
-                if "podio_file_id" not in str(choque.orig):
-                    raise
-                print(f"⏭️ {filename} lo guardo otra entrega, se omite.")
+                # SAVEPOINT, igual que en file_created. Este `add` iba desnudo:
+                # si el ID chocaba (mismo max+1 de generate_custom_id), la
+                # excepcion no saltaba aqui sino en el flush/commit de mas
+                # arriba en la pila, y se llevaba por delante los `add` de
+                # TODOS los ficheros anteriores del mismo lote.
+                try:
+                    with session.begin_nested():
+                        session.add(attachment)
+                    guardado = True
+                    break
+                except IntegrityError as choque:
+                    # Que OTRA entrega haya guardado ya este fichero no es un
+                    # error: es idempotencia. El camino de file_created ya lo
+                    # trataba asi; aqui faltaba, y una colision acababa en el
+                    # `except` ancho de abajo -> fila de ruido en la
+                    # dead-letter por algo que salio BIEN, y un asset de
+                    # Cloudinary huerfano (la subida ya ocurrio).
+                    #
+                    # Solo aplica desde que existe ux_attachments_podio_file_id
+                    # (migracion b4f7c2e18d09): sin ese indice, este choque no
+                    # podia producirse.
+                    if "podio_file_id" in str(choque.orig):
+                        print(f"⏭️ {filename} lo guardo otra entrega, se omite.")
+                        duplicado = True
+                        break
+                    print(f"↻ {new_id} ocupado (intento {intento}), reintentando")
+
+            if duplicado:
+                continue
+            if not guardado:
+                # Bandera propia y no `intento == 5`: con el contador del
+                # bucle, un choque de `podio_file_id` en el 5.o intento —que
+                # es un EXITO idempotente— dejaria una fila de ruido aqui.
+                logger.error(
+                    "No se pudo asignar ID para el adjunto %s tras 5 intentos",
+                    file_id)
+                record_failed_attachment(
+                    item_id=id_jobs or entity_id, file_id=file_id,
+                    app_type=app_type, action_type="item_attachments",
+                    fk_field=fk_field, fk_value=fk_value,
+                    filename=filename, cloudinary_result=cloudinary_result,
+                    error="No se pudo asignar ID_Attachment tras 5 intentos")
                 continue
             print(f"✅ {filename} → {fk_field}: {fk_value}")
 
