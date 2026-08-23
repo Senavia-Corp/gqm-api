@@ -217,13 +217,22 @@ def create_app():
 
     # Catálogos
     for _bp in (bldg_dept_bp, manager_bp, supplier_bp, standard_ps_bp,
-                inventory_bp, multiplier_bp, payment_unit_bp):
+                inventory_bp, payment_unit_bp):
         protect_blueprint(_bp, "catalog")
 
-    # Links de Job
-    for _bp in (job_member_bp, job_multiplier_bp, job_subcontractor_bp,
-                job_payment_unit_bp, job_technician_bp):
-        protect_blueprint(_bp, "job")
+    # Multiplicadores de precio: recurso propio (spec RBAC: el GQM Member opera
+    # el catálogo pero NO usa Pricing Multipliers → Deny multiplier:c/u/d).
+    for _bp in (multiplier_bp, job_multiplier_bp):
+        protect_blueprint(_bp, "multiplier")
+
+    # Links de Job. Desvincular es una EDICIÓN del job, no un borrado: va por
+    # job:update (el GQM Member tiene Deny job:delete y debe seguir
+    # quitando miembros/subs/técnicos/payment units de un job).
+    for _bp, _vista in ((job_member_bp, "remove_member_from_job"),
+                        (job_subcontractor_bp, "remove_subcontractor_from_job"),
+                        (job_payment_unit_bp, "remove_paymentU_from_job"),
+                        (job_technician_bp, "remove_technician_from_job")):
+        protect_blueprint(_bp, "job", overrides={_vista: "job:update"})
 
     # Clientes / oportunidades
     for _bp in (opportunities_bp, client_manager_bp, client_member_bp,
