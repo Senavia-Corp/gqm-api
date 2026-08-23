@@ -221,7 +221,8 @@ FILAS = [
     fila("DASHBOARD", "GET", "/job_metrics/summary", None, 200, 200, 403, 403),
     fila("DASHBOARD", "GET", lambda: f"/subcontractor_metrics/{ids['sub']}", None, 200, 200, 403, 403),
     fila("CHAT", "GET", lambda: f"/chat/job/{ja()}", None, 200, 200, 404, 403),
-    fila("CHAT", "GET", lambda: f"/chat/job/{jp()}", None, 200, 200, own_or_skip, None if PROD else 403),
+    fila("CHAT", "GET", lambda: f"/chat/job/{jp()}", None, None if PROD else 200, None if PROD else 200,
+         own_or_skip, None if PROD else 403),
     fila("IAM UI", "GET", "/auth/can?actions=job:delete,member:read,member:read_basics,role:read,commission:read,"
          "commission:read_own,catalog:create,multiplier:create,technician:create,dashboard:read,job:update", None,
          dict(status=200, can={"job:delete": True, "member:read": True, "multiplier:create": True, "commission:read": True}),
@@ -278,6 +279,10 @@ lineas, fallos = [], 0
 print(f"API {API} · entorno {ENT} · ids: " + ", ".join(f"{k}={v}" for k, v in ids.items() if v))
 for grupo, metodo, ruta, cuerpo, esperado in FILAS:
     path = ruta() if callable(ruta) else ruta
+    etiqueta = path
+    if "None" in path:  # en prod no hay job/tarea «propia» del sub de prueba
+        etiqueta = (path.replace("/None", "/<propio>").split("?")[0]
+                    + " — omitida: el sub de prueba no tiene jobs en producción")
     celdas = []
     for r in ROLES:
         esp = esperado[r]
@@ -290,7 +295,7 @@ for grupo, metodo, ruta, cuerpo, esperado in FILAS:
         if ok is False:
             fallos += 1
         celdas.append(f"{mark} {det}")
-    lineas.append(f"| {grupo} | `{metodo} {path}` | " + " | ".join(celdas) + " |")
+    lineas.append(f"| {grupo} | `{metodo} {etiqueta}` | " + " | ".join(celdas) + " |")
     print(lineas[-1])
 
 header = ("| grupo | petición | FA | GM | SUB | TEC |\n|---|---|---|---|---|---|\n")
