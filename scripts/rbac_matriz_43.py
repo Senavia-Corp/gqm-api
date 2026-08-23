@@ -164,11 +164,14 @@ FILAS = [
     fila("JOBS", "GET", lambda: f"/jobs/status/{urllib.request.quote(ids['status'])}?limit=100", None,
          dict(status=200, n="status"), dict(status=200, n="status"), dict(status=200, subset="jobs_sub"),
          dict(status=200, subset="jobs_tec", sin="Gqm_formula_pricing")),
-    fila("JOBS", "GET", "/jobs/type/QID?limit=100", None, 200, 200, dict(status=200, subset="jobs_sub"),
-         dict(status=200, subset="jobs_tec", sin="Gqm_formula_pricing")),
+    # /type y /member cargan TODO el resultado en memoria (sin LIMIT en BD): en prod solo
+    # se miden con los roles de portal (scoped → pocas filas); para staff se omiten.
+    fila("JOBS", "GET", "/jobs/type/QID?limit=100", None, None if PROD else 200, None if PROD else 200,
+         dict(status=200, subset="jobs_sub"), dict(status=200, subset="jobs_tec", sin="Gqm_formula_pricing")),
     fila("JOBS", "GET", lambda: f"/jobs/subcontractor/{ids['sub_ajeno']}", None, 200, 200, 403, 403),
     fila("JOBS", "GET", lambda: f"/jobs/subcontractor/{ids['sub']}", None, 200, 200, dict(status=200, subset="jobs_sub"), 403),
-    fila("JOBS", "GET", lambda: f"/jobs/member/{ids['member_ajeno']}?limit=100", None, 200, 200,
+    fila("JOBS", "GET", lambda: f"/jobs/member/{ids['member_ajeno']}?limit=100", None,
+         None if PROD else 200, None if PROD else 200,
          dict(status=200, subset="jobs_sub"), dict(status=200, subset="jobs_tec", sin="Gqm_formula_pricing")),
     fila("JOBS", "POST", "/jobs/", {}, (400, 422), (400, 422), 403, 403),
     fila("JOBS", "PATCH", "/jobs/ZZNOEXISTE", {}, (400, 404, 422), (400, 404, 422), 403, 403),
