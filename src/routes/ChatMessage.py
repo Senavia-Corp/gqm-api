@@ -9,7 +9,11 @@ from src.models.MemberModel import Member
 from src.models.JobModel import Job
 from src.models.AttachmentsModel import Attachments
 from src.utils.middleware.exceptions_handler import handle_exceptions, AppException
-from src.utils.middleware.auth.routes_protection import require_role
+from src.utils.middleware.auth.routes_protection import (
+    job_belongs_to_portal_user,
+    require_permission,
+    require_role,
+)
 from src.utils.id_generator import generate_custom_id
 from src.cloudinary.service import upload_to_cloudinary
 import logging
@@ -30,7 +34,7 @@ _cache: dict = {}
 
 @chat_bp.get("/job/<id_job>")
 @handle_exceptions()
-@require_role("member")
+@require_permission("job:read")  # antes solo require_role: un member SIN rol leía el chat de cualquier job
 def get_messages(id_job):
     """
     Devuelve mensajes de un job.
@@ -38,6 +42,12 @@ def get_messages(id_job):
     Si no viene, devuelve los últimos 50 (carga inicial).
     """
     desde_id = request.args.get("desde_id", None)
+
+    # Portal: solo el chat de SUS jobs (404, como GET /jobs/<id>). Va ANTES de
+    # la caché, que responde sin tocar la BD. Para staff no consulta nada.
+    with get_session() as session:
+        if not job_belongs_to_portal_user(session, id_job):
+            raise AppException("Job no encontrado.", "job_not_found", 404)
 
     # ✅ Revisa caché primero — sin tocar Neon
     if desde_id and id_job in _cache:
@@ -93,7 +103,8 @@ def get_messages(id_job):
 
 @chat_bp.post("/job/<id_job>")
 @handle_exceptions()
-@require_role("member")
+@require_role("member")          # escribe ID_Member = JWT.sub: solo miembros (abrir al portal = Fase B)
+@require_permission("job:read")  # ...y con política: un member sin rol queda fuera
 def send_message(id_job):
     """
     Envía un mensaje en el chat de un job.
@@ -148,6 +159,7 @@ def send_message(id_job):
 @chat_bp.post("/job/<id_job>/attachment")
 @handle_exceptions()
 @require_role("member")
+@require_permission("job:read")
 def upload_chat_attachment(id_job):
     # REG-095/REG-079: sin fallback — el auth global fail-closed garantiza
     # g.current_user; si no está, 401 (jamás atribuir a un ID fijo).

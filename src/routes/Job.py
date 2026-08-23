@@ -1,6 +1,6 @@
 # ============ Lógica de rutas =================
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from sqlmodel import select, delete
 from ..database.db_sqlmodel import get_session
 from flask import send_file, request
@@ -449,7 +449,7 @@ def get_oldest_job():
             .limit(1)
         )
 
-        job = session.exec(statement).first()
+        job = session.exec(scope_jobs_statement(statement)).first()
         if not job:
             return jsonify({"detail": "No jobs found for this parent company"}), 404
 
@@ -625,12 +625,13 @@ def list_jobs_by_status(status):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Job.Job_status == status)
         )
-        results = session.exec(statement).unique().all()
+        results = session.exec(scope_jobs_statement(statement)).unique().all()
         if not results:
             return [], 200
         jobs_data = [add_relationships(job, ["client", "members", "multipliers",
                      "attachments", "subcontractors.technicians"]) for job in results]
-        return jobs_data, 200
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(j, policies) for j in jobs_data], 200
 
 
 @job_bp.get("/client/<id_client>")
@@ -647,11 +648,12 @@ def get_job_by_clientID(id_client):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Job.ID_Client == id_client)
         )
-        results = session.exec(statement).unique().all()
+        results = session.exec(scope_jobs_statement(statement)).unique().all()
         if not results:
             return [], 200
-        return [add_relationships(job, ["client", "members", "multipliers",
-                "attachments", "subcontractors.technicians"]) for job in results], 200
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(add_relationships(job, ["client", "members", "multipliers",
+                "attachments", "subcontractors.technicians"]), policies) for job in results], 200
 
 
 @job_bp.get("/member/<id_member>")
@@ -668,11 +670,12 @@ def get_job_by_memberID(id_member):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Member.ID_Member == id_member)
         )
-        results = session.exec(statement).unique().all()
+        results = session.exec(scope_jobs_statement(statement)).unique().all()
         if not results:
             return [], 200
-        return [add_relationships(job, ["client", "members", "multipliers",
-                "attachments", "subcontractors.technicians"]) for job in results], 200
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(add_relationships(job, ["client", "members", "multipliers",
+                "attachments", "subcontractors.technicians"]), policies) for job in results], 200
 
 
 @job_bp.get("/by-member-role")
@@ -780,6 +783,7 @@ def get_jobs_by_member_and_role():
         #  pero si quieres el total exacto con todos los filtros, construye
         #  count_stmt con las mismas condiciones que statement arriba.)
 
+        statement = scope_jobs_statement(statement)
         offset = (page - 1) * limit
         statement = statement.offset(offset).limit(limit)
 
@@ -806,6 +810,9 @@ def get_jobs_by_member_and_role():
             }
             for j in results
         ]
+        if not PolicyEvaluator.evaluate(getattr(g, "user_policies", []), "job:read"):
+            for d in jobs_data:  # job:read_basics: sin claves financieras
+                d.pop("Gqm_premium_in_money", None); d.pop("Gqm_target_return", None)
 
         return jsonify({
             "page":    page,
@@ -821,6 +828,11 @@ def get_jobs_by_member_and_role():
 @handle_exceptions()
 @paginate()
 def get_job_by_subcontrID(id_subcontractor):
+    # Portal: un sub solo puede pedir SU propio id; un técnico, ninguno (403 y
+    # no 404: el id del sub no es secreto, la lista de sus jobs sí).
+    p_role, p_id = portal_scope()
+    if p_role and id_subcontractor != p_id:
+        raise AppException("Forbidden: solo tus propios jobs.", "forbidden", 403)
     with get_session() as session:
         statement = (
             select(Job).join(Job.subcontractors)
@@ -830,11 +842,12 @@ def get_job_by_subcontrID(id_subcontractor):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Subcontractor.ID_Subcontractor == id_subcontractor)
         )
-        results = session.exec(statement).unique().all()
+        results = session.exec(scope_jobs_statement(statement)).unique().all()
         if not results:
             return [], 200
-        return [add_relationships(job, ["client", "members", "multipliers",
-                "attachments", "subcontractors.technicians"]) for job in results], 200
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(add_relationships(job, ["client", "members", "multipliers",
+                "attachments", "subcontractors.technicians"]), policies) for job in results], 200
 
 
 @job_bp.get("/type/<type>")
@@ -851,11 +864,12 @@ def list_jobs_by_type(type):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Job.Job_type == type)
         )
-        results = session.exec(statement).unique().all()
+        results = session.exec(scope_jobs_statement(statement)).unique().all()
         if not results:
             return [], 200
-        return [add_relationships(job, ["client", "members", "multipliers",
-                "attachments", "subcontractors.technicians"]) for job in results], 200
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(add_relationships(job, ["client", "members", "multipliers",
+                "attachments", "subcontractors.technicians"]), policies) for job in results], 200
 
 
 @job_bp.get("/date_assigned/<date>")
@@ -872,11 +886,12 @@ def list_jobs_by_date(date):
                 joinedload(Job.subcontractors).joinedload(Subcontractor.technicians))
             .where(Job.Date_assigned == date)
         )
-        results = session.exec(statement).unique().all()
+        results = session.exec(scope_jobs_statement(statement)).unique().all()
         if not results:
             return [], 200
-        return [add_relationships(job, ["client", "members", "multipliers",
-                "attachments", "subcontractors.technicians"]) for job in results], 200
+        policies = getattr(g, "user_policies", [])
+        return [serialize_job(add_relationships(job, ["client", "members", "multipliers",
+                "attachments", "subcontractors.technicians"]), policies) for job in results], 200
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
@@ -1266,7 +1281,7 @@ job_excel_bp = Blueprint("job_excel_blueprint",
 
 
 @job_excel_bp.post("/export")
-@require_permission(["job:read", "job:read_basics"])  # REG-021: reactivado
+@require_permission("job:read")  # el Excel lleva columnas financieras: nunca con solo read_basics  # REG-021: reactivado
 @handle_exceptions()
 def export_jobs_excel():
     data = request.get_json(force=True) or {}

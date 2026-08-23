@@ -1,6 +1,6 @@
 # ============ Lógica de rutas =================
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.MemberModel import Member, MemberCreate, MemberUpdate
@@ -16,6 +16,22 @@ from ..utils.middleware.exceptions_handler import handle_exceptions, AppExceptio
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
 from src.utils.middleware.auth.routes_protection import require_permission, self_profile_guard
+from src.utils.policy_evaluator import PolicyEvaluator
+
+# Proyección «basics» (member:read_basics): lo justo para los desplegables del
+# panel (nombre, cargo y los ids de Podio que LinkMemberDialog exige) sin
+# correo, teléfono, rol ni permisos. El GQM Member tiene Deny member:read.
+BASIC_FIELDS = ("ID_Member", "Member_Name", "Company_Role", "podio_item_id", "podio_profile_id")
+
+
+def _lectura_completa():
+    return PolicyEvaluator.evaluate(getattr(g, "user_policies", []) or [], "member:read", "*")
+
+
+def _proyectar(filas):
+    if _lectura_completa():
+        return filas
+    return [{k: f.get(k) for k in BASIC_FIELDS} for f in filas]
 
 # Blueprint de Member:
 member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
@@ -26,7 +42,7 @@ member_bp = Blueprint("member_blueprint", __name__, url_prefix="/member")
 # --------------------RUTAS GET-------------------#
 # Ruta para conseguir la lista de todos los miembros GQM
 @member_bp.get("/")
-@require_permission("member:read")
+@require_permission(["member:read", "member:read_basics"])
 @handle_exceptions()
 @paginate()  # decorador de paginación
 def list_members():
@@ -66,14 +82,19 @@ def list_members():
                 member, ["jobs", "permissions", "role", "tlactivity", "commissions"])
             member_data.append(data)
 
-        return member_data, 200
+        return _proyectar(member_data), 200
 
 
 # Ruta para conseguir un miembro GQM por ID_Member
 @member_bp.get("/<id_member>")
-@require_permission("member:read")
+@require_permission(["member:read", "profile:update_own"])
 @handle_exceptions()
 def get_member_by_id(id_member):
+    # Sin member:read (GQM Member) solo se puede leer la ficha PROPIA: el
+    # perfil del panel usa esta ruta. self_profile_guard exige id propio cuando
+    # falta member:update, que el GQM Member tampoco tiene.
+    if not _lectura_completa():
+        self_profile_guard("member", id_member, {})
 
     with get_session() as session:
         # Mismo cruce que en el listado, y además `tlactivity` estaba
@@ -105,7 +126,7 @@ def get_member_by_id(id_member):
 
 
 @member_bp.get("/member_table")
-@require_permission("member:read")
+@require_permission(["member:read", "member:read_basics"])
 @handle_exceptions()
 def list_members_table():
 
@@ -179,7 +200,7 @@ def list_members_table():
             "page":    page,
             "limit":   limit,
             "total":   total,
-            "results": out,
+            "results": _proyectar(out),
         }), 200
 
 
@@ -249,7 +270,7 @@ def update_member(id_member):
             "member", id_member, update_data_dict)
 
         # Hash al passsword si se actualiza
-        if "Password" in update_data_dict:
+        if update_data_dict.get("Password"):
             update_data_dict["Password"] = hash_password(
                 update_data_dict["Password"]
             )
