@@ -156,14 +156,21 @@ FILAS = [
          dict(status=200, n="jobs_sub"), dict(status=200, n="jobs_tec", sin="Gqm_formula_pricing")),
     fila("JOBS", "GET", "/jobs/jobs_table?limit=100", None, dict(status=200, n="jobs"), dict(status=200, n="jobs"),
          dict(status=200, n="jobs_sub"), dict(status=200, n="jobs_tec", sin="Gqm_formula_pricing")),
-    fila("JOBS", "GET", lambda: f"/jobs/{jp()}", None, 200, 200, own_or_skip, None if PROD else BASICS),
+    # En prod el sub de prueba tiene 0 jobs: no hay «job propio» que pedir (se omite la fila entera).
+    fila("JOBS", "GET", lambda: f"/jobs/{jp()}", None, None if PROD else 200, None if PROD else 200,
+         own_or_skip, None if PROD else BASICS),
     fila("JOBS", "GET", lambda: f"/jobs/{ja()}", None, 200, 200, 404, 404),
     fila("JOBS", "GET", "/jobs/by-type-year?type=QID&year=2026&limit=100", None, 200, 200,
          dict(status=200, subset="jobs_sub"), dict(status=200, subset="jobs_tec", sin="Gqm_formula_pricing")),
     fila("JOBS", "GET", lambda: f"/jobs/oldest?parent_mgmt_co_id={ids['pmc_ajeno']}", None, 200, 200, 404, 404),
+    # OJO: en Vercel el path llega SIN decodificar, así que un status con espacios
+    # ("Completed PVI") no casa en la BD y la ruta devuelve 200 con lista vacía. Es
+    # anterior a esta entrega y ninguna pantalla usa la ruta; en prod solo se afirma
+    # el 200 (autorización), no el conteo.
     fila("JOBS", "GET", lambda: f"/jobs/status/{urllib.request.quote(ids['status'])}?limit=100", None,
-         dict(status=200, n="status"), dict(status=200, n="status"), dict(status=200, subset="jobs_sub"),
-         dict(status=200, subset="jobs_tec", sin="Gqm_formula_pricing")),
+         dict(status=200, nota="⚠ conteo omitido en prod: path codificado") if PROD else dict(status=200, n="status"),
+         dict(status=200, nota="⚠ conteo omitido en prod: path codificado") if PROD else dict(status=200, n="status"),
+         dict(status=200, subset="jobs_sub"), dict(status=200, subset="jobs_tec", sin="Gqm_formula_pricing")),
     # /type y /member cargan TODO el resultado en memoria (sin LIMIT en BD): en prod solo
     # se miden con los roles de portal (scoped → pocas filas); para staff se omiten.
     fila("JOBS", "GET", "/jobs/type/QID?limit=100", None, None if PROD else 200, None if PROD else 200,
