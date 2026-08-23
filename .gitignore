@@ -1,4 +1,8 @@
-.env
+# Cualquier variante de .env (respaldos, .local, .production...) queda fuera de git.
+# El patron exacto `.env` NO cubria copias como `.env.respaldo-...`, y git las veia
+# como ficheros sin seguimiento: un `git add -A` las habria preparado para commit.
+.env*
+!.env.example
 __pycache__/
 *.pyc
 # Vercel CLI: `vercel link` deja aqui los IDs de org/proyecto.
