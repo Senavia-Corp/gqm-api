@@ -10,7 +10,7 @@ from ..models.ComDetailModel import CommissionDetail
 from ..models.MemberModel import Member
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload, load_only, selectinload
-from sqlalchemy import func, or_
+from sqlalchemy import String, cast, func, or_
 from ..utils.relationships import add_relationships
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
@@ -112,8 +112,16 @@ def list_commission_table():
                 or_(
                     Commission.ID_Commission.ilike(pattern),
                     Commission.Month.ilike(pattern),
-                    Commission.Year.ilike(pattern),
-                    Commission.Total_commission.ilike(pattern),
+                    # `Year` es INTEGER y `Total_commission` DOUBLE PRECISION:
+                    # Postgres no tiene ILIKE para ellas y rechazaba la consulta
+                    # entera al planificarla, así que CUALQUIER búsqueda daba 500.
+                    # Se castean en vez de sacarlas del OR para no perder buscar
+                    # por año ni por importe.
+                    # ponytail: el cast impide usar índice; con 30 filas da igual.
+                    # Si algún día pesa, condicionar estos dos predicados a que
+                    # `q` parezca un número en vez de indexar sobre expresiones.
+                    cast(Commission.Year, String).ilike(pattern),
+                    cast(Commission.Total_commission, String).ilike(pattern),
                     Member.Member_Name.ilike(pattern),
                 )
             )
