@@ -332,6 +332,23 @@ def scope_tasks_statement(statement):
     ))
 
 
+def job_belongs_to_portal_user(session, job_id) -> bool:
+    """True si el job está dentro del alcance del portal actual (staff siempre).
+
+    Reutiliza `scope_jobs_statement` para no duplicar la lógica de alcance.
+    """
+    role, _ = portal_scope()
+    if role is None or not job_id:
+        return True
+
+    from sqlmodel import select as sq_select
+
+    from src.models.JobModel import Job
+
+    stmt = scope_jobs_statement(sq_select(Job).where(Job.ID_Jobs == job_id))
+    return session.exec(stmt).first() is not None
+
+
 def task_belongs_to_portal_user(session, task) -> bool:
     """True si el usuario actual puede operar sobre la task (staff siempre)."""
     role, uid = portal_scope()

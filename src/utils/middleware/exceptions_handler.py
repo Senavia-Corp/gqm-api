@@ -69,10 +69,15 @@ def handle_exceptions():
                     exc_info=True
                 )
 
+                # `ctx` incluye la excepción original, que NO es serializable:
+                # cualquier ValidationError nacido de un `raise ValueError` en un
+                # validador reventaba aquí y Flask devolvía un 500 SIN mensaje en
+                # vez del 400 con el detalle. Antes no se notaba porque solo
+                # había errores de tipo, cuyo ctx sí es serializable.
                 return jsonify({
                     "detail": "Error de validación en los datos enviados.",
                     "code": "validation_error",
-                    "errors": ve.errors()
+                    "errors": ve.errors(include_context=False, include_url=False)
                 }), 400
 
             # -----------------------------------

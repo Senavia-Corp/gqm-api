@@ -239,8 +239,19 @@ def create_app():
     # Reportes PDF de métricas
     protect_blueprint(metrics_bp, "dashboard")
 
-    # Actividad (timeline de tareas)
-    protect_blueprint(tlactivity_bp, "tasks")
+    # Actividad (timeline de tareas).
+    # T-02: el vocabulario `tasks` daba a los roles de portal (que tienen
+    # tasks:create/update para SUS tareas) la capacidad de leer el log entero,
+    # FABRICAR entradas de auditoría y ALTERAR las existentes. Un registro de
+    # auditoría lo escribe el sistema vía @audit, no la API: las escrituras y el
+    # volcado sin filtrar pasan a admin:sync. Los timelines por job/cliente/sub
+    # —lo único que consume el panel— siguen en tasks:read.
+    protect_blueprint(tlactivity_bp, "tasks", overrides={
+        "list_tlactivities": "admin:sync",
+        "create_tlactivity": "admin:sync",
+        "update_tlactivity": "admin:sync",
+        "delete_tlactivity": "admin:sync",
+    })
 
     # Dashboards / métricas (solo lectura en la práctica)
     for _bp in (job_metrics_bp, member_metrics_bp, subcontractor_metrics_bp,

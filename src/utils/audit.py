@@ -38,10 +38,29 @@ SOURCE_PODIO = "Podio"
 def actor_member_id() -> str | None:
     """Atribución del timeline: SIEMPRE del JWT (g.current_user), jamás del
     header X-User-Id, que el cliente puede falsificar. Solo hay member_id
-    (FK a member) cuando el actor ES un member; portal/webhooks → None."""
+    (FK a member) cuando el actor ES un member."""
     from flask import g as flask_g
     actor = getattr(flask_g, "current_user", None) or {}
     return actor.get("id") if actor.get("role") == "member" else None
+
+
+def actor_columna() -> tuple[str, str] | None:
+    """(columna, id) del autor según su rol, o None si no hay actor.
+
+    tlactivity tiene ID_Member, ID_Technician e ID_Subcontractor, pero solo se
+    usaba la primera: toda acción de un sub o un técnico se auditaba SIN AUTOR.
+    Se registra en la columna que le corresponde a cada rol.
+    """
+    from flask import g as flask_g
+    actor = getattr(flask_g, "current_user", None) or {}
+    uid, rol = actor.get("id"), actor.get("role")
+    if not uid:
+        return None
+    return {
+        "member": ("ID_Member", uid),
+        "technician": ("ID_Technician", uid),
+        "subcontractor": ("ID_Subcontractor", uid),
+    }.get(rol)
 
 # ---------------------------------------------------------------------------
 # Core writer
@@ -79,10 +98,12 @@ def log_activity(
             "Technician": "ID_Technician",
             "ParentMgmtCo": "ID_Community_Tracking",
             "Client": "ID_Client",
-            "Tasks": "ID_Tasks",
-            "Order": "ID_Order",
-            "EstimateCost": "ID_EstimateCost",
-            "ChangeOrder": "ID_ChangeOrder"
+            # T-01: tlactivity NO tiene columnas ID_Tasks/ID_Order/ID_EstimateCost/
+        # ID_ChangeOrder. SQLModel descarta las claves desconocidas EN SILENCIO
+        # (_compat.py:271-290), así que estas 4 entradas nunca hicieron nada y
+        # daban la falsa impresión de que el evento quedaba enlazado.
+        # Se mantienen fuera del mapa a propósito: el enlace útil es ID_Jobs,
+        # vía job_id_from en el decorador.
         }
 
         # Preparamos los datos base
@@ -103,6 +124,15 @@ def log_activity(
         # lo asignamos a la columna ID_Jobs.
         if job_id and entity_type != "Job":
             activity_data["ID_Jobs"] = job_id
+
+        # Actor de portal: tlactivity tiene ID_Technician e ID_Subcontractor,
+        # pero solo se rellenaba ID_Member, así que toda acción de un sub o un
+        # técnico quedaba SIN AUTOR. Se registra en la columna de su rol, sin
+        # pisar la que ya haya puesto la entidad.
+        if not member_id:
+            actor = actor_columna()
+            if actor and not activity_data.get(actor[0]):
+                activity_data[actor[0]] = actor[1]
 
         entry = TLActivity(**activity_data)
 
