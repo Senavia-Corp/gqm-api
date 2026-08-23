@@ -14,7 +14,7 @@ import json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
 ROLES = ["FULL_ADMIN", "GQM_MEMBER", "SUBCONTRACTOR", "TECHNICAL"]
 SHORT = {"FULL_ADMIN": "FA", "GQM_MEMBER": "GM", "SUBCONTRACTOR": "SUB", "TECHNICAL": "TEC"}
-TOK_DIR = pathlib.Path.home() / ".gqm-rbac-tokens"
+TOK_BASE = pathlib.Path.home() / ".gqm-rbac-tokens"
 argv = sys.argv[1:]
 
 
@@ -61,6 +61,9 @@ def call(method, path, token, body=None):
         return 0, {"_error": str(e)}
 
 
+# Los tokens viven separados por entorno (ver rbac_tokens.py): así el runner nunca
+# mide los ids de un entorno contra la BD del otro.
+TOK_DIR = TOK_BASE / ("dev" if ENT == "dev" else "prod")
 tokens = {}
 for r in ROLES:
     p = TOK_DIR / f"{r}.json"
@@ -95,6 +98,9 @@ if not SIN_BD:
         own["tasks_tec"] = q(f"select count(*) from tasks where \"ID_Technician\"='{ids['tec']}'")[0][0]
         own["tasks_sub"] = q(f"""select count(*) from tasks where "ID_Subcontractor"='{ids['sub']}'
             or "ID_Jobs" in (select job_id from job_subcontractor where subcontr_id='{ids['sub']}')""")[0][0]
+        if not own["jobs_sub"]:
+            sys.exit(f"⛔ en develop el subcontratista {ids['sub']} no tiene ningún job asignado: "
+                     "el fixture está incompleto o los tokens son de otro entorno")
         ids["job_propio"] = ids["job_propio"] or sorted(own["jobs_sub"])[0]
         ids["job_ajeno"] = ids["job_ajeno"] or q(f"""select "ID_Jobs" from jobs where "ID_Jobs" not in
             (select job_id from job_subcontractor where subcontr_id='{ids['sub']}') and "ID_Client" is not null limit 1""")[0][0]
@@ -221,7 +227,8 @@ FILAS = [
     fila("DASHBOARD", "GET", "/job_metrics/summary", None, 200, 200, 403, 403),
     fila("DASHBOARD", "GET", lambda: f"/subcontractor_metrics/{ids['sub']}", None, 200, 200, 403, 403),
     fila("CHAT", "GET", lambda: f"/chat/job/{ja()}", None, 200, 200, 404, 403),
-    fila("CHAT", "GET", lambda: f"/chat/job/{jp()}", None, 200, 200, own_or_skip, None if PROD else 403),
+    fila("CHAT", "GET", lambda: f"/chat/job/{jp()}", None, None if PROD else 200, None if PROD else 200,
+         own_or_skip, None if PROD else 403),
     fila("IAM UI", "GET", "/auth/can?actions=job:delete,member:read,member:read_basics,role:read,commission:read,"
          "commission:read_own,catalog:create,multiplier:create,technician:create,dashboard:read,job:update", None,
          dict(status=200, can={"job:delete": True, "member:read": True, "multiplier:create": True, "commission:read": True}),
@@ -278,6 +285,10 @@ lineas, fallos = [], 0
 print(f"API {API} · entorno {ENT} · ids: " + ", ".join(f"{k}={v}" for k, v in ids.items() if v))
 for grupo, metodo, ruta, cuerpo, esperado in FILAS:
     path = ruta() if callable(ruta) else ruta
+    etiqueta = path
+    if "None" in path:  # en prod no hay job/tarea «propia» del sub de prueba
+        etiqueta = (path.replace("/None", "/<propio>").split("?")[0]
+                    + " — omitida: el sub de prueba no tiene jobs en producción")
     celdas = []
     for r in ROLES:
         esp = esperado[r]
@@ -290,7 +301,7 @@ for grupo, metodo, ruta, cuerpo, esperado in FILAS:
         if ok is False:
             fallos += 1
         celdas.append(f"{mark} {det}")
-    lineas.append(f"| {grupo} | `{metodo} {path}` | " + " | ".join(celdas) + " |")
+    lineas.append(f"| {grupo} | `{metodo} {etiqueta}` | " + " | ".join(celdas) + " |")
     print(lineas[-1])
 
 header = ("| grupo | petición | FA | GM | SUB | TEC |\n|---|---|---|---|---|---|\n")

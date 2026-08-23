@@ -17,7 +17,14 @@ DEV_EMAILS = {
     "FULL_ADMIN": "admin-dev@senavia-test.com", "GQM_MEMBER": "member-dev@senavia-test.com",
     "SUBCONTRACTOR": "sub-dev@senavia-test.com", "TECHNICAL": "tech-dev@senavia-test.com",
 }
-OUT = pathlib.Path.home() / ".gqm-rbac-tokens"
+# Los tokens se guardan SEPARADOS por entorno: mezclarlos hace que la matriz
+# mida los ids de un entorno contra la BD del otro (pasó el 23-ago: los tokens de
+# producción pisaron los de develop y el runner buscó SUBC60415 en develop).
+OUT_BASE = pathlib.Path.home() / ".gqm-rbac-tokens"
+
+
+def entorno_de(api: str) -> str:
+    return "dev" if ("localhost" in api or "127.0.0.1" in api) else "prod"
 
 
 def _ssl():
@@ -79,8 +86,11 @@ def main():
     else:
         sys.exit(__doc__)
 
-    OUT.mkdir(mode=0o700, exist_ok=True)
+    OUT = OUT_BASE / entorno_de(api)
+    OUT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(OUT_BASE, 0o700)
     os.chmod(OUT, 0o700)
+    print(f"entorno={entorno_de(api)} · {api}")
     fallos = 0
     for r in ROLES:
         email, pwd = creds[r]
