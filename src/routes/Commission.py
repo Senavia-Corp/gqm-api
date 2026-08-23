@@ -122,10 +122,13 @@ def list_commission_table():
                     # `q` parezca un número en vez de indexar sobre expresiones.
                     cast(Commission.Year, String).ilike(pattern),
                     cast(Commission.Total_commission, String).ilike(pattern),
-                    Member.Member_Name.ilike(pattern),
+                    # `member` es M:1, así que el operador es `.has()` (`.any()`
+                    # es para colecciones). Sustituye a un join manual que además
+                    # se aplicaba DESPUÉS de este where y duplicaba lo que ya
+                    # carga el `selectinload` de arriba. Mismo patrón que Job.py.
+                    Commission.member.has(Member.Member_Name.ilike(pattern)),
                 )
             )
-            stmt = stmt.join(Commission.member, isouter=True)
 
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = session.exec(count_stmt).one()
