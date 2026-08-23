@@ -97,7 +97,10 @@ def _apply_header(cell, fill: PatternFill) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _query_jobs(session: Session, filters: JobExportFilters, cols: JobExportColumns) -> List[Job]:
-    query = select(Job)
+    # Portal (sub/técnico): solo sus jobs; staff pasa intacto. Solo se llama desde
+    # POST /jobs_excel/export, dentro de una petición.
+    from src.utils.middleware.auth.routes_protection import scope_jobs_statement
+    query = scope_jobs_statement(select(Job))
 
     # ── Optimizaciones (Eager Loading) ────────────────────────────────────────
     if cols.include_client:

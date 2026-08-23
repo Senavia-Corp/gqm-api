@@ -40,22 +40,55 @@ MATRIX = [
     # Gestión de fallos de sync: admin
     ("GET", "/webhook/podio/failed_syncs",
      dict(full_admin=True, gqm_member=False, subcontractor=False, technical=False)),
-    # Jobs: lectura para todos (tech vía job:read_basics), delete solo staff
+    # Jobs: lectura para todos (tech vía job:read_basics); borrar SOLO Full Admin (spec RBAC)
     ("GET", "/jobs/",
      dict(full_admin=True, gqm_member=True, subcontractor=True, technical=True)),
     ("DELETE", "/jobs/NOEXISTE",
+     dict(full_admin=True, gqm_member=False, subcontractor=False, technical=False)),
+    # Desvincular de un job es edición (job:update): el GQM Member lo conserva
+    ("DELETE", "/job_member/jobs/J-NO/members/M-NO",
      dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
-    # Financiero: lectura del sub (sus orders), sin acceso del técnico
-    ("GET", "/order/job-id/NOEXISTE",
+    ("POST", "/job_technician/jobs/J-NO/technicians/T-NO",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    ("GET", "/jobs/subcontractor/SUBC-NO",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    # El Excel lleva finanzas: nunca con solo job:read_basics
+    ("POST", "/jobs_excel/export",
      dict(full_admin=True, gqm_member=True, subcontractor=True, technical=False)),
+    # Multiplicadores: el GQM Member los VE pero no los crea/vincula (Deny multiplier:c/u/d)
+    ("GET", "/multiplier/",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    ("POST", "/job_multiplier/jobs/J-NO/multipliers/M-NO",
+     dict(full_admin=True, gqm_member=False, subcontractor=False, technical=False)),
+    # Financiero: sin finance:read el portal no lee finanzas (Fase A: sin scoping financiero)
+    ("GET", "/order/job-id/NOEXISTE",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    ("GET", "/fdocument/",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    ("GET", "/estimate/",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    ("GET", "/metrics/financial/summary",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
     ("POST", "/change_order/",
      dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
-    # Members: staff solamente
+    # Members: listado (reducido a basics para el GQM Member, ver test_member_basics) y alta solo FA
     ("GET", "/member/member_table",
      dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
-    # Blueprints que se escaparon de la matriz inicial (hallazgo security-review B2)
-    ("GET", "/commission_detail/",
+    ("POST", "/member/",
+     dict(full_admin=True, gqm_member=False, subcontractor=False, technical=False)),
+    ("GET", "/permission/",
      dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    # Técnicos: el staff los crea; el portal no (Fase A)
+    ("POST", "/technician/",
+     dict(full_admin=True, gqm_member=True, subcontractor=False, technical=False)),
+    # Comisiones: ningún módulo para el GQM Member (Deny commission:*, INFORME §5)
+    ("GET", "/commission/",
+     dict(full_admin=True, gqm_member=False, subcontractor=False, technical=False)),
+    ("GET", "/commission_detail/",
+     dict(full_admin=True, gqm_member=False, subcontractor=False, technical=False)),
+    # Chat: exige job:read (el técnico solo tiene read_basics); el sub va por scoping
+    ("GET", "/chat/job/NOEXISTE",
+     dict(full_admin=True, gqm_member=True, technical=False)),
     ("POST", "/sync_revision/podio",
      dict(full_admin=True, gqm_member=False, subcontractor=False, technical=False)),
     ("POST", "/fdocument_ftransaction/fdocument/FD-NO/ftransaction/FT-NO",
@@ -87,3 +120,27 @@ def test_rbac_matrix(client, tokens, method, path, expectations):
 def test_all_roles_require_token(client):
     assert client.get("/jobs/").status_code == 401
     assert client.get("/role/").status_code == 401
+
+
+def test_member_basics_para_gqm_member(client, tokens):
+    """Spec: el GQM Member no entra al módulo GQM Members, pero el panel necesita los
+    nombres para los desplegables → member:read_basics devuelve lo justo."""
+    r = client.get("/member/?limit=5", headers=tokens["gqm_member"])
+    assert r.status_code == 200
+    filas = r.get_json()["results"]
+    assert filas and all(set(f) == {"ID_Member", "Member_Name", "Company_Role",
+                                    "podio_item_id", "podio_profile_id"} for f in filas)
+    r = client.get("/member/member_table?limit=5", headers=tokens["gqm_member"])
+    assert r.status_code == 200 and "total" in r.get_json()
+    assert all("Email_Address" not in f for f in r.get_json()["results"])
+    # Full Admin sigue recibiendo la ficha completa
+    r = client.get("/member/member_table?limit=5", headers=tokens["full_admin"])
+    assert all("Email_Address" in f for f in r.get_json()["results"])
+
+
+def test_member_por_id_solo_propio_para_gqm_member(client, tokens):
+    yo = client.get("/auth/me", headers=tokens["gqm_member"]).get_json()["user_id"]
+    otro = client.get("/auth/me", headers=tokens["full_admin"]).get_json()["user_id"]
+    assert client.get(f"/member/{yo}", headers=tokens["gqm_member"]).status_code == 200
+    assert client.get(f"/member/{otro}", headers=tokens["gqm_member"]).status_code == 403
+    assert client.get(f"/member/{yo}", headers=tokens["full_admin"]).status_code == 200
