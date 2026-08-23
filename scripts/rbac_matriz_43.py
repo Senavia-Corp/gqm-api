@@ -14,7 +14,7 @@ import json, os, pathlib, ssl, sys, urllib.error, urllib.request
 
 ROLES = ["FULL_ADMIN", "GQM_MEMBER", "SUBCONTRACTOR", "TECHNICAL"]
 SHORT = {"FULL_ADMIN": "FA", "GQM_MEMBER": "GM", "SUBCONTRACTOR": "SUB", "TECHNICAL": "TEC"}
-TOK_DIR = pathlib.Path.home() / ".gqm-rbac-tokens"
+TOK_BASE = pathlib.Path.home() / ".gqm-rbac-tokens"
 argv = sys.argv[1:]
 
 
@@ -61,6 +61,9 @@ def call(method, path, token, body=None):
         return 0, {"_error": str(e)}
 
 
+# Los tokens viven separados por entorno (ver rbac_tokens.py): así el runner nunca
+# mide los ids de un entorno contra la BD del otro.
+TOK_DIR = TOK_BASE / ("dev" if ENT == "dev" else "prod")
 tokens = {}
 for r in ROLES:
     p = TOK_DIR / f"{r}.json"
@@ -95,6 +98,9 @@ if not SIN_BD:
         own["tasks_tec"] = q(f"select count(*) from tasks where \"ID_Technician\"='{ids['tec']}'")[0][0]
         own["tasks_sub"] = q(f"""select count(*) from tasks where "ID_Subcontractor"='{ids['sub']}'
             or "ID_Jobs" in (select job_id from job_subcontractor where subcontr_id='{ids['sub']}')""")[0][0]
+        if not own["jobs_sub"]:
+            sys.exit(f"⛔ en develop el subcontratista {ids['sub']} no tiene ningún job asignado: "
+                     "el fixture está incompleto o los tokens son de otro entorno")
         ids["job_propio"] = ids["job_propio"] or sorted(own["jobs_sub"])[0]
         ids["job_ajeno"] = ids["job_ajeno"] or q(f"""select "ID_Jobs" from jobs where "ID_Jobs" not in
             (select job_id from job_subcontractor where subcontr_id='{ids['sub']}') and "ID_Client" is not null limit 1""")[0][0]
