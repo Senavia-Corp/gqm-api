@@ -61,6 +61,35 @@ def get_resource_type(mimetype: str) -> str:
     return RESOURCE_TYPE_MAP.get(mimetype, "raw")
 
 
+# Cloudinary rechaza estos caracteres en el public_id: devuelve
+# "BadRequest: public_id (...) is invalid" y el fichero NO llega a subirse.
+#
+# Paso en produccion el 24-ago-2026 con "Invoice #147833791.pdf" (QID61359):
+# la limpieza anterior solo sustituia espacios y barras, asi que la almohadilla
+# sobrevivia hasta el public_id. Era el primer fichero con un caracter prohibido
+# en 2.493 adjuntos, por eso nunca habia saltado — pero las facturas de
+# proveedor llevan `#` a menudo.
+_PROHIBIDOS_CLOUDINARY = "?&#\\%<>+"
+
+
+def sanitizar_para_public_id(nombre: str) -> str:
+    """Deja `nombre` en algo que Cloudinary acepte como public_id.
+
+    Sustituye SOLO los caracteres prohibidos, no una lista blanca: hoy suben
+    bien ~2.500 ficheros con acentos, parentesis y comas, y una lista blanca
+    les cambiaria el public_id sin necesidad.
+
+    Esto toca unicamente el identificador en Cloudinary. El nombre visible
+    viaja aparte en `Attachments.Document_name`, asi que el cliente sigue
+    viendo "Invoice #147833791.pdf" con su almohadilla.
+    """
+    limpio = nombre.replace(" ", "_").replace("/", "_")
+    for prohibido in _PROHIBIDOS_CLOUDINARY:
+        limpio = limpio.replace(prohibido, "_")
+    # Los de control tampoco valen, y encima son invisibles al depurar.
+    return "".join(c if c.isprintable() else "_" for c in limpio)
+
+
 def upload_to_cloudinary(
     file_bytes: bytes,
     filename: str,
@@ -71,10 +100,10 @@ def upload_to_cloudinary(
     resource_type = get_resource_type(mimetype)
 
     # Limpiar el nombre del archivo para Cloudinary
-    # Reemplaza espacios y caracteres especiales
     clean_filename = filename.rsplit(".", 1)[0]  # sin extensión
     extension = filename.rsplit(".", 1)[-1] if "." in filename else ""
-    clean_filename = clean_filename.replace(" ", "_").replace("/", "_")
+    clean_filename = sanitizar_para_public_id(clean_filename)
+    extension = sanitizar_para_public_id(extension)
 
     # REG-116: con public_id explícito, unique_filename no hace nada — dos
     # archivos con el mismo nombre en la misma carpeta se PISABAN. Sufijo
