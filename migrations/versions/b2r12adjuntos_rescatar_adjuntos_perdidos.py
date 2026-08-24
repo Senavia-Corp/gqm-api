@@ -66,6 +66,18 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# Esta migracion repara UN incidente cerrado y enumerado: las 12 filas que la
+# dead-letter acumulo entre el 14 y el 20 de agosto de 2026. El corte la vuelve
+# determinista — hace exactamente lo que se reviso, ni una fila mas.
+#
+# No es cosmetico. El 24-ago entro la fila 13 (QID61359, "Invoice #147833791.pdf"),
+# que Cloudinary rechazo por el `#` del nombre: otra causa, y viva. Sin el corte,
+# SQL_REABRIR_SIN_DATOS la habria capturado —tambien tiene `link` nulo— y le habria
+# antepuesto "sin datos de Cloudinary: el fichero nunca llego a subirse", que en su
+# caso es falso. Habria tapado el diagnostico real de un fallo aun sin arreglar.
+CORTE_INCIDENTE = "2026-08-21T00:00:00+00:00"
+
+
 # Filas con datos de recuperacion cuyo fichero sigue SIN estar en la tabla.
 # El `NOT EXISTS` es lo que hace la migracion re-ejecutable sin efectos.
 SQL_CANDIDATAS = """
@@ -81,6 +93,7 @@ SELECT f.id,
    AND f.payload->>'fk_value' IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM attachments a
                     WHERE a.podio_file_id = f.payload->>'file_ids')
+   AND f.created_at < :corte
  ORDER BY f.id
 """
 
@@ -131,6 +144,7 @@ UPDATE podio_failed_syncs f
    AND COALESCE(f.error_message, '') NOT LIKE '[sin datos de Cloudinary%'
    AND NOT EXISTS (SELECT 1 FROM attachments a
                     WHERE a.podio_file_id = f.payload->>'file_ids')
+   AND f.created_at < :corte
 """
 
 # Para los `raw` (PDF/Office) Cloudinary no devuelve `format`, asi que el codigo
@@ -171,7 +185,8 @@ def upgrade() -> None:
     # adjuntos son ATT62504..ATT62510, con digito 6.
     year_digit = str(date.today().year)[-1]
 
-    candidatas = c.execute(sa.text(SQL_CANDIDATAS)).mappings().all()
+    candidatas = c.execute(sa.text(SQL_CANDIDATAS),
+                           {"corte": CORTE_INCIDENTE}).mappings().all()
     if not candidatas:
         print("[rescate] no hay filas que rescatar; nada que hacer")
 
@@ -232,7 +247,8 @@ def upgrade() -> None:
                 f"se insertaron {insertadas} filas pero solo se pudieron cerrar "
                 f"{cerradas}: el EXISTS no encuentra el adjunto recien creado")
 
-    reabiertas = c.execute(sa.text(SQL_REABRIR_SIN_DATOS)).rowcount
+    reabiertas = c.execute(sa.text(SQL_REABRIR_SIN_DATOS),
+                           {"corte": CORTE_INCIDENTE}).rowcount
     pendientes = c.execute(sa.text(
         "SELECT count(*) FROM podio_failed_syncs WHERE resolved = false")).scalar()
 
