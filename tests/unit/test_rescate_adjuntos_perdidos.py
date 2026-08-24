@@ -197,3 +197,71 @@ def test_process_item_attachments_pide_el_id_dentro_de_un_bucle():
     }
     assert {id(n) for n in llamadas} == en_range, (
         "la peticion de ID_Attachment no esta dentro de un bucle de reintento acotado")
+
+
+# --------------------------------------------------------------------------
+# El corte del incidente
+# --------------------------------------------------------------------------
+# La migracion repara un incidente cerrado (14-20 ago 2026). Sin el corte,
+# SQL_REABRIR_SIN_DATOS captura CUALQUIER fila con `link` nulo — incluida la 13
+# (QID61359), que fallo el 24-ago por el `#` del nombre y cuya causa es otra.
+# Le antepondria "el fichero nunca llego a subirse", que en su caso es falso.
+def test_las_dos_consultas_estan_acotadas_al_incidente():
+    mod = _cargar_migracion()
+
+    assert hasattr(mod, "CORTE_INCIDENTE"), (
+        "falta CORTE_INCIDENTE: sin el, la migracion alcanza filas posteriores "
+        "al incidente que vino a reparar"
+    )
+
+    for nombre in ("SQL_CANDIDATAS", "SQL_REABRIR_SIN_DATOS"):
+        sql = getattr(mod, nombre)
+        assert "f.created_at < :corte" in sql, (
+            f"{nombre} no esta acotada por fecha: alcanzaria filas nuevas"
+        )
+
+
+def test_el_corte_deja_fuera_la_fila_13_y_dentro_las_doce_viejas():
+    """El corte cae entre la ultima fila del incidente y la fila 13."""
+    from datetime import datetime
+
+    corte = datetime.fromisoformat(_cargar_migracion().CORTE_INCIDENTE)
+
+    ultima_del_incidente = datetime.fromisoformat("2026-08-20T16:21:43.016+00:00")
+    fila_13_ajena = datetime.fromisoformat("2026-08-24T13:00:49.597+00:00")
+
+    assert ultima_del_incidente < corte, "el corte dejaria fuera filas del incidente"
+    assert fila_13_ajena >= corte, "el corte dejaria entrar la fila 13, que es otro bug"
+
+
+def test_las_consultas_acotadas_reciben_el_parametro():
+    """Un :corte sin parametro es un ProgrammingError en tiempo de migracion."""
+    fuente = MIGRACION.read_text(encoding="utf-8")
+    arbol = ast.parse(fuente)
+
+    ejecuciones_con_corte = 0
+    for nodo in ast.walk(arbol):
+        if not isinstance(nodo, ast.Call):
+            continue
+        # c.execute(sa.text(SQL_X), {...})
+        if not (isinstance(nodo.func, ast.Attribute) and nodo.func.attr == "execute"):
+            continue
+        if not nodo.args or not isinstance(nodo.args[0], ast.Call):
+            continue
+        interior = nodo.args[0]
+        if not interior.args or not isinstance(interior.args[0], ast.Name):
+            continue
+        if interior.args[0].id not in ("SQL_CANDIDATAS", "SQL_REABRIR_SIN_DATOS"):
+            continue
+
+        assert len(nodo.args) >= 2, (
+            f"{interior.args[0].id} se ejecuta sin pasar :corte"
+        )
+        claves = {k.value for k in nodo.args[1].keys
+                  if isinstance(k, ast.Constant)}
+        assert "corte" in claves, f"{interior.args[0].id} no recibe 'corte'"
+        ejecuciones_con_corte += 1
+
+    assert ejecuciones_con_corte == 2, (
+        f"esperaba 2 ejecuciones acotadas, encontre {ejecuciones_con_corte}"
+    )
