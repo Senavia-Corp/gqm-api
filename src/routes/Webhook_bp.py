@@ -922,6 +922,160 @@ def resync_failed_sync(id):
                         return jsonify({"error": f"no se pudo borrar el item huérfano: {del_err}"}), 502
 
 
+            # Adjuntos que la dead-letter registro (`podio.attachment.*`).
+            # Antes caian al `else` de abajo con "hook_type desconocido": el
+            # boton existia pero no servia para el unico caso que la
+            # dead-letter de adjuntos sabe producir.
+            #
+            # HAY QUE RAMIFICAR POR `action_type`, no tratar los cuatro igual.
+            # `file_created`, `file_replaced` e `item_attachments` son ALTAS y se
+            # reintentan re-sincronizando; `file_deleted` es una BAJA y necesita
+            # lo contrario en las dos mitades:
+            #
+            #   * la accion: `sync_job_attachments_by_id` SOLO ANADE — un grep de
+            #     delete/remove/borr sobre sync_attachments.py da cero aciertos.
+            #     Mandar ahi un borrado lo cerraria como resuelto con el fichero
+            #     todavia vivo, que es la misma mentira que el guard de arriba
+            #     mato para `file.change`.
+            #   * la comprobacion: para un alta el exito es que el fichero ESTE;
+            #     para una baja es que NO ESTE. Preguntar lo mismo en los dos
+            #     casos garantiza mentir en uno de ellos.
+            #
+            # `podio.attachment.file_deleted` es producible de verdad:
+            # `failed_sync.py:63` monta el hook_type con el action_type, y
+            # `podio_webhook_core.py:473` lo invoca desde el `except` de la rama
+            # file_deleted.
+            elif failed_sync.hook_type.startswith("podio.attachment."):
+                from src.podio.sync.sync_attachments import sync_job_attachments_by_id
+                from ..models.AttachmentsModel import Attachments, es_fk_de_attachments
+                from src.cloudinary.service import (
+                    destroy_en_cloudinary, identidad_cloudinary)
+
+                payload = failed_sync.payload or {}
+                # El payload es la fuente buena; el hook_type es el respaldo por
+                # si una fila vieja lo trae vacio.
+                accion = (payload.get("action_type")
+                          or failed_sync.hook_type.rsplit(".", 1)[-1])
+
+                # ---- BAJA: re-ejecutar el BORRADO y verificar AUSENCIA --------
+                if accion == "file_deleted":
+                    file_id = payload.get("file_id")
+                    fk_field = payload.get("fk_field")
+                    fk_value = payload.get("fk_value")
+
+                    if not (file_id and fk_field and fk_value):
+                        return jsonify({
+                            "error": "el payload no dice que fichero ni de que "
+                                     "entidad; no se puede reintentar el borrado",
+                            "resuelto": False}), 422
+
+                    # `fk_field` viene del payload y acaba en un getattr: se
+                    # valida contra las columnas reales (ver
+                    # es_fk_de_attachments).
+                    if not es_fk_de_attachments(fk_field):
+                        return jsonify({
+                            "error": f"fk_field '{fk_field}' no es una columna "
+                                     f"de attachments",
+                            "resuelto": False}), 422
+
+                    filtro_entidad = (
+                        Attachments.podio_file_id == str(file_id),
+                        getattr(Attachments, fk_field) == fk_value)
+
+                    obj = session.exec(
+                        select(Attachments).where(*filtro_entidad)).first()
+
+                    # Si ya no esta, el borrado converge: no es un fallo.
+                    if obj is not None:
+                        if obj.Link:
+                            try:
+                                public_id, resource_type = identidad_cloudinary(obj)
+                                veredicto = destroy_en_cloudinary(
+                                    public_id, resource_type)
+                            except Exception as cl_err:
+                                logger.exception(
+                                    "resync file_deleted: fallo el destroy de %s",
+                                    file_id)
+                                return jsonify({
+                                    "error": f"no se pudo borrar en Cloudinary: {cl_err}",
+                                    "file_id": file_id,
+                                    "resuelto": False}), 502
+
+                            # "not found" = ya no estaba = lo que se pedia. Aqui
+                            # la identidad sale de la fila, no de una
+                            # reconstruccion, asi que no puede ser que hayamos
+                            # preguntado por el public_id equivocado.
+                            if veredicto not in ("ok", "not found"):
+                                return jsonify({
+                                    "error": "Cloudinary no confirmo el borrado",
+                                    "veredicto": veredicto,
+                                    "public_id": public_id,
+                                    "file_id": file_id,
+                                    "resuelto": False}), 502
+
+                        session.delete(obj)
+                        session.commit()
+
+                    # AUSENCIA, en sesion aparte: la de arriba acaba de escribir
+                    # y podria estar leyendo de su propia identity map.
+                    with get_session() as s_check:
+                        sigue_ahi = s_check.exec(
+                            select(Attachments).where(*filtro_entidad)).first()
+                    if sigue_ahi is not None:
+                        return jsonify({
+                            "error": "el fichero sigue en la tabla tras el "
+                                     "reintento; la falla sigue abierta",
+                            "file_id": file_id,
+                            "resuelto": False}), 502
+
+                # ---- ALTA: re-sincronizar y verificar PRESENCIA ---------------
+                else:
+                    id_jobs = payload.get("fk_value")
+
+                    # El recolector admite otras entidades (fk_field != ID_Jobs);
+                    # la recuperacion por Job solo vale para Jobs. Antes que
+                    # reintentar a ciegas, decirlo.
+                    if payload.get("fk_field") != "ID_Jobs" or not id_jobs:
+                        return jsonify({
+                            "error": "este resync solo sabe reintentar adjuntos de "
+                                     "Jobs; el payload apunta a otra entidad",
+                            "fk_field": payload.get("fk_field"),
+                            "resuelto": False}), 422
+
+                    # El payload no guarda el año y el hook_type tampoco lo lleva
+                    # (es `podio.attachment.{action}`, sin año). Se toma del Job.
+                    job_adj = session.exec(
+                        select(Job).where(Job.ID_Jobs == id_jobs)).first()
+                    if not job_adj or not job_adj.podio_app_year:
+                        return jsonify({
+                            "error": f"no se pudo determinar el año de {id_jobs}; "
+                                     f"reintenta a mano con POST /sync_podio/phase2"
+                                     f"/jobs/attachments/{id_jobs}?year=YYYY",
+                            "resuelto": False}), 422
+
+                    resultado = sync_job_attachments_by_id(
+                        id_jobs=id_jobs, year=job_adj.podio_app_year, dry_run=False)
+
+                    # No basta con que la llamada no reviente: hay que ver el
+                    # fichero EN LA TABLA. Un "created: 0" con el fichero ausente
+                    # es exactamente el falso positivo que dejo 7 filas mintiendo
+                    # en agosto. Sesion aparte porque sync_job_attachments_by_id
+                    # commitea en la suya y esta podria no ver lo recien escrito.
+                    file_id = payload.get("file_id")
+                    if file_id:
+                        with get_session() as s_check:
+                            llego = s_check.exec(
+                                select(Attachments).where(
+                                    Attachments.podio_file_id == str(file_id))
+                            ).first()
+                        if not llego:
+                            return jsonify({
+                                "error": "el reintento no dejo el fichero en la "
+                                         "tabla; la falla sigue abierta",
+                                "file_id": file_id,
+                                "resultado": resultado,
+                                "resuelto": False}), 502
+
             else:
                 return jsonify({
                     "error": f"hook_type desconocido: {failed_sync.hook_type} — no se puede reintentar"}), 422

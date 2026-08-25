@@ -1,3 +1,5 @@
+from urllib.parse import unquote
+
 import cloudinary
 import cloudinary.uploader
 from src.config import (
@@ -61,6 +63,35 @@ def get_resource_type(mimetype: str) -> str:
     return RESOURCE_TYPE_MAP.get(mimetype, "raw")
 
 
+# Cloudinary rechaza estos caracteres en el public_id: devuelve
+# "BadRequest: public_id (...) is invalid" y el fichero NO llega a subirse.
+#
+# Paso en produccion el 24-ago-2026 con "Invoice #147833791.pdf" (QID61359):
+# la limpieza anterior solo sustituia espacios y barras, asi que la almohadilla
+# sobrevivia hasta el public_id. Era el primer fichero con un caracter prohibido
+# en 2.493 adjuntos, por eso nunca habia saltado — pero las facturas de
+# proveedor llevan `#` a menudo.
+_PROHIBIDOS_CLOUDINARY = "?&#\\%<>+"
+
+
+def sanitizar_para_public_id(nombre: str) -> str:
+    """Deja `nombre` en algo que Cloudinary acepte como public_id.
+
+    Sustituye SOLO los caracteres prohibidos, no una lista blanca: hoy suben
+    bien ~2.500 ficheros con acentos, parentesis y comas, y una lista blanca
+    les cambiaria el public_id sin necesidad.
+
+    Esto toca unicamente el identificador en Cloudinary. El nombre visible
+    viaja aparte en `Attachments.Document_name`, asi que el cliente sigue
+    viendo "Invoice #147833791.pdf" con su almohadilla.
+    """
+    limpio = nombre.replace(" ", "_").replace("/", "_")
+    for prohibido in _PROHIBIDOS_CLOUDINARY:
+        limpio = limpio.replace(prohibido, "_")
+    # Los de control tampoco valen, y encima son invisibles al depurar.
+    return "".join(c if c.isprintable() else "_" for c in limpio)
+
+
 def upload_to_cloudinary(
     file_bytes: bytes,
     filename: str,
@@ -71,10 +102,10 @@ def upload_to_cloudinary(
     resource_type = get_resource_type(mimetype)
 
     # Limpiar el nombre del archivo para Cloudinary
-    # Reemplaza espacios y caracteres especiales
     clean_filename = filename.rsplit(".", 1)[0]  # sin extensión
     extension = filename.rsplit(".", 1)[-1] if "." in filename else ""
-    clean_filename = clean_filename.replace(" ", "_").replace("/", "_")
+    clean_filename = sanitizar_para_public_id(clean_filename)
+    extension = sanitizar_para_public_id(extension)
 
     # REG-116: con public_id explícito, unique_filename no hace nada — dos
     # archivos con el mismo nombre en la misma carpeta se PISABAN. Sufijo
@@ -113,13 +144,69 @@ def upload_to_cloudinary(
     }
 
 
+def identidad_cloudinary(obj) -> tuple[str, str]:
+    """(public_id, resource_type) de un Attachments, para poder BORRARLO.
+
+    Se LEE la identidad persistida al subir; no se reconstruye. Reconstruirla es
+    imposible desde REG-116: el public_id lleva un sufijo `uuid4().hex[:8]` que
+    ninguna funcion puede adivinar. Y aplicarle `sanitizar_para_public_id()`
+    seria peor que no hacer nada — a las filas legacy hay que hacerles
+    `unquote()`, que es justo la operacion INVERSA.
+
+    Para las filas anteriores a REG-058 (2.288 de 2.493 en produccion) se deriva
+    de la URL, que es la unica fuente que queda:
+
+        https://res.cloudinary.com/<cloud>/raw/upload/v123/QID/61359/factura.pdf
+                                          ^^^ resource_type      ^^^^^^^^^^^^^^ public_id
+
+    El resource_type sacado asi coincide 205/205 con el persistido (medido en
+    produccion el 25-ago-2026), asi que la derivacion es fiable.
+
+    Ojo con la extension: en `raw` el public_id SI la incluye y en `image` NO.
+    Por eso `rsplit(".", 1)` solo se aplica cuando el resource_type no es raw —
+    quitarsela a un raw es lo que hacia que `destroy()` devolviera "not found"
+    (REG-058), y es el defecto que sigue vivo en el camino del webhook.
+    """
+    if obj.cloudinary_public_id:
+        return obj.cloudinary_public_id, (obj.cloudinary_resource_type or "image")
+
+    partes = (obj.Link or "").split("/upload/")
+    if len(partes) != 2:
+        raise ValueError(f"Link sin /upload/, no se puede derivar identidad: {obj.Link!r}")
+
+    resource_type = partes[0].rsplit("/", 1)[-1]        # 'raw' | 'image' | 'video'
+    # El primer segmento tras /upload/ es la version (v1234567890); se descarta.
+    ruta = partes[1].split("/", 1)[1]
+    if resource_type != "raw":
+        ruta = ruta.rsplit(".", 1)[0]
+    return unquote(ruta), resource_type
+
+
+def destroy_en_cloudinary(public_id: str, resource_type: str = "image") -> str:
+    """Borra en Cloudinary y devuelve el veredicto CRUDO: "ok", "not found", ...
+
+    Existe aparte de `delete_from_cloudinary` porque los dos llamadores necesitan
+    leer "not found" de forma distinta:
+
+      * En el camino normal, "not found" es la SENAL DE UN FALLO: significa que
+        el public_id con el que preguntamos no es el del fichero (REG-058: al
+        derivarlo de la URL se le quitaba la extension, y en `raw` el public_id
+        SI la lleva). Si lo tratamos como exito, el fallo se vuelve mudo — que
+        es exactamente por que el borrado del webhook lleva roto al 100% sin que
+        nadie se enterara.
+
+      * Reintentando un borrado ya registrado como fallido, "not found" es EXITO:
+        el fichero no esta, que es lo que se pedia. Ahi la identidad sale de la
+        fila persistida, no de una reconstruccion, asi que "not found" no puede
+        deberse a haber preguntado por el public_id equivocado.
+    """
+    result = cloudinary.uploader.destroy(public_id, resource_type=resource_type)
+    return result.get("result", "")
+
+
 def delete_from_cloudinary(public_id: str, resource_type: str = "image") -> bool:
     """
     Elimina un archivo de Cloudinary por su public_id.
     Retorna True si fue eliminado correctamente.
     """
-    result = cloudinary.uploader.destroy(
-        public_id,
-        resource_type=resource_type
-    )
-    return result.get("result") == "ok"
+    return destroy_en_cloudinary(public_id, resource_type) == "ok"
