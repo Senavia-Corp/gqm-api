@@ -13,9 +13,34 @@ def test_qid_canonical_mapping_exact():
     assert map_podio_item_to_job(qid_item()) == QID_EXPECTED
 
 
-def test_qid_bldg_dept_fees_is_ordered_multi():
+def test_qid_bldg_dept_fees_ya_no_entra_por_el_mapa_generico():
+    """RETIRADO 18-ago-2026 — decision, no regresion.
+
+    El lector `multi` solo acumula los campos que VIENEN en el payload, y Podio
+    no manda los vacios: con `bldg-fees-2` vacio producia `[100, 250]`, de
+    longitud 2, y el importe del hueco 3 acababa escrito en la fila del hueco 2.
+
+    Ahora los BD fees entran por `sync_bdf_from_podio`, que lee del item crudo
+    por `external_id` y aplica cada importe sobre el registro que DECLARA ese
+    hueco (`EstimateCost.podio_field`). La columna del job pasa a ser derivada:
+    su unico escritor es `recalculate_and_apply`.
+    """
     mapped = map_podio_item_to_job(qid_item())
-    assert mapped["Bldg_dept_fees"] == ["100.00", "150.00", "250.00"]
+    assert "Bldg_dept_fees" not in mapped
+
+
+def test_qid_un_hueco_vacio_en_medio_no_desplaza_a_los_siguientes():
+    """El desplazamiento que motivo el cambio, fijado como no-regresion."""
+    from src.podio.webhook.jobs_hook_sync import _valor_money_del_item
+
+    item = qid_item()
+    for f in item["fields"]:
+        if f["external_id"] == "bldg-fees-2":
+            f["values"] = []
+
+    assert _valor_money_del_item(item, "bldg-fees-1") == (True, 100.0)
+    assert _valor_money_del_item(item, "bldg-fees-2") == (True, None)   # vacio, no ausente
+    assert _valor_money_del_item(item, "bldg-dept-fees-3") == (True, 250.0)
 
 
 def test_qid_project_name_collision_app_order():

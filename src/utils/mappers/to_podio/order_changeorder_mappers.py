@@ -133,16 +133,23 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
     formula_map = order_fields_map["Formula"]
 
     # ================= SUBCONTRACTOR =================
+    from src.utils.middleware.exceptions_handler import AppException
+
     if not order.ID_Subcontractor:
-        raise Exception("Order requires a subcontractor")
+        raise AppException("La orden necesita un subcontratista.",
+                           "subcontractor_required", 400)
 
     subcontractor = session.get(Subcontractor, order.ID_Subcontractor)
 
     if not subcontractor:
-        raise Exception(f"Subcontractor {order.ID_Subcontractor} not found")
+        raise AppException(f"Subcontratista {order.ID_Subcontractor} no encontrado.",
+                           "subcontractor_not_found", 404)
 
     if not subcontractor.podio_item_id:
-        raise Exception("Subcontractor has no podio_item_id")
+        raise AppException(
+            f"El subcontratista {order.ID_Subcontractor} no está sincronizado con "
+            f"Podio, así que no se le puede asignar una orden.",
+            "subcontractor_sin_podio", 400)
 
     # 🔥 1️⃣ Encontrar tech_index usando el subcontractor en Podio
     tech_index = find_field_with_subc(
@@ -152,7 +159,10 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
     )
 
     if not tech_index:
-        raise Exception("Subcontractor not linked to Job in Podio")
+        raise AppException(
+            "El subcontratista no está vinculado a este job en Podio: enlázalo "
+            "antes de crear su orden.",
+            "subcontractor_not_linked", 409)
 
     # 🔥 2️⃣ Resolver Formula field
     formula_field = formula_map[tech_index]
@@ -165,7 +175,12 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
         is_primary_taken = True
         
     if is_primary_taken:
-        raise Exception("El técnico ya tiene una orden principal creada. Edite la existente en lugar de crear una nueva.")
+        # G6: esto salia como `500 {"code":"internal_error"}` y el panel mostraba
+        # «error inesperado». El mensaje real nunca llegaba a quien lo necesitaba.
+        raise AppException(
+            "El técnico ya tiene una orden en este job. Edita la existente en "
+            "lugar de crear otra.",
+            "order_slot_taken", 409)
         
     assigned_field = formula_field
     is_co_field = False
@@ -198,7 +213,7 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
 
 
 # ============ PATCH
-def map_order_patch_to_podio(order, job_type, session):
+def map_order_patch_to_podio(order, job_type, session, year=None):
 
     if not order.tech_field:
         raise Exception("Order has no assigned Podio field")
@@ -234,7 +249,42 @@ def map_order_patch_to_podio(order, job_type, session):
             if getattr(order, "Notes", None):
                 fields_to_update[notes_field] = order.Notes
 
+        # ================= CUOTAS AL TECNICO =================
+        # Hasta ahora las cuotas solo VIAJABAN de Podio a la app: habia mapa de
+        # entrada y no de salida, asi que la app nunca podia corregir un cheque.
+        fields_to_update.update(
+            map_order_payments_to_podio(order, job_type, year))
+
     return fields_to_update
+
+
+def map_order_payments_to_podio(order, job_type, year=None) -> dict:
+    """`{external_id: importe}` de las cuotas de una orden.
+
+    Cada cuota escribe en el hueco que DECLARA (`OrderPayment.podio_field`);
+    las que no lo declaran se resuelven por (tecnico, numero de cuota) contra
+    el mapa generado desde el esquema real.
+
+    Lo que NUNCA se emite: los `calculation` de Podio — `TECH n Adj Formula`,
+    `Total (Left to) Pay`, `Tech n Final Formula` — porque el artefacto no los
+    contiene. Y el `Check Number(s)`, que es uno por SECCION: componerlo desde
+    N cuotas pisaria lo que alguien escribio a mano.
+    """
+    from src.utils.mappers.from_podio import payment_slots
+
+    if not payment_slots.habilitado(job_type):
+        return {}
+
+    tech_index = resolve_tech_index_from_field(job_type, order.tech_field)
+    salida = {}
+    for cuota in getattr(order, "payments", None) or []:
+        if cuota.Amount is None:
+            continue
+        hueco = cuota.podio_field or payment_slots.slot_de_cuota(
+            job_type, year, tech_index, cuota.Installment)
+        if hueco:
+            salida[hueco] = float(cuota.Amount)
+    return salida
 
 
 # ============ DELETE

@@ -228,6 +228,29 @@ def get_orders_by_job_id(id_job):
 
 # --------------- RUTAS POST, PATCH AND DELETE ----------#
 
+@order_bp.get("/<id_order>/payments")
+@handle_exceptions()
+def listar_cuotas(id_order):
+    """Las cuotas (cheques parciales) pagadas al tecnico de esta orden.
+
+    Hasta ahora los pagos no se podian consultar: vivian en `Payment_1/2/3` y el
+    panel no los leia. Y solo cabian tres, cuando el tecnico 1 de un QID admite
+    once. Cada cuota expone el hueco de Podio que declara ocupar, que es lo que
+    permite reconciliarla a simple vista.
+    """
+    from src.models.OrderPaymentModel import OrderPayment
+
+    with get_session() as session:
+        if not session.get(Order, id_order):
+            raise AppException("Order not found", "order_not_found", 404)
+        cuotas = session.exec(
+            select(OrderPayment)
+            .where(OrderPayment.ID_Order == id_order)
+            .order_by(OrderPayment.Installment)
+        ).all()
+        return [c.model_dump() for c in cuotas], 200
+
+
 @order_bp.post("/")
 @handle_exceptions()
 @audit("Order created", entity_type="Order", id_from="response", job_id_from="body")
@@ -308,6 +331,28 @@ def create_order():
         recalculate_order_formulas(obj.ID_Order, session)
         session.refresh(obj) # Asegurar recargar los valores calculados en memoria
 
+        # G6.1 · UNA ORDEN POR HUECO DE TECNICO, tambien sin Podio de por medio.
+        # La regla solo existia como comprobacion CONTRA PODIO, asi que con
+        # `sync_podio=false` se podian crear N ordenes en el mismo hueco.
+        #
+        # La clave es el HUECO, no el subcontratista: en produccion hay 29 jobs
+        # donde el mismo subcontratista ocupa DOS huecos de tecnico, y eso es
+        # legitimo — asi esta en Podio. Lo que no puede haber es dos ordenes
+        # escribiendo en el mismo `TECH n - Formula`.
+        if obj.tech_field and obj.job_podio_id:
+            ya = session.exec(
+                select(Order).where(
+                    Order.job_podio_id == obj.job_podio_id,
+                    Order.tech_field == obj.tech_field,
+                    Order.ID_Order != obj.ID_Order,
+                )
+            ).first()
+            if ya:
+                raise AppException(
+                    f"Ese hueco de técnico ya lo ocupa la orden {ya.ID_Order} en "
+                    f"este job. Edita la existente en lugar de crear otra.",
+                    "order_slot_taken", 409)
+
         # VALIDACIÓN: No permitir órdenes con fórmula 0
         if not obj.Formula or obj.Formula == 0:
             raise AppException(
@@ -376,6 +421,20 @@ def create_order():
                 podio_service.update_item(obj.job_podio_id, payload)
 
             except Exception as podio_err:
+                # G6.4: ninguna ruta de ordenes registraba divergencias —
+                # `record_failed_sync` solo se usaba desde Job y desde el lado
+                # entrante, asi que un fallo aqui no dejaba rastro reconciliable.
+                from src.utils.failed_sync import record_failed_sync
+                try:
+                    record_failed_sync(
+                        session, item_id=str(obj.job_podio_id),
+                        hook_type="order_create_divergence",
+                        payload={"ID_Order": obj.ID_Order,
+                                 "ID_Subcontractor": obj.ID_Subcontractor,
+                                 "payload": payload},
+                        error=podio_err)
+                except Exception:
+                    logger.exception("No se pudo registrar la divergencia de la orden")
                 # Rollback compensatorio
                 session.delete(obj)
                 session.commit()
@@ -526,7 +585,7 @@ def update_order(id_order):
                 year=year
             )
 
-            payload = map_order_patch_to_podio(order, job.Job_type, session)
+            payload = map_order_patch_to_podio(order, job.Job_type, session, year)
 
             try:
                 if payload:

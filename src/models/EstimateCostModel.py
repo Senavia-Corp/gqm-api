@@ -30,6 +30,12 @@ class EstimateCost(EstimateBase, table=True):
 
     ID_EstimateCost: Optional[str] = Field(default=None, primary_key=True)
 
+    # `external_id` del hueco de Podio que ocupa este coste: `bldg-fees-*` para
+    # los BDF, `materials-purchased-*` para los alquileres. Fuera del Base a
+    # propósito, para que ningún PATCH de la API pueda reasignar el hueco a
+    # mano (ver `podio_slots`).
+    podio_field: Optional[str] = Field(default=None, index=True)
+
     # Relaciones foráneas M:1
     ID_Jobs: Optional[str] = Field(
         default=None, foreign_key="jobs.ID_Jobs")

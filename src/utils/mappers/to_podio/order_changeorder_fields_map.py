@@ -21,6 +21,14 @@ ORDER_QID_FIELDS = {
         16: "tech-16-formula",
         # REG-076: el lector (from_podio) cubre hasta 20; el writer llegaba
         # solo a 16 → subs en 17..20 sin destino de fórmula.
+        #
+        # M10, matizado el 19-ago-2026 contra el esquema real de las 4 apps: NO
+        # se pueden borrar. La app QID **2023 SÍ tiene** los técnicos 17-20, y
+        # 2024 tiene el 17. Los que no existen son 17-20 en 2025/2026 y 18-20 en
+        # 2024. Escribir ahí da `field.not.found` sólo en esos años.
+        #
+        # La deriva la vigila la prueba de contrato esquema↔mapas, que corre POR
+        # AÑO; recortar el mapa a secas rompería 2023.
         17: "tech-17-formula",
         18: "tech-18-formula",
         19: "tech-19-formula",
@@ -184,7 +192,8 @@ ORDER_CO_QID_FIELDS = {
     14: ["tech-14-change-order-1"],
     15: ["tech-15-change-order-1"],
     16: ["tech-16-change-order-1"],
-    # REG-076: paridad con el lector (ORDER_CHANGE_ORDERS_FIELDS) hasta 20
+    # REG-076: paridad con el lector (ORDER_CHANGE_ORDERS_FIELDS) hasta 20.
+    # Ver la nota de M10 arriba: existen en 2023, no en 2025/2026.
     17: ["tech-17-change-order-1"],
     18: ["tech-18-change-order-1"],
     19: ["tech-19-change-order-1"],

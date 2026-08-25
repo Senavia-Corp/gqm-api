@@ -95,7 +95,6 @@ QID_EXPECTED = {
     "Estimated_city": "80.00",
     "Gqm_formula_pricing": "2930.50",
     "Gqm_paid_fees": "500.00",
-    "Bldg_dept_fees": ["100.00", "150.00", "250.00"],
     "Gqm_total_materials_fees": "1650.50",
     "Acc_receivable": "123.45",
 }

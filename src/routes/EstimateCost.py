@@ -17,6 +17,86 @@ estimate_bp = Blueprint("estimate_blueprint", __name__, url_prefix="/estimate")
 
 # ── GETs ─────────────────────────────────────────────────────────────────────
 
+# H4 · Conceptos que NO tienen destino en Podio para ese tipo de job.
+# `recalculate_job_fields` nunca mira `Job_type`, así que un alquiler o un BD
+# fee metido en un PTL/PAR entraba en `Gqm_formula_pricing` y no salía a Podio:
+# el precio de la app se desviaba en silencio. Medido en la corrida del
+# 18-ago-2026: PTL +400 (Rent 250 + BDF 150) y PAR +900 (los tres conceptos).
+#
+# `Material` SÍ tiene destino en PTL (`fees-and-cost`, «GQM Estimated Material
+# (total)»), así que ahí no se bloquea. Y `Subcontractor`, `Equipment` y `Other`
+# no ocupan hueco: alimentan la fórmula a través de las órdenes.
+COSTOS_SIN_DESTINO = {
+    "PTL": {"Rent", "BDF"},
+    "PAR": {"Rent", "BDF", "Material"},
+    "QID": {"PTLGCF"},          # el GC Fee es exclusivo de PTL
+}
+
+
+def _exigir_tipo_de_costo_valido(session, obj):
+    if not obj.ID_Jobs:
+        return
+    from src.models.JobModel import Job
+
+    job = session.get(Job, obj.ID_Jobs)
+    if not job or not job.Job_type:
+        return
+    prohibidos = COSTOS_SIN_DESTINO.get(job.Job_type.upper(), set())
+    tipo = (obj.Cost_type or "").strip()
+    if tipo in prohibidos:
+        raise AppException(
+            f"Un job {job.Job_type} no admite costes de tipo «{tipo}»: no tienen "
+            f"destino en Podio y desviarían el precio de la app.",
+            "cost_type_no_valido_para_el_tipo", 422)
+
+
+def _reservar_hueco(session, obj):
+    """Marca en el coste el `external_id` que va a ocupar en Podio."""
+    from src.utils import podio_slots
+
+    if not obj.ID_Jobs or (obj.Status or "").strip() != "Approved":
+        return None
+    fam = podio_slots.familia_de_coste(obj.Cost_type)
+    if fam is None:
+        return None
+    return podio_slots.reservar(session, fam, obj.ID_Jobs, obj)
+
+
+def _liberar_hueco(session, obj):
+    """Suelta el hueco de un coste que se desaprueba. Devuelve el `external_id`
+    liberado para vaciarlo en Podio explícitamente."""
+    from src.utils import podio_slots
+
+    return podio_slots.liberar(session, obj)
+
+
+def _exigir_hueco_libre(session, obj):
+    """Un coste aprobado que no cabe en Podio se rechaza ANTES de guardarlo.
+
+    Podio tiene 3 huecos de BD fees y 13 de materiales, y hasta ahora un 4.º BD
+    fee aprobado se aceptaba con 201 y luego lo BORRABA el primer webhook que
+    tocara el job — daba igual el motivo (reproducido cambiando sólo
+    `job-status`). Mismo contrato que los change orders, que ya responden 400
+    `no_available_order_slot` sin guardar nada.
+
+    Sólo cuentan los APROBADOS: un coste `Estimated` no toca los huecos (V9).
+    """
+    from src.utils import podio_slots
+
+    if not obj.ID_Jobs or (obj.Status or "").strip() != "Approved":
+        return
+    fam = podio_slots.familia_de_coste(obj.Cost_type)
+    if fam is None:
+        return
+    libres = podio_slots.libres_en_bd(
+        session, fam, obj.ID_Jobs, excluir_pk=obj.ID_EstimateCost)
+    if not libres:
+        raise AppException(
+            f"No queda hueco en Podio para otro coste de tipo {obj.Cost_type}: "
+            f"la app sólo tiene {len(fam.external_ids)} y ya están ocupados.",
+            "no_available_slot", 400)
+
+
 @estimate_bp.get("/")
 @handle_exceptions()
 @paginate()
@@ -73,6 +153,9 @@ def create_estimate():
     with get_session() as session:
         obj.ID_EstimateCost = generate_custom_id(
             session, EstimateCost, "ID_EstimateCost", "EST")
+        _exigir_tipo_de_costo_valido(session, obj)
+        _exigir_hueco_libre(session, obj)
+        _reservar_hueco(session, obj)
         save_with_retry(session, obj)
 
         # ── Recálculo automático del Job asociado ─────────────────────────
@@ -104,10 +187,24 @@ def update_estimate(id_estimate):
         job_id_for_calc = obj.ID_Jobs
         old_order_id = obj.ID_Order
 
+        estado_antes = (obj.Status or "").strip()
         update_data = EstimateUpdate.model_validate(
             data).model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(obj, key, value)
+
+        # El hueco se toma al APROBAR y se suelta al desaprobar, no al crear.
+        _exigir_tipo_de_costo_valido(session, obj)
+        estado_ahora = (obj.Status or "").strip()
+        slots_a_limpiar = []
+        if estado_ahora == "Approved" and estado_antes != "Approved":
+            _exigir_hueco_libre(session, obj)
+            _reservar_hueco(session, obj)
+        elif estado_antes == "Approved" and estado_ahora != "Approved":
+            libre = _liberar_hueco(session, obj)
+            if libre:
+                slots_a_limpiar.append(libre)
+
         save_with_retry(session, obj)
 
         # ── [NUEVO] Recálculo automático de la Order asociada ────────
@@ -124,7 +221,7 @@ def update_estimate(id_estimate):
         if job_id_for_calc:
             recalculate_and_apply(job_id_for_calc, session)
             from src.utils.podio_job_sync import sync_job_to_podio
-            sync_job_to_podio(job_id_for_calc, session)
+            sync_job_to_podio(job_id_for_calc, session, limpiar_slots=slots_a_limpiar)
             session.commit()
 
         # REG-145: si el costo se reasignó a otro job, recalcular TAMBIÉN el
@@ -153,6 +250,8 @@ def delete_estimate(id_estimate):
 
         # Capturar job_id ANTES de borrar — después el objeto ya no tiene relaciones
         job_id_for_calc = obj.ID_Jobs
+        # y el hueco que ocupaba, para vaciarlo en Podio de forma EXPLICITA
+        slot_liberado = getattr(obj, "podio_field", None)
 
         delete_with_retry(session, obj)
 
@@ -160,7 +259,8 @@ def delete_estimate(id_estimate):
         if job_id_for_calc:
             recalculate_and_apply(job_id_for_calc, session)
             from src.utils.podio_job_sync import sync_job_to_podio
-            sync_job_to_podio(job_id_for_calc, session)
+            sync_job_to_podio(job_id_for_calc, session,
+                              limpiar_slots=[slot_liberado] if slot_liberado else None)
             session.commit()
         # ─────────────────────────────────────────────────────────────────
 

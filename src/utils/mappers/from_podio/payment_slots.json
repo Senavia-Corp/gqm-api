@@ -1,0 +1,907 @@
+{
+  "_comentario": "GENERADO por scripts/generar_mapa_pagos.py — no editar a mano.",
+  "esquema_version": 1,
+  "generado_desde": [
+    "par-2023-prod.json",
+    "par-2024-prod.json",
+    "par-2025-prod.json",
+    "par-2026-prod.json",
+    "ptl-2023-prod.json",
+    "ptl-2024-prod.json",
+    "ptl-2025-prod.json",
+    "ptl-2026-prod.json",
+    "qid-2023-prod.json",
+    "qid-2024-prod.json",
+    "qid-2025-prod.json",
+    "qid-2026-prod.json"
+  ],
+  "apps": {
+    "PAR": {
+      "habilitado": true,
+      "anios": {
+        "2023": {
+          "app_id": "28125720",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2"
+              },
+              "check_numbers": "check-numbers-2"
+            }
+          }
+        },
+        "2024": {
+          "app_id": "29266733",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2"
+              },
+              "check_numbers": null
+            }
+          }
+        },
+        "2025": {
+          "app_id": "30076547",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2"
+              },
+              "check_numbers": null
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2"
+              },
+              "check_numbers": null
+            }
+          }
+        },
+        "2026": {
+          "app_id": "30577947",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2"
+              },
+              "check_numbers": null
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2"
+              },
+              "check_numbers": null
+            }
+          }
+        }
+      }
+    },
+    "PTL": {
+      "habilitado": false,
+      "anios": {
+        "2023": {
+          "app_id": "28125707",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3",
+                "4": "tech-1-payment-4"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2",
+                "4": "tech-2-payment-4"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2",
+                "3": "tech-3-payment-3",
+                "4": "tech-3-payment-4"
+              },
+              "check_numbers": "check-numbers-3"
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2",
+                "3": "tech-4-payment-3",
+                "4": "tech-4-payment-4"
+              },
+              "check_numbers": "check-numbers-4"
+            },
+            "5": {
+              "cuotas": {
+                "1": "tech-5-payment-1",
+                "2": "tech-5-payment-1-2"
+              },
+              "check_numbers": "check-numbers-5"
+            },
+            "6": {
+              "cuotas": {
+                "1": "tech-6-payment-1",
+                "2": "tech-6-payment-2"
+              },
+              "check_numbers": "check-numbers-6"
+            },
+            "7": {
+              "cuotas": {
+                "1": "tech-7-payment-1"
+              },
+              "check_numbers": "check-numbers-7"
+            }
+          }
+        },
+        "2024": {
+          "app_id": "29266193",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3",
+                "4": "tech-1-payment-4"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2",
+                "4": "tech-2-payment-4"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2",
+                "3": "tech-3-payment-3",
+                "4": "tech-3-payment-4"
+              },
+              "check_numbers": "check-numbers-3"
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2",
+                "3": "tech-4-payment-3",
+                "4": "tech-4-payment-4"
+              },
+              "check_numbers": "check-numbers-4"
+            },
+            "5": {
+              "cuotas": {
+                "1": "tech-5-payment-1",
+                "2": "tech-5-payment-1-2"
+              },
+              "check_numbers": "check-numbers-5"
+            },
+            "6": {
+              "cuotas": {
+                "1": "tech-6-payment-1",
+                "2": "tech-6-payment-2"
+              },
+              "check_numbers": "check-numbers-6"
+            },
+            "7": {
+              "cuotas": {
+                "1": "tech-7-payment-1"
+              },
+              "check_numbers": "check-numbers-7"
+            }
+          }
+        },
+        "2025": {
+          "app_id": "30015040",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3",
+                "4": "tech-1-payment-4"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2",
+                "4": "tech-2-payment-4"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2",
+                "3": "tech-3-payment-3",
+                "4": "tech-3-payment-4"
+              },
+              "check_numbers": "check-numbers-3"
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2",
+                "3": "tech-4-payment-3",
+                "4": "tech-4-payment-4"
+              },
+              "check_numbers": "check-numbers-4"
+            },
+            "5": {
+              "cuotas": {
+                "1": "tech-5-payment-1",
+                "2": "tech-5-payment-1-2"
+              },
+              "check_numbers": "check-numbers-5"
+            },
+            "6": {
+              "cuotas": {
+                "1": "tech-6-payment-1",
+                "2": "tech-6-payment-2"
+              },
+              "check_numbers": "check-numbers-6"
+            },
+            "7": {
+              "cuotas": {
+                "1": "tech-7-payment-1"
+              },
+              "check_numbers": "check-numbers-7"
+            }
+          }
+        },
+        "2026": {
+          "app_id": "30577946",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3",
+                "4": "tech-1-payment-4"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2",
+                "4": "tech-2-payment-4"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2",
+                "3": "tech-3-payment-3",
+                "4": "tech-3-payment-4"
+              },
+              "check_numbers": "check-numbers-3"
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2",
+                "3": "tech-4-payment-3",
+                "4": "tech-4-payment-4"
+              },
+              "check_numbers": "check-numbers-4"
+            },
+            "5": {
+              "cuotas": {
+                "1": "tech-5-payment-1",
+                "2": "tech-5-payment-1-2"
+              },
+              "check_numbers": "check-numbers-5"
+            },
+            "6": {
+              "cuotas": {
+                "1": "tech-6-payment-1",
+                "2": "tech-6-payment-2"
+              },
+              "check_numbers": "check-numbers-6"
+            },
+            "7": {
+              "cuotas": {
+                "1": "tech-7-payment-1"
+              },
+              "check_numbers": "check-numbers-7"
+            }
+          }
+        }
+      }
+    },
+    "QID": {
+      "habilitado": true,
+      "anios": {
+        "2023": {
+          "app_id": "28087463",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3",
+                "4": "tech-1-payment-4",
+                "5": "tech-1-payment-5",
+                "6": "tech-1-payment-6",
+                "7": "tech-1-payment-7",
+                "8": "tech-1-payment-8",
+                "9": "tech-1-payment-9",
+                "10": "tech-1-payment-10",
+                "11": "tech-1-payment-11"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2",
+                "4": "tech-2-payment-4"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2",
+                "3": "tech-3-payment-3",
+                "4": "tech-3-payment-4"
+              },
+              "check_numbers": "check-numbers-3"
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2",
+                "3": "tech-4-payment-3",
+                "4": "tech-4-payment-4"
+              },
+              "check_numbers": "check-numbers-4"
+            },
+            "5": {
+              "cuotas": {
+                "1": "tech-5-payment-1",
+                "2": "tech-5-payment-2",
+                "3": "tech-5-payment-3"
+              },
+              "check_numbers": "check-numberss"
+            },
+            "6": {
+              "cuotas": {
+                "1": "tech-6-payment-1",
+                "2": "money-4",
+                "3": "money-5",
+                "4": "tech-6-payment-4"
+              },
+              "check_numbers": "check-numbers-5"
+            },
+            "7": {
+              "cuotas": {
+                "1": "tech-7-payment-1",
+                "2": "money-6",
+                "3": "money-7"
+              },
+              "check_numbers": "check-numbers-6"
+            },
+            "8": {
+              "cuotas": {
+                "1": "tech-8-payment-1",
+                "2": "money-8",
+                "3": "money-9"
+              },
+              "check_numbers": "check-numbers-7"
+            },
+            "9": {
+              "cuotas": {
+                "1": "tech-9-payment-1",
+                "2": "money-10",
+                "3": "money-11"
+              },
+              "check_numbers": "check-numbers-9"
+            },
+            "10": {
+              "cuotas": {
+                "1": "tech-10-payment-1",
+                "2": "tech-10-payment-2"
+              },
+              "check_numbers": "check-numbers-8"
+            },
+            "11": {
+              "cuotas": {
+                "1": "tech-11-payment-1"
+              },
+              "check_numbers": "check-numbers-10"
+            },
+            "12": {
+              "cuotas": {
+                "1": "tech-12-payment-1"
+              },
+              "check_numbers": "check-numbers-11"
+            },
+            "13": {
+              "cuotas": {
+                "1": "tech-13-payment-1",
+                "2": "tech-13-payment-2"
+              },
+              "check_numbers": null
+            },
+            "14": {
+              "cuotas": {
+                "1": "tech-14-payment-1",
+                "2": "tech-14-payment-2"
+              },
+              "check_numbers": null
+            },
+            "15": {
+              "cuotas": {
+                "1": "tech-15-payment-1-2",
+                "2": "tech-15-payment-1"
+              },
+              "check_numbers": null
+            },
+            "16": {
+              "cuotas": {
+                "1": "tech-16-payment-1-2",
+                "2": "tech-16-payment-1"
+              },
+              "check_numbers": null
+            },
+            "17": {
+              "cuotas": {
+                "1": "tech-17-payment-1",
+                "2": "tech-17-payment-2"
+              },
+              "check_numbers": null
+            }
+          }
+        },
+        "2024": {
+          "app_id": "29157876",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3",
+                "4": "tech-1-payment-4",
+                "5": "tech-1-payment-5",
+                "6": "tech-1-payment-6",
+                "7": "tech-1-payment-7",
+                "8": "tech-1-payment-8",
+                "9": "tech-1-payment-9",
+                "10": "tech-1-payment-10",
+                "11": "tech-1-payment-11"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2",
+                "4": "tech-2-payment-4"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2",
+                "3": "tech-3-payment-3",
+                "4": "tech-3-payment-4"
+              },
+              "check_numbers": "check-numbers-3"
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2",
+                "3": "tech-4-payment-3",
+                "4": "tech-4-payment-4"
+              },
+              "check_numbers": "check-numbers-4"
+            },
+            "5": {
+              "cuotas": {
+                "1": "tech-5-payment-1",
+                "2": "tech-5-payment-2",
+                "3": "tech-5-payment-3"
+              },
+              "check_numbers": "check-numberss"
+            },
+            "6": {
+              "cuotas": {
+                "1": "tech-6-payment-1",
+                "2": "money-4",
+                "3": "money-5",
+                "4": "tech-6-payment-4"
+              },
+              "check_numbers": "check-numbers-5"
+            },
+            "7": {
+              "cuotas": {
+                "1": "tech-7-payment-1",
+                "2": "money-6",
+                "3": "money-7"
+              },
+              "check_numbers": "check-numbers-6"
+            },
+            "8": {
+              "cuotas": {
+                "1": "tech-8-payment-1",
+                "2": "money-8",
+                "3": "money-9"
+              },
+              "check_numbers": "check-numbers-7"
+            },
+            "9": {
+              "cuotas": {
+                "1": "tech-9-payment-1",
+                "2": "money-10",
+                "3": "money-11"
+              },
+              "check_numbers": "check-numbers-9"
+            },
+            "10": {
+              "cuotas": {
+                "1": "tech-10-payment-1",
+                "2": "tech-10-payment-2"
+              },
+              "check_numbers": "check-numbers-8"
+            },
+            "11": {
+              "cuotas": {
+                "1": "tech-11-payment-1"
+              },
+              "check_numbers": "check-numbers-10"
+            },
+            "12": {
+              "cuotas": {
+                "1": "tech-12-payment-1"
+              },
+              "check_numbers": "check-numbers-11"
+            },
+            "13": {
+              "cuotas": {
+                "1": "tech-13-payment-1"
+              },
+              "check_numbers": "ach-numbers"
+            }
+          }
+        },
+        "2025": {
+          "app_id": "30015007",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3",
+                "4": "tech-1-payment-4",
+                "5": "tech-1-payment-5",
+                "6": "tech-1-payment-6",
+                "7": "tech-1-payment-7",
+                "8": "tech-1-payment-8",
+                "9": "tech-1-payment-9",
+                "10": "tech-1-payment-10",
+                "11": "tech-1-payment-11"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2",
+                "4": "tech-2-payment-4"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2",
+                "3": "tech-3-payment-3",
+                "4": "tech-3-payment-4"
+              },
+              "check_numbers": "check-numbers-3"
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2",
+                "3": "tech-4-payment-3",
+                "4": "tech-4-payment-4"
+              },
+              "check_numbers": "check-numbers-4"
+            },
+            "5": {
+              "cuotas": {
+                "1": "tech-5-payment-1",
+                "2": "tech-5-payment-2",
+                "3": "tech-5-payment-3"
+              },
+              "check_numbers": "check-numberss"
+            },
+            "6": {
+              "cuotas": {
+                "1": "tech-6-payment-1",
+                "2": "money-4",
+                "3": "money-5",
+                "4": "tech-6-payment-4"
+              },
+              "check_numbers": "check-numbers-5"
+            },
+            "7": {
+              "cuotas": {
+                "1": "tech-7-payment-1",
+                "2": "money-6",
+                "3": "money-7"
+              },
+              "check_numbers": "check-numbers-6"
+            },
+            "8": {
+              "cuotas": {
+                "1": "tech-8-payment-1",
+                "2": "money-8",
+                "3": "money-9"
+              },
+              "check_numbers": "check-numbers-7"
+            },
+            "9": {
+              "cuotas": {
+                "1": "tech-9-payment-1",
+                "2": "money-10",
+                "3": "money-11"
+              },
+              "check_numbers": "check-numbers-9"
+            },
+            "10": {
+              "cuotas": {
+                "1": "tech-10-payment-1",
+                "2": "tech-10-payment-2"
+              },
+              "check_numbers": "check-numbers-8"
+            },
+            "11": {
+              "cuotas": {
+                "1": "tech-11-payment-1"
+              },
+              "check_numbers": "check-numbers-10"
+            },
+            "12": {
+              "cuotas": {
+                "1": "tech-12-payment-1"
+              },
+              "check_numbers": "check-numbers-11"
+            },
+            "13": {
+              "cuotas": {
+                "1": "tech-13-payment-1"
+              },
+              "check_numbers": "ach-numbers"
+            }
+          }
+        },
+        "2026": {
+          "app_id": "30549028",
+          "techs": {
+            "1": {
+              "cuotas": {
+                "1": "check-amount-payment-1",
+                "2": "check-amount-payment-2",
+                "3": "check-amount-payment-3",
+                "4": "tech-1-payment-4",
+                "5": "tech-1-payment-5",
+                "6": "tech-1-payment-6",
+                "7": "tech-1-payment-7",
+                "8": "tech-1-payment-8",
+                "9": "tech-1-payment-9",
+                "10": "tech-1-payment-10",
+                "11": "tech-1-payment-11"
+              },
+              "check_numbers": "check-numbers"
+            },
+            "2": {
+              "cuotas": {
+                "1": "check-amount-payment-1-2",
+                "2": "check-amount-payment-2-2",
+                "3": "check-amount-payment-3-2",
+                "4": "tech-2-payment-4"
+              },
+              "check_numbers": "check-numbers-2"
+            },
+            "3": {
+              "cuotas": {
+                "1": "tech-3-payment-1",
+                "2": "tech-3-payment-2",
+                "3": "tech-3-payment-3",
+                "4": "tech-3-payment-4"
+              },
+              "check_numbers": "check-numbers-3"
+            },
+            "4": {
+              "cuotas": {
+                "1": "tech-4-payment-1",
+                "2": "tech-4-payment-2",
+                "3": "tech-4-payment-3",
+                "4": "tech-4-payment-4"
+              },
+              "check_numbers": "check-numbers-4"
+            },
+            "5": {
+              "cuotas": {
+                "1": "tech-5-payment-1",
+                "2": "tech-5-payment-2",
+                "3": "tech-5-payment-3"
+              },
+              "check_numbers": "check-numberss"
+            },
+            "6": {
+              "cuotas": {
+                "1": "tech-6-payment-1",
+                "2": "money-4",
+                "3": "money-5",
+                "4": "tech-6-payment-4"
+              },
+              "check_numbers": "check-numbers-5"
+            },
+            "7": {
+              "cuotas": {
+                "1": "tech-7-payment-1",
+                "2": "money-6",
+                "3": "money-7"
+              },
+              "check_numbers": "check-numbers-6"
+            },
+            "8": {
+              "cuotas": {
+                "1": "tech-8-payment-1",
+                "2": "money-8",
+                "3": "money-9"
+              },
+              "check_numbers": "check-numbers-7"
+            },
+            "9": {
+              "cuotas": {
+                "1": "tech-9-payment-1",
+                "2": "money-10",
+                "3": "money-11"
+              },
+              "check_numbers": "check-numbers-9"
+            },
+            "10": {
+              "cuotas": {
+                "1": "tech-10-payment-1",
+                "2": "tech-10-payment-2"
+              },
+              "check_numbers": "check-numbers-8"
+            },
+            "11": {
+              "cuotas": {
+                "1": "tech-11-payment-1"
+              },
+              "check_numbers": "check-numbers-10"
+            },
+            "12": {
+              "cuotas": {
+                "1": "tech-12-payment-1"
+              },
+              "check_numbers": "check-numbers-11"
+            },
+            "13": {
+              "cuotas": {
+                "1": "tech-13-payment-1"
+              },
+              "check_numbers": "ach-numbers"
+            }
+          }
+        }
+      }
+    }
+  },
+  "avisos": [
+    {
+      "app": "QID",
+      "anio": 2023,
+      "tech": 15,
+      "motivo": "etiqueta duplicada 'Tech 15 - Payment 1'",
+      "campos": [
+        "tech-15-payment-1-2",
+        "tech-15-payment-1"
+      ],
+      "resolucion": "el segundo por `delta` se renumera a la cuota 2"
+    },
+    {
+      "app": "QID",
+      "anio": 2023,
+      "tech": 16,
+      "motivo": "etiqueta duplicada 'Tech 16 - Payment 1'",
+      "campos": [
+        "tech-16-payment-1-2",
+        "tech-16-payment-1"
+      ],
+      "resolucion": "el segundo por `delta` se renumera a la cuota 2"
+    }
+  ]
+}

@@ -80,23 +80,39 @@ def _resolve_job_id_from_change_order(co: ChangeOrder, session: Session) -> Opti
 
 
 def _build_bdf_array(bdf_costs: list[EstimateCost]) -> list[Optional[float]]:
+    """Coloca cada BD fee en la posición de SU hueco declarado.
+
+    Antes se empaquetaban de izquierda a derecha por `ID_EstimateCost`, así que
+    desaprobar o borrar el primero corría a todos los siguientes y el importe
+    de uno acababa en la fila de otro.
+
+    Ahora la posición la manda `podio_field` (`bldg-fees-1`, `bldg-fees-2`,
+    `bldg-dept-fees-3` — ojo al tercero, que no sigue el patrón). Los costes que
+    todavía no lo declaran —mientras el backfill no haya corrido— caen a la
+    primera posición libre en el orden estable de siempre. Ese respaldo
+    desaparece cuando no queden `podio_field` a NULL.
+
+    `Client_price` es el importe confirmado (aprobado); los huecos sin coste
+    quedan en `None`.
     """
-    Builds a compact 3-slot array for Bldg_dept_fees (Podio sync).
+    from src.utils.podio_slots import familia
 
-    Uses Client_price as the confirmed/approved spend for each cost.
-    Falls back to Builder_cost if Client_price is not set (legacy data).
+    huecos = familia("QID.bldg_dept_fees").external_ids
+    result: list[Optional[float]] = [None] * len(huecos)
 
-    Strategy: values are packed left-to-right ordered by ID_EstimateCost
-    (a stable proxy for creation order). Unused slots are None.
-    """
-    sorted_costs = sorted(bdf_costs, key=lambda ec: ec.ID_EstimateCost or "")
+    ordenados = sorted(bdf_costs, key=lambda ec: ec.ID_EstimateCost or "")
+    pendientes = []
 
-    result: list[Optional[float]] = [None, None, None]
-    for i, ec in enumerate(sorted_costs[:BDF_SLOTS]):
-        # Client_price holds the confirmed (approved) amount.
-        # Fall back to Builder_cost for legacy rows where Client_price was never set.
-        val = float(ec.Client_price or 0)
-        result[i] = val
+    for ec in ordenados:
+        slot = getattr(ec, "podio_field", None)
+        if slot in huecos:
+            result[huecos.index(slot)] = float(ec.Client_price or 0)
+        else:
+            pendientes.append(ec)
+
+    libres = [i for i, v in enumerate(result) if v is None]
+    for ec, i in zip(pendientes, libres):
+        result[i] = float(ec.Client_price or 0)
 
     return result
 

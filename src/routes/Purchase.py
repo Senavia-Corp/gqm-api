@@ -267,6 +267,11 @@ def create_purchase():
                 session.commit()
             # ─────────────────────────────────────────────────────────────
 
+            # C2: esto devolvia `{}` con un 201 — el commit expira la instancia
+            # y `model_dump()` salia vacio, asi que el cliente no podia saber el
+            # ID de la compra que acababa de crear y no podia encadenar la orden
+            # de compra. Ademas dejaba compras huerfanas a 0,00 ocupando hueco.
+            session.refresh(obj)
             return jsonify(obj.model_dump()), 201
 
     except IntegrityError as e:

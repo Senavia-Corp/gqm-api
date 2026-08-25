@@ -22,6 +22,10 @@ class OrderBase(SQLModel):
     Payment_3: Optional[float] = Field(default=None)
     # Para guardar el external id de TECH Formula de Job (Podio)
     tech_field: Optional[str] = Field(default=None)
+    # Espejo del `Check Number(s)` de la sección del técnico en Podio. Se LEE y
+    # nunca se escribe: es uno por sección, y componerlo desde N cuotas pisaría
+    # lo que alguien haya escrito a mano.
+    Podio_check_numbers: Optional[str] = Field(default=None)
 
 
 class Order(OrderBase, table=True):
@@ -41,6 +45,11 @@ class Order(OrderBase, table=True):
     # Relaciones foráneas 1:M
     estimate_costs: List["EstimateCost"] = Relationship(  # type: ignore
         back_populates="order")
+    # Cuotas al técnico. QID llega a 11 por técnico, así que no caben en
+    # `Payment_1/2/3`: esas quedan como proyección de las cuotas 1..3.
+    payments: List["OrderPayment"] = Relationship(  # type: ignore
+        back_populates="order",
+        sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
     change_orders: List["ChangeOrder"] = Relationship(  # type: ignore
         back_populates="order",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})

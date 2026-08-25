@@ -7,6 +7,33 @@ from src.models.ClientModel import Client
 from src.models.BldgDeptModel import BuildingDept
 
 
+def _importes_por_hueco(job_obj, config, valor_columna, session) -> dict:
+    """`{external_id: importe}` de un campo `multi`.
+
+    Cada alquiler, BD fee y compra escribe en el hueco que **declara** ocupar
+    (`podio_field`), no en la posición que le toque por orden de creación. Los
+    que aún no lo declaran —mientras el backfill no haya corrido— caen al
+    reparto posicional de siempre, así que este cambio es inerte hasta que haya
+    huecos asignados. Ver `src/utils/podio_slots.py`.
+    """
+    clave = config.get("familia")
+
+    if clave and session and getattr(job_obj, "ID_Jobs", None):
+        from src.utils import podio_slots
+
+        fam = podio_slots.familia(clave)
+        por_slot = podio_slots.payload_por_slot(session, fam, job_obj.ID_Jobs)
+        por_slot.update(
+            podio_slots.slots_legacy_posicionales(session, fam, job_obj.ID_Jobs))
+        return por_slot
+
+    # Sin sesión no hay registros que consultar: se usa la columna del job, que
+    # es lo que alimenta el mapeo en las pruebas unitarias y en los dry-run.
+    valores = valor_columna or []
+    return {ext: valores[i] for i, ext in enumerate(config["external_ids"])
+            if i < len(valores) and valores[i] is not None}
+
+
 def map_job_to_podio_qid(job_obj, session=None, year=None, limpiar_slots=None):
     # Year-specific mapping for category fields
     if not year:
@@ -37,36 +64,13 @@ def map_job_to_podio_qid(job_obj, session=None, year=None, limpiar_slots=None):
     for attr, config in BASE_QID_FIELDS.items():
         value = getattr(job_obj, attr, None)
 
-        # 🔹 DYNAMIC CALCULATION FOR Purchases_list
-        if attr == "Purchases_list" and session:
-            p_list = []
-            if job_obj.ID_Jobs:
-                from src.models.EstimateCostModel import EstimateCost
-                from src.models.PurchaseModel import Purchase
-                rents = session.exec(
-                    select(EstimateCost).where(
-                        EstimateCost.ID_Jobs == job_obj.ID_Jobs, 
-                        EstimateCost.Cost_type == "Rent", 
-                        EstimateCost.Status == "Approved"
-                    ).order_by(EstimateCost.ID_EstimateCost)
-                ).all()
-                purchases = session.exec(
-                    select(Purchase).where(Purchase.ID_Jobs == job_obj.ID_Jobs).order_by(Purchase.ID_Purchase)
-                ).all()
-                for r in rents:
-                    p_list.append(float(r.Client_price if r.Client_price is not None else r.Builder_cost or 0))
-                for p in purchases:
-                    p_list.append(float(p.Total_spending or 0))
-            value = (p_list + [None]*13)[:13]
-
-        # 🔹 MULTI FIELD (Bldg_dept_fees)
+        # 🔹 MULTI FIELD — cada registro escribe en el hueco que DECLARA ocupar
         if config.get("multi"):
-            values = value or []
+            por_slot = _importes_por_hueco(job_obj, config, value, session)
 
-            for i, ext_id in enumerate(config["external_ids"]):
-                v = values[i] if i < len(values) else None
-
-                converted = convert_value_for_podio(v, config["type"])
+            for ext_id in config["external_ids"]:
+                converted = convert_value_for_podio(
+                    por_slot.get(ext_id), config["type"])
 
                 # Un hueco que la base no puede rellenar NO se manda: escribir
                 # `[]` aquí borraba el importe que el cliente tiene en Podio.

@@ -14,10 +14,8 @@ from src.utils.mappers.from_podio.order_changeorder_mapper import (
     TECH_ADJ_FORMULA_FIELDS,
     TECH_HD_MATERIALS_FIELDS,
     TECH_NOTES_FIELDS,
-    TECH_PAYMENT_FIELDS,
     PROJECT_CHANGE_ORDER_FIELDS,
     ORDER_CHANGE_ORDERS_FIELDS,
-    collect_payment_slots,
 )
 from src.utils.mappers.mapper_aux_functions import has_html, clean_html
 
@@ -30,6 +28,93 @@ from src.utils.mappers.mapper_aux_functions import has_html, clean_html
 
 
 # ----- ORDER:
+
+def _texto_del_item(item, ext_id):
+    """Lee un campo `text` del item crudo. Devuelve None si falta o esta vacio."""
+    if not ext_id:
+        return None
+    for f in item.get("fields", []) or []:
+        if (f.get("external_id") or "").lower() != ext_id.lower():
+            continue
+        crudo = f.get("values") or []
+        if not crudo:
+            return None
+        v = crudo[0].get("value", crudo[0]) if isinstance(crudo[0], dict) else crudo[0]
+        return str(v) if v is not None else None
+    return None
+
+def upsert_order_payments(session, order, job_type, year, cuotas: dict) -> bool:
+    """Aplica las cuotas que vienen de Podio sobre `order_payment`.
+
+    Podio manda en los IMPORTES; la base manda en la correspondencia
+    cuota ↔ hueco. Y la regla del vacío: una cuota que **no viene** en el
+    payload no se toca — vaciar un cheque en Podio no borra la fila.
+
+    Devuelve True si algo cambió.
+    """
+    from src.models.OrderPaymentModel import OrderPayment
+    from src.utils.mappers.from_podio import payment_slots
+
+    if not cuotas or not order.ID_Order:
+        return False
+
+    existentes = {p.Installment: p for p in session.exec(
+        select(OrderPayment).where(OrderPayment.ID_Order == order.ID_Order)).all()}
+
+    cambio = False
+    for numero, importe in sorted(cuotas.items()):
+        if importe is None:
+            continue                      # ausente o vacío: no se toca
+        hueco = payment_slots.slot_de_cuota(job_type, year, _tech_de(order, job_type, year), numero)
+        fila = existentes.get(numero)
+        if fila is None:
+            session.add(OrderPayment(
+                ID_OrderPayment=generate_custom_id(
+                    session, OrderPayment, "ID_OrderPayment", "OPY"),
+                ID_Order=order.ID_Order, Installment=numero, Amount=importe,
+                job_podio_id=order.job_podio_id, podio_field=hueco))
+            cambio = True
+        elif float(fila.Amount or 0) != float(importe):
+            fila.Amount = importe
+            if hueco and not fila.podio_field:
+                fila.podio_field = hueco
+            session.add(fila)
+            cambio = True
+
+    if _proyectar_payments_legacy(order, cuotas):
+        cambio = True
+    return cambio
+
+
+def _tech_de(order, job_type, year):
+    """El índice de técnico de una orden, deducido de su `tech_field`."""
+    from src.utils.mappers.to_podio.order_changeorder_mappers import (
+        resolve_tech_index_from_field)
+    try:
+        return resolve_tech_index_from_field(job_type, order.tech_field)
+    except Exception:
+        return None
+
+
+def _proyectar_payments_legacy(order, cuotas: dict) -> bool:
+    """Compat: `Order.Payment_1/2/3` es la proyección de las cuotas 1..3.
+
+    DEPRECADO — se retira cuando el panel lea `order_payment`. Escritor único,
+    para que no haya dos verdades. Las cuotas 4..11 no caben aquí: por eso
+    existe la tabla.
+    """
+    cambio = False
+    for numero in (1, 2, 3):
+        attr = f"Payment_{numero}"
+        nuevo = cuotas.get(numero)
+        if nuevo is None:
+            continue                      # regla del vacío: no se borra
+        if getattr(order, attr, None) != nuevo:
+            setattr(order, attr, nuevo)
+            cambio = True
+    return cambio
+
+
 def upsert_order(
     session,
     job,
@@ -42,10 +127,14 @@ def upsert_order(
     hd_materials: float,
     notes: str,
     payments: dict | None = None,
-    dry_run: bool = False
+    dry_run: bool = False,
+    job_type: str | None = None,
+    year: int | None = None,
+    check_numbers: str | None = None,
 ):
-    # payments: {cuota(1..3): monto} — solo PAR. None = no tocar (QID/PTL);
-    # dict (aunque vacío) = Podio es la fuente de verdad y se pisan los 3 slots.
+    # payments: {cuota: monto} leido de Podio. `None` = este tipo no usa cuotas.
+    # Ahora sin tope de 3: QID llega a 11 por tecnico. Y una cuota AUSENTE del
+    # payload ya no se escribe como None — vaciar en Podio no hace nada.
 
     existing_order = session.exec(
         select(Order).where(
@@ -62,33 +151,29 @@ def upsert_order(
 
         changed = False
 
-        if existing_order.Formula != formula:
-            existing_order.Formula = formula
+        # REGLA DEL VACIO (G5, decision de cliente 18-ago-2026): un campo que
+        # llega vacio o ausente desde Podio es AUSENCIA de dato, no un borrado.
+        # Antes, quitar el tecnico en Podio ponia `ID_Subcontractor = None` y
+        # vaciar la formula ponia `Formula = None`, sin poder distinguir «lo
+        # vaciaron» de «el campo no vino en el payload».
+        for attr, nuevo in (("Formula", formula),
+                            ("Adj_formula", adj_formula),
+                            ("ID_Subcontractor", subcontractor_id),
+                            ("Ptl_hd_materials", hd_materials),
+                            ("Notes", notes)):
+            if nuevo is None:
+                continue
+            if getattr(existing_order, attr) != nuevo:
+                setattr(existing_order, attr, nuevo)
+                changed = True
+
+        if existing_order.Podio_check_numbers != check_numbers and check_numbers:
+            existing_order.Podio_check_numbers = check_numbers
             changed = True
 
-        if existing_order.Adj_formula != adj_formula:
-            existing_order.Adj_formula = adj_formula
-            changed = True
-
-        if existing_order.ID_Subcontractor != subcontractor_id:
-            existing_order.ID_Subcontractor = subcontractor_id
-            changed = True
-
-        if existing_order.Ptl_hd_materials != hd_materials:
-            existing_order.Ptl_hd_materials = hd_materials
-            changed = True
-
-        if existing_order.Notes != notes:
-            existing_order.Notes = notes
-            changed = True
-
-        if payments is not None:
-            for slot in (1, 2, 3):
-                attr = f"Payment_{slot}"
-                new_value = payments.get(slot)
-                if getattr(existing_order, attr) != new_value:
-                    setattr(existing_order, attr, new_value)
-                    changed = True
+        if payments is not None and not dry_run:
+            if upsert_order_payments(session, existing_order, job_type, year, payments):
+                changed = True
 
         if changed and not dry_run:
             session.add(existing_order)
@@ -127,6 +212,8 @@ def upsert_order(
     if not dry_run:
         session.add(new_order)
         session.flush()
+        if payments:
+            upsert_order_payments(session, new_order, job_type, year, payments)
 
     return new_order, True  # True = creado
 
@@ -403,8 +490,8 @@ def sync_job_orders_and_change_orders(
             # -----------------------------
 
             # Cuotas de PAR (REG-001)
-            payments_by_tech = collect_payment_slots(fields, job_type)
-            has_payment_model = job_type in TECH_PAYMENT_FIELDS
+            payments_by_tech = collect_payment_slots(fields, job_type, year)
+            has_payment_model = payment_slots.habilitado(job_type)
 
             orders_map = {}
 
@@ -436,6 +523,9 @@ def sync_job_orders_and_change_orders(
                     hd_materials=hd_materials,
                     notes=notes,
                     payments=payments_by_tech.get(tech_index, {}) if has_payment_model else None,
+                    job_type=job_type, year=year,
+                    check_numbers=_texto_del_item(item, payment_slots.campo_check_numbers(
+                        job_type, year, tech_index)),
                     dry_run=dry_run
                 )
 

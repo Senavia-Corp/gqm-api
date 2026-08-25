@@ -27,8 +27,11 @@ def map_job_to_podio_ptl(job_obj, session=None, year=None, limpiar_slots=None):
 
             end_value = getattr(job_obj, config["end_attr"], None) if config.get(
                 "end_attr") else None
-            if config.get("end_attr") and end_value is None:
-                end_value = value
+            # H5: NO inventar la fecha de fin. El respaldo era `end = start`, y
+            # Podio rechaza un rango cuyo fin sea igual al inicio
+            # (`field.date.end_required`): al crear fallaba con 400 y al editar
+            # daba 502 dejando el cambio en la base y Podio con el valor viejo.
+            # Sin fecha de fin se manda solo el inicio.
             converted = convert_value_for_podio(
                 value, config["type"], end_value=end_value, with_time=config.get("with_time", False))
 

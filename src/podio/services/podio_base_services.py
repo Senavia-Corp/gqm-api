@@ -16,6 +16,38 @@ class EscrituraFueraDeEntorno(Exception):
     """Se intentó escribir en un item de Podio que no pertenece a este entorno."""
 
 
+# ---- Inventario de campos por (tipo, año), generado desde el esquema real ----
+#
+# Las apps NO son iguales entre años: QID 2023 tiene 293 campos y 2026 tiene 255.
+# En concreto, **QID 2023 y 2024 no tienen `bldg-fees-*`** ni
+# `expected-completioninvoice`, y PAR 2023 no tiene `par-pricing-target`.
+#
+# Podio rechaza la actualización ENTERA con `field.not.found` cuando el payload
+# trae un campo que la app no tiene — no ignora el que sobra. Así que mandar el
+# mapa de 2026 a un job de 2023 no fallaba «un poco»: fallaba del todo, y ese
+# job no sincronizaba nada.
+_INVENTARIO_CAMPOS = None
+
+
+def _campos_de_la_app(app_type, year):
+    """Los `external_id` que existen en esa app-año, o None si no se sabe."""
+    global _INVENTARIO_CAMPOS
+    if _INVENTARIO_CAMPOS is None:
+        import json
+        import pathlib
+        try:
+            ruta = pathlib.Path(__file__).resolve().parents[1] / "campos_por_anio.json"
+            _INVENTARIO_CAMPOS = json.loads(ruta.read_text())["apps"]
+        except Exception:
+            logger.warning("Sin inventario de campos por año: no se filtrará el payload")
+            _INVENTARIO_CAMPOS = {}
+    anios = _INVENTARIO_CAMPOS.get((app_type or "").upper())
+    if not anios or year is None:
+        return None
+    campos = anios.get(str(year))
+    return set(campos) if campos else None
+
+
 class EscrituraPodioBloqueada(EscrituraFueraDeEntorno):
     """La escritura estaba prohibida por bandera, no por pertenecer a otra app.
 
@@ -31,6 +63,22 @@ class PodioBaseService:
         self.app_type = app_type
         self.app_id = app_id
         self.year = year
+
+    def _filtrar_por_anio(self, fields: dict, operacion: str) -> dict:
+        """Quita del payload los campos que esa app-año no tiene.
+
+        Es preferible sincronizar de menos que no sincronizar nada: Podio
+        rechaza la actualización entera si un solo campo no existe.
+        """
+        existentes = _campos_de_la_app(self.app_type, self.year)
+        if not existentes:
+            return fields
+        sobran = [k for k in fields if k not in existentes]
+        if sobran:
+            logger.warning(
+                "%s en %s %s: %d campos no existen en esa app y no se mandan: %s",
+                operacion, self.app_type, self.year, len(sobran), sorted(sobran))
+        return {k: v for k, v in fields.items() if k in existentes}
 
     def _headers(self):
         if self.year is not None:
@@ -178,6 +226,7 @@ class PodioBaseService:
 
         url = f"{BASE_URL}/item/app/{self.app_id}/"
 
+        fields = self._filtrar_por_anio(fields, "CREATE")
         podio_fields = clean_podio_fields(fields)  # Limpieza y conversión
         print(f"📤 Enviando a Podio (limpio): {podio_fields}")
 
@@ -203,6 +252,7 @@ class PodioBaseService:
 
         url = f"{BASE_URL}/item/{item_id}"
 
+        fields = self._filtrar_por_anio(fields, "UPDATE")
         podio_fields = clean_podio_fields(fields)
         print(
             f"🧩 Actualizando item {item_id} en Podio (limpio): {podio_fields}")

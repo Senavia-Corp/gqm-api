@@ -895,6 +895,34 @@ def list_jobs_by_date(date):
 
 
 # --------------- RUTAS POST, PATCH AND DELETE----------#
+
+def _exigir_fecha_de_fin_ptl(obj):
+    """H5 · PTL exige fecha de fin, y hay que decirlo ANTES de llamar a Podio.
+
+    El campo `estimated-start-date` esta configurado en Podio como RANGO con fin
+    obligatorio. El mapper rellenaba el fin con el inicio, y Podio rechaza un
+    rango cuyo fin sea igual al inicio (`field.date.end_required`): al crear
+    fallaba con un 400 reenviado desde Podio —ilegible para quien lo lee— y al
+    editar daba 502 dejando el cambio en la base y Podio con el valor viejo.
+
+    Quitar ese respaldo no basta: sin fin, Podio sigue rechazando. Lo que falta
+    es decir QUE falta, en vez de reenviar el error de un tercero.
+    """
+    if (obj.Job_type or "").upper() != "PTL":
+        return
+    if obj.Estimated_start_date and not obj.Estimated_start_date_end:
+        raise AppException(
+            "Un PTL necesita fecha de fin ademas de la de inicio, y tiene que ser "
+            "distinta: Podio la exige para `Estimated Start Date`.",
+            "ptl_falta_fecha_fin", 422)
+    if (obj.Estimated_start_date and obj.Estimated_start_date_end
+            and obj.Estimated_start_date == obj.Estimated_start_date_end):
+        raise AppException(
+            "La fecha de fin de un PTL no puede ser igual a la de inicio: Podio "
+            "rechaza ese rango.",
+            "ptl_fecha_fin_igual", 422)
+
+
 @job_bp.post("/")
 @require_permission("job:create")
 @handle_exceptions()
@@ -912,6 +940,8 @@ def create_job():
         raise AppException(
             "El parámetro 'year' es obligatorio cuando sync_podio=true.",
             "missing_year", 400)
+
+    _exigir_fecha_de_fin_ptl(obj)
 
     with get_session() as session:
 
@@ -967,7 +997,7 @@ def create_job():
                     f"Error de Podio al crear el registro: {error_details}", "podio_creation_error", 400)
 
             obj.ID_Jobs = formatted_id
-            register_event(obj.podio_item_id)
+            register_event(obj.podio_item_id, podio_fields)
 
         else:
             prefix_map = {
@@ -1097,6 +1127,8 @@ def update_job(id_job):
         session.refresh(obj)
         # ─────────────────────────────────────────────────────────────────
 
+        _exigir_fecha_de_fin_ptl(obj)
+
         if (sync_podio or dry_run) and obj.podio_item_id:
             if year is None:
                 # Sin ?year explícito: usar el año persistido del job (REG-015)
@@ -1119,7 +1151,7 @@ def update_job(id_job):
                 job_type=obj.Job_type, year=year)
             try:
                 podio_service.update_item(int(obj.podio_item_id), podio_fields)
-                register_event(obj.podio_item_id)
+                register_event(obj.podio_item_id, podio_fields)
                 logger.info("🔄 Job actualizado en Podio | job_id=%s | podio_item_id=%s",
                             id_job, obj.podio_item_id)
             except Exception as podio_err:
@@ -1243,6 +1275,8 @@ def delete_job(id_job):
             import requests
             try:
                 podio_service.delete_item(int(obj.podio_item_id))
+                # Un borrado no escribe campos: no hay contenido que comparar,
+                # así que el eco se descarta sólo por la ventana corta.
                 register_event(obj.podio_item_id)
                 logger.info("🗑️ Job eliminado en Podio | job_id=%s | podio_item_id=%s",
                             id_job, obj.podio_item_id)

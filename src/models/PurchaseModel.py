@@ -31,6 +31,11 @@ class Purchase(PurchaseBase, table=True):
     podio_item_id: Optional[str] = Field(
         default=None, index=True)
 
+    # `external_id` del hueco «PURCHASE n» del Job en Podio que ocupa esta
+    # compra. El pool de 13 lo comparte con los alquileres aprobados; ver
+    # `podio_slots`. Fuera del Base a propósito: la API no reasigna huecos.
+    podio_field: Optional[str] = Field(default=None, index=True)
+
     # Relaciones foráneas M:1
     ID_Jobs: Optional[str] = Field(
         default=None, foreign_key="jobs.ID_Jobs")
