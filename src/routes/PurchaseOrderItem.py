@@ -80,6 +80,12 @@ def _recalculate_purchase_total(order_id: str, session) -> None:
         
         # 4. Automatically sync to Podio to reflect Purchases in Job (PURCHASE 1...13)
         from src.utils.podio_job_sync import sync_job_to_podio
+        # El recalculo se COMMITEA antes de salir a Podio. Un fallo de
+        # sincronizacion no puede destruir datos locales que ya estaban bien:
+        # `record_failed_sync` hace `session.rollback()` como primera
+        # instruccion y se llevaba por delante los agregados recien
+        # calculados, dejando el job con el total viejo y sus hijos nuevos.
+        session.commit()
         sync_job_to_podio(purchase.ID_Jobs, session)
 
 

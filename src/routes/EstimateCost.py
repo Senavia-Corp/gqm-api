@@ -79,6 +79,12 @@ def create_estimate():
         if obj.ID_Jobs:
             recalculate_and_apply(obj.ID_Jobs, session)
             from src.utils.podio_job_sync import sync_job_to_podio
+            # El recalculo se COMMITEA antes de salir a Podio. Un fallo de
+            # sincronizacion no puede destruir datos locales que ya estaban bien:
+            # `record_failed_sync` hace `session.rollback()` como primera
+            # instruccion y se llevaba por delante los agregados recien
+            # calculados, dejando el job con el total viejo y sus hijos nuevos.
+            session.commit()
             sync_job_to_podio(obj.ID_Jobs, session)
             session.commit()
         # ─────────────────────────────────────────────────────────────────
@@ -124,6 +130,12 @@ def update_estimate(id_estimate):
         if job_id_for_calc:
             recalculate_and_apply(job_id_for_calc, session)
             from src.utils.podio_job_sync import sync_job_to_podio
+            # El recalculo se COMMITEA antes de salir a Podio. Un fallo de
+            # sincronizacion no puede destruir datos locales que ya estaban bien:
+            # `record_failed_sync` hace `session.rollback()` como primera
+            # instruccion y se llevaba por delante los agregados recien
+            # calculados, dejando el job con el total viejo y sus hijos nuevos.
+            session.commit()
             sync_job_to_podio(job_id_for_calc, session)
             session.commit()
 
@@ -133,6 +145,12 @@ def update_estimate(id_estimate):
         if obj.ID_Jobs and obj.ID_Jobs != job_id_for_calc:
             recalculate_and_apply(obj.ID_Jobs, session)
             from src.utils.podio_job_sync import sync_job_to_podio
+            # El recalculo se COMMITEA antes de salir a Podio. Un fallo de
+            # sincronizacion no puede destruir datos locales que ya estaban bien:
+            # `record_failed_sync` hace `session.rollback()` como primera
+            # instruccion y se llevaba por delante los agregados recien
+            # calculados, dejando el job con el total viejo y sus hijos nuevos.
+            session.commit()
             sync_job_to_podio(obj.ID_Jobs, session)
             session.commit()
         # ─────────────────────────────────────────────────────────────────
@@ -160,6 +178,12 @@ def delete_estimate(id_estimate):
         if job_id_for_calc:
             recalculate_and_apply(job_id_for_calc, session)
             from src.utils.podio_job_sync import sync_job_to_podio
+            # El recalculo se COMMITEA antes de salir a Podio. Un fallo de
+            # sincronizacion no puede destruir datos locales que ya estaban bien:
+            # `record_failed_sync` hace `session.rollback()` como primera
+            # instruccion y se llevaba por delante los agregados recien
+            # calculados, dejando el job con el total viejo y sus hijos nuevos.
+            session.commit()
             sync_job_to_podio(job_id_for_calc, session)
             session.commit()
         # ─────────────────────────────────────────────────────────────────
