@@ -498,6 +498,26 @@ def add_job_orders_and_change_orders(
             )
 
 
+def record_failed_sync_propia(*, item_id, hook_type, payload, error) -> None:
+    """Dead-letter en SESION PROPIA.
+
+    `record_failed_sync` hace `session.rollback()` como primera instruccion, asi
+    que usar la sesion viva del webhook se llevaria por delante el upsert del
+    job que se esta procesando. Mismo motivo que en
+    `record_failed_attachment` y en `_registrar_adjunto_sin_entidad`.
+    """
+    from src.database.db_sqlmodel import get_session
+    from src.utils.failed_sync import record_failed_sync
+    from src.utils.middleware.logs.logs import logger
+
+    try:
+        with get_session() as s:
+            record_failed_sync(s, item_id=item_id, hook_type=hook_type,
+                               payload=payload, error=error)
+    except Exception:
+        logger.exception("no se pudo registrar el desajuste de BDF")
+
+
 def sync_bdf_from_podio(session, job):
     """
     Sincroniza los valores de Bldg_dept_fees traídos desde Podio
@@ -509,6 +529,8 @@ def sync_bdf_from_podio(session, job):
 
     from src.models.EstimateCostModel import EstimateCost
     from src.utils.id_generator import generate_custom_id
+    from src.utils.job_calculator import BDF_SLOTS
+    from src.utils.middleware.logs.logs import logger
 
     # Obtener los EstimateCost BDF Aprobados existentes
     bdf_costs = session.exec(
@@ -551,8 +573,48 @@ def sync_bdf_from_podio(session, job):
             session.add(new_cost)
 
     # Eliminar los excedentes si en Podio borraron uno
+    #
+    # OJO: esto borraba EstimateCost APROBADOS sin auditoria, sin dead-letter y
+    # SIN COLUMNA DE SOFT-DELETE — la fila no es recuperable.
+    #
+    # Y el desajuste esta GARANTIZADO POR CONSTRUCCION: `_build_bdf_array`
+    # trunca a BDF_SLOTS = 3 (job_calculator.py:95) y el mapa declara
+    # exactamente 3 external_ids, asi que un 4.o BDF aprobado NUNCA puede
+    # escribirse en Podio. En el siguiente `item.update`, Podio trae 3, aqui hay
+    # 4, y el 4.o desaparece de la base para siempre.
+    #
+    # La poda normal (Podio trae MENOS de los que caben) se mantiene: eso si es
+    # una baja legitima hecha en Podio. Lo que se rechaza es podar por un
+    # desajuste que la propia app fabrica.
     if len(bdf_costs) > len(podio_bdfs):
-        for cost in bdf_costs[len(podio_bdfs):]:
+        sobran = bdf_costs[len(podio_bdfs):]
+
+        if len(bdf_costs) > BDF_SLOTS:
+            # No es una baja: es que no caben. Borrar aqui seria destruir un
+            # coste aprobado por un limite nuestro.
+            logger.error(
+                "job %s tiene %s BDF aprobados y Podio solo admite %s: NO se "
+                "borra nada. Los que no caben (%s) quedan sin reflejar en "
+                "Podio hasta que se reduzcan a %s.",
+                job.ID_Jobs, len(bdf_costs), BDF_SLOTS,
+                ", ".join(c.ID_EstimateCost for c in bdf_costs[BDF_SLOTS:]),
+                BDF_SLOTS)
+            record_failed_sync_propia(
+                item_id=job.podio_item_id,
+                hook_type="bdf_desajuste_de_slots",
+                payload={
+                    "job_id": job.ID_Jobs,
+                    "aprobados": len(bdf_costs),
+                    "slots_en_podio": BDF_SLOTS,
+                    "no_caben": [c.ID_EstimateCost for c in bdf_costs[BDF_SLOTS:]],
+                },
+                error=f"{len(bdf_costs)} BDF aprobados para {BDF_SLOTS} huecos")
+            return
+
+        for cost in sobran:
+            logger.info(
+                "job %s: BDF %s se borra porque ya no esta en Podio",
+                job.ID_Jobs, cost.ID_EstimateCost)
             session.delete(cost)
 
 
