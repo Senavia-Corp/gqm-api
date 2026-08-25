@@ -98,6 +98,27 @@ def _validate_podio_webhook_token():
     return None
 
 
+def _registrar_adjunto_sin_entidad(item_id, hook_type, data, detalle) -> None:
+    """Deja rastro de un file.change cuya entidad no esta en la BD.
+
+    SESION PROPIA, obligatorio: `record_failed_sync` hace `session.rollback()`
+    como primera instruccion, asi que pasarle la sesion viva del webhook se
+    llevaria por delante el upsert del job y todo lo encolado de esa entrega.
+    Mismo motivo por el que `record_failed_attachment` abre la suya.
+
+    Antes esto no existia: los tres receptores tenian un `if entidad:` sin
+    `else` (o un `print`), el webhook respondia 200 y Podio no reenvia. El
+    fichero se perdia sin rastro y sin nadie a quien preguntar.
+    """
+    from src.utils.failed_sync import record_failed_sync
+
+    try:
+        with get_session() as s:
+            record_failed_sync(s, item_id=item_id, hook_type=hook_type,
+                               payload=data or {}, error=detalle)
+    except Exception:
+        logger.exception("no se pudo registrar el adjunto sin entidad (%s)", item_id)
+
 def _fallo_receptor_others(app_type, data, event_type, error):
     """Cierre de los receptores /others: registra y elige el código de estado.
 
@@ -209,6 +230,16 @@ def podio_general_webhook(app_type, token=None):
                         fk_field=id_field,
                         fk_value=getattr(updated_entity, id_field)
                     )
+                else:
+                    # Un adjunto de Podio para una entidad que no esta en la
+                    # BD se perdia SIN RASTRO: el `if` no tenia `else`, el
+                    # webhook respondia 200 y Podio no reenvia. Ahora deja fila
+                    # en la dead-letter para que el resync pueda recuperarlo
+                    # cuando la entidad aparezca.
+                    _registrar_adjunto_sin_entidad(
+                        item_id, f"podio.others.{app_type}.file.change", data,
+                        f"{entity_type} con podio_item_id={item_id} no existe "
+                        f"en la BD; el adjunto no tiene donde colgar")
                 action = f"File changed in {entity_type} (Podio)"
 
             # --- REGISTRO EN AUDITORÍA ---
@@ -286,6 +317,16 @@ def podio_relations_webhook(app_type, token=None):
                         fk_field=fk_field,
                         fk_value=getattr(updated_entity, fk_field)
                     )
+                else:
+                    # Un adjunto de Podio para una entidad que no esta en la
+                    # BD se perdia SIN RASTRO: el `if` no tenia `else`, el
+                    # webhook respondia 200 y Podio no reenvia. Ahora deja fila
+                    # en la dead-letter para que el resync pueda recuperarlo
+                    # cuando la entidad aparezca.
+                    _registrar_adjunto_sin_entidad(
+                        item_id, f"podio.others.{app_type}.file.change", data,
+                        f"entidad con podio_item_id={item_id} no existe en la "
+                        f"BD; el adjunto no tiene donde colgar")
 
             # Re-fetch para auditoría (obtener el ID real generado o existente)
             obj = session.exec(select(Model).where(
@@ -331,7 +372,12 @@ def _webhook_state_converged(event_type, item_id, intentos=1, espera=0.0) -> boo
     (`is_recent_event`) no lo evita: es un dict EN MEMORIA y en Vercel cada
     entrega concurrente cae en otra lambda, igual que le pasaba al limitador
     de login."""
-    if not item_id or event_type not in ("item.create", "item.update", "item.delete"):
+    # SOLO create y delete. `item.update` estaba aqui y era el agujero: la
+    # comprobacion es "existe el Job", y en un update sobre una fila que YA
+    # existia eso es cierto pase lo que pase — incluso si el update no llego a
+    # aplicarse. Un update no deja evidencia positiva de haber convergido sin
+    # comparar campo a campo, asi que no se afirma: se manda a dead-letter.
+    if not item_id or event_type not in ("item.create", "item.delete"):
         return False
     for i in range(max(1, intentos)):
         if i:
@@ -611,8 +657,14 @@ def podio_jobs_webhook(app_type, year, token=None):
                 ).first()
 
                 if not updated_job:
+                    # Mismo agujero que en los otros dos receptores: era un
+                    # print y el fichero se perdia con un 200.
                     print(
                         f"⚠️ Job con podio_item_id={item_id} no existe en DB.")
+                    _registrar_adjunto_sin_entidad(
+                        item_id, f"podio.jobs.{app_type}.{year}.file.change", data,
+                        f"Job con podio_item_id={item_id} no existe en la BD; "
+                        f"el adjunto no tiene donde colgar")
                 else:
                     # Extraer quien hizo el cambio en file.change
                     item = item_de_confianza(data, item_id, app_type, year=year)
@@ -663,15 +715,37 @@ def podio_jobs_webhook(app_type, year, token=None):
         # cumple, así que es un ÉXITO idempotente — nada de 500 (Podio
         # reintentaría) ni de dead-letter (ruido para el cliente).
         try:
-            # Una PK duplicada es la firma de la carrera entre entregas: se le
-            # dan 3 intentos con 1 s para que el ganador haga commit. Cualquier
-            # otro error se comprueba una vez y sigue.
+            # EL ATAJO SOLO VALE PARA ERRORES CON FIRMA DE CARRERA.
+            #
+            # Esto se ejecutaba para CUALQUIER excepcion. Combinado con un
+            # `_webhook_state_converged` que para `item.update` solo miraba que
+            # el Job existiera —trivialmente cierto en un update—, un 5xx o un
+            # timeout de Podio devolvia 200 con note=duplicate_delivery, saltaba
+            # el INSERT en la dead-letter y, como Podio solo reintenta los 5xx,
+            # LA ENTREGA NO VOLVIA JAMAS.
+            #
+            # La perdida era total y muda: el upsert del job, las relaciones,
+            # miembros, subcontratistas, orders y change orders de esa entrega.
+            #
+            # Mismo criterio que `auto_resolver_convergidos` (mas abajo), que ya
+            # lo hacia bien: se compara contra `_ERRORES_DE_CARRERA`. Lo que no
+            # tenga esa firma cae a dead-letter y 500, que es lo que hace que
+            # Podio reintente.
             from sqlalchemy.exc import IntegrityError as _IntegrityError
-            reintentos = 3 if isinstance(e, _IntegrityError) else 1
-            if _webhook_state_converged(event_type, item_id,
-                                        intentos=reintentos, espera=1.0):
-                print("✅ Estado ya convergido (entrega duplicada) — 200")
-                return jsonify({"status": "ok", "note": "duplicate_delivery"}), 200
+
+            es_carrera = isinstance(e, _IntegrityError) or any(
+                p in str(e) for p in _ERRORES_DE_CARRERA)
+            if es_carrera:
+                reintentos = 3 if isinstance(e, _IntegrityError) else 1
+                if _webhook_state_converged(event_type, item_id,
+                                            intentos=reintentos, espera=1.0):
+                    print("✅ Estado ya convergido (entrega duplicada) — 200")
+                    return jsonify({"status": "ok", "note": "duplicate_delivery"}), 200
+            else:
+                logger.warning(
+                    "webhook %s/%s fallo con un error que NO es de carrera (%s): "
+                    "va a la dead-letter, no se da por convergido",
+                    event_type, item_id, type(e).__name__)
         except Exception:
             logger.exception("fallo la comprobacion de convergencia del webhook")
 
