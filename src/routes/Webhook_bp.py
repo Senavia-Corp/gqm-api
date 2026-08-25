@@ -964,8 +964,24 @@ def resync_failed_sync(id):
             if not failed_sync:
                 return jsonify({"error": "Failed sync not found"}), 404
             
+            # UNA FILA "RESUELTA" CUYO FICHERO NO ESTA SI SE PUEDE REINTENTAR.
+            #
+            # Esto devolvia "Already resolved" a secas, y el panel ademas solo
+            # ofrecia el boton cuando `resolved` era False. Resultado: las 7
+            # filas que el propio panel denuncia como resueltas-en-falso
+            # quedaban ATRAPADAS — se las señalaba como perdidas y no habia
+            # forma de recuperarlas salvo DELETE, que borra la evidencia.
+            #
+            # No se abre el reintento a cualquier resuelta: solo a las que
+            # MIENTEN de forma medible, o sea aquellas cuyo evento hablaba de
+            # adjuntos y esos adjuntos siguen sin estar en la tabla. Una
+            # resuelta de verdad sigue devolviendo "Already resolved".
             if failed_sync.resolved:
-                return jsonify({"status": "Already resolved"}), 200
+                if not _adjuntos_pendientes(failed_sync.payload):
+                    return jsonify({"status": "Already resolved"}), 200
+                logger.info(
+                    "falla %s figura resuelta pero su fichero no esta: se "
+                    "reintenta de verdad", failed_sync.id)
 
             # hook_type es podio.jobs.{app_type}.{year}.{event_type}
             parts = failed_sync.hook_type.split('.')
