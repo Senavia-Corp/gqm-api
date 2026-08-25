@@ -1092,6 +1092,18 @@ def resync_failed_sync(id):
                 job_id = (failed_sync.payload or {}).get("job_id")
                 if not job_id:
                     return jsonify({"error": "payload sin job_id, no se puede reintentar"}), 422
+
+                # RECALCULAR ANTES DE RE-EMPUJAR.
+                #
+                # Sin esto el camino de recuperacion era peor que inutil: la
+                # fila llega aqui porque `sync_job_to_podio` fallo, y ese fallo
+                # hacia `session.rollback()` que se llevaba por delante el
+                # recalculo. Reintentar sin recalcular re-empujaba EL VALOR
+                # VIEJO a Podio y lo cerraba como exito, dejando la divergencia
+                # fijada y la falla marcada resuelta.
+                recalculate_and_apply(job_id, session)
+                session.commit()
+
                 if not sync_job_to_podio(job_id, session):
                     return jsonify({"error": "el re-sync a Podio volvió a fallar"}), 502
 

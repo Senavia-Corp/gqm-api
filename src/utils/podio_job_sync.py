@@ -21,14 +21,48 @@ resolve_job_app_year = resolver_anio_app
 
 
 def _record_failed_sync(session, job, error) -> None:
+    """Registra el fallo del auto-sync EN SESION PROPIA.
+
+    ARREGLO DE RAIZ. Esto le pasaba la sesion viva del route a
+    `record_failed_sync`, que hace `session.rollback()` como PRIMERA
+    instruccion (failed_sync.py:15). La cadena concreta en POST/PATCH
+    /estimate era:
+
+        save_with_retry(...)        -> COMMIT del EstimateCost
+        recalculate_and_apply(...)  -> escribe los agregados EN MEMORIA
+        sync_job_to_podio(...)      -> intenta el PUT a Podio
+
+    Si Podio fallaba, el rollback se llevaba por delante EL RECALCULO: el coste
+    existia, el job conservaba los agregados viejos, y el panel ensenaba un
+    total que no cuadra con sus hijos. Un fallo de sincronizacion no puede
+    destruir datos locales que ya estaban bien.
+
+    Peor aun era el camino de recuperacion: la fila quedaba como
+    `auto_sync_to_podio` y el resync llamaba a `sync_job_to_podio` SIN volver a
+    recalcular, asi que re-empujaba el valor viejo y lo cerraba como exito.
+
+    Mismo patron que `record_failed_attachment` (failed_sync.py:55), que ya
+    abria la suya por este mismo motivo.
+
+    El parametro `session` se conserva —los llamadores lo pasan— pero ya no se
+    usa para escribir: se ignora a proposito.
+    """
+    from src.database.db_sqlmodel import get_session
     from src.utils.failed_sync import record_failed_sync
-    record_failed_sync(
-        session,
-        item_id=job.podio_item_id,
-        hook_type="auto_sync_to_podio",
-        payload={"job_id": job.ID_Jobs, "job_type": job.Job_type},
-        error=error,
-    )
+
+    try:
+        with get_session() as s_propia:
+            record_failed_sync(
+                s_propia,
+                item_id=job.podio_item_id,
+                hook_type="auto_sync_to_podio",
+                payload={"job_id": job.ID_Jobs, "job_type": job.Job_type},
+                error=error,
+            )
+    except Exception:
+        # Ultima red: registrar el fallo no puede tumbar al llamador.
+        logger.exception(
+            "no se pudo registrar el fallo de auto-sync de %s", job.ID_Jobs)
 
 
 def sync_job_to_podio(job_id: str, session) -> bool:
