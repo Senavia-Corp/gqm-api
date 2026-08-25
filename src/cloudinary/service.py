@@ -1,3 +1,5 @@
+from urllib.parse import unquote
+
 import cloudinary
 import cloudinary.uploader
 from src.config import (
@@ -142,13 +144,69 @@ def upload_to_cloudinary(
     }
 
 
+def identidad_cloudinary(obj) -> tuple[str, str]:
+    """(public_id, resource_type) de un Attachments, para poder BORRARLO.
+
+    Se LEE la identidad persistida al subir; no se reconstruye. Reconstruirla es
+    imposible desde REG-116: el public_id lleva un sufijo `uuid4().hex[:8]` que
+    ninguna funcion puede adivinar. Y aplicarle `sanitizar_para_public_id()`
+    seria peor que no hacer nada — a las filas legacy hay que hacerles
+    `unquote()`, que es justo la operacion INVERSA.
+
+    Para las filas anteriores a REG-058 (2.288 de 2.493 en produccion) se deriva
+    de la URL, que es la unica fuente que queda:
+
+        https://res.cloudinary.com/<cloud>/raw/upload/v123/QID/61359/factura.pdf
+                                          ^^^ resource_type      ^^^^^^^^^^^^^^ public_id
+
+    El resource_type sacado asi coincide 205/205 con el persistido (medido en
+    produccion el 25-ago-2026), asi que la derivacion es fiable.
+
+    Ojo con la extension: en `raw` el public_id SI la incluye y en `image` NO.
+    Por eso `rsplit(".", 1)` solo se aplica cuando el resource_type no es raw —
+    quitarsela a un raw es lo que hacia que `destroy()` devolviera "not found"
+    (REG-058), y es el defecto que sigue vivo en el camino del webhook.
+    """
+    if obj.cloudinary_public_id:
+        return obj.cloudinary_public_id, (obj.cloudinary_resource_type or "image")
+
+    partes = (obj.Link or "").split("/upload/")
+    if len(partes) != 2:
+        raise ValueError(f"Link sin /upload/, no se puede derivar identidad: {obj.Link!r}")
+
+    resource_type = partes[0].rsplit("/", 1)[-1]        # 'raw' | 'image' | 'video'
+    # El primer segmento tras /upload/ es la version (v1234567890); se descarta.
+    ruta = partes[1].split("/", 1)[1]
+    if resource_type != "raw":
+        ruta = ruta.rsplit(".", 1)[0]
+    return unquote(ruta), resource_type
+
+
+def destroy_en_cloudinary(public_id: str, resource_type: str = "image") -> str:
+    """Borra en Cloudinary y devuelve el veredicto CRUDO: "ok", "not found", ...
+
+    Existe aparte de `delete_from_cloudinary` porque los dos llamadores necesitan
+    leer "not found" de forma distinta:
+
+      * En el camino normal, "not found" es la SENAL DE UN FALLO: significa que
+        el public_id con el que preguntamos no es el del fichero (REG-058: al
+        derivarlo de la URL se le quitaba la extension, y en `raw` el public_id
+        SI la lleva). Si lo tratamos como exito, el fallo se vuelve mudo — que
+        es exactamente por que el borrado del webhook lleva roto al 100% sin que
+        nadie se enterara.
+
+      * Reintentando un borrado ya registrado como fallido, "not found" es EXITO:
+        el fichero no esta, que es lo que se pedia. Ahi la identidad sale de la
+        fila persistida, no de una reconstruccion, asi que "not found" no puede
+        deberse a haber preguntado por el public_id equivocado.
+    """
+    result = cloudinary.uploader.destroy(public_id, resource_type=resource_type)
+    return result.get("result", "")
+
+
 def delete_from_cloudinary(public_id: str, resource_type: str = "image") -> bool:
     """
     Elimina un archivo de Cloudinary por su public_id.
     Retorna True si fue eliminado correctamente.
     """
-    result = cloudinary.uploader.destroy(
-        public_id,
-        resource_type=resource_type
-    )
-    return result.get("result") == "ok"
+    return destroy_en_cloudinary(public_id, resource_type) == "ok"

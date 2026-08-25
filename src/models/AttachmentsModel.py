@@ -94,3 +94,23 @@ class AttachmentsUpdate(AttachmentsBase):
     ID_Certificate: Optional[str] = None
     ID_BldgDept: Optional[str] = None
     ID_ChatMessage: Optional[str] = None
+
+
+def es_fk_de_attachments(nombre: str) -> bool:
+    """¿`nombre` es una columna FK real de la tabla `attachments`?
+
+    Existe por dos motivos, y los dos son de verdad:
+
+    1. `fk_field` llega desde `payload` (dead-letter, cuerpo del webhook) y
+       termina en un `getattr(Attachments, fk_field)`. Es un limite de
+       confianza: se valida contra las columnas REALES, no contra una lista
+       escrita a mano que se desincroniza.
+
+    2. `ATTACHMENT_MODEL_MAP` promete `ID_Client` (CLI) e `ID_Community_Tracking`
+       (PMC) y esas columnas NO EXISTEN. SQLModel con `table=True` no valida
+       nada: acepta el kwarg, lo deja como atributo suelto e inserta la fila SIN
+       NINGUNA FK. En produccion hay 3 filas asi (ATT61846, ATT62109, ATT62146,
+       todas de carpeta CLI y con podio_file_id) y son los unicos 3 huerfanos de
+       las 2.493 — o sea, no es un riesgo teorico, es dano ya hecho.
+    """
+    return nombre in Attachments.model_fields and nombre.startswith("ID_")
