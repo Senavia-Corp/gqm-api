@@ -105,8 +105,29 @@ def test_un_error_de_red_devuelve_None_no_False():
         assert core.item_sigue_vivo_en_podio(1, "QID") is None
 
 
-def test_el_webhook_pasa_el_app_type_en_las_tres_rutas():
-    """Guarda de regresion: sin app_type, event_delete vuelve a borrar a ciegas."""
-    import pathlib
-    src = (pathlib.Path(__file__).parents[2] / "src/routes/Webhook_bp.py").read_text()
-    assert src.count("app_type=app_type") >= 3
+def test_la_cascada_no_acepta_que_le_olviden_el_app_type():
+    """Guarda de regresion, ahora FUNCIONAL.
+
+    Esto era `assert src.count("app_type=app_type") >= 3`: un assert TEXTUAL
+    sobre el fuente. Contaba apariciones de una cadena, asi que pasaba con las
+    tres en cualquier sitio —comentarios incluidos— y seguia pasando aunque el
+    resync llamara sin app_type, que es justo lo que hacia en sus dos sitios.
+
+    Sin `app_type` la confirmacion contra Podio no corre y el job se borra con
+    toda su cascada sin preguntar. Ahora es un parametro obligatorio: olvidarlo
+    revienta aqui en vez de borrar en silencio.
+    """
+    import inspect
+
+    import src.routes.Webhook_bp as wb
+
+    firma = inspect.signature(wb._cascade_delete_job_from_podio)
+    app_type = firma.parameters["app_type"]
+
+    assert app_type.default is inspect.Parameter.empty, (
+        "app_type volvio a tener default: olvidarlo deja de ser un error")
+    assert app_type.kind is inspect.Parameter.KEYWORD_ONLY, (
+        "app_type deberia ir por nombre; posicional se cuela por accidente")
+
+    with pytest.raises(TypeError):
+        wb._cascade_delete_job_from_podio(object(), "123")
