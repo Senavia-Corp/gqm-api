@@ -201,7 +201,9 @@ FILAS = [
     fila("ROLES/PERM", "POST", "/permission_role/permission/PERM-NO/role/ROL-NO", None, 404, 403, 403, 403),
     fila("COMISIONES", "GET", "/commission/?limit=10", None, 200, 403, 403, 403),
     fila("COMISIONES", "GET", "/commission/commission_table?limit=10", None, 200, 403, 403, 403),
-    fila("COMISIONES", "GET", lambda: f"/commission/member/{ids['gm']}", None, 200, 403, 403, 403),
+    # Autoservicio: el GQM Member lee las SUYAS por profile:update_own (mismo
+    # patron que GET /member/{gm}, fila de MIEMBROS). Con un ID ajeno, 403.
+    fila("COMISIONES", "GET", lambda: f"/commission/member/{ids['gm']}", None, 200, 200, 403, 403),
     fila("COMISIONES", "GET", lambda: f"/commission/member/{ids['member_ajeno']}", None, 200, 403, 403, 403),
     fila("COMISIONES", "PATCH", "/commission/ZZNOEXISTE", {}, (400, 404, 422), 403, 403, 403),
     fila("MULTIPLIC.", "GET", "/multiplier/", None, 200, 200, 403, 403),

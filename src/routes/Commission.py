@@ -1,7 +1,7 @@
 # ============ Lógica de rutas =================
 from datetime import datetime
 
-from flask import Blueprint, Response, request
+from flask import Blueprint, Response, g, request
 from sqlmodel import select
 from ..database.db_sqlmodel import get_session
 from ..models.CommissionModel import Commission, CommissionUpdate
@@ -199,9 +199,20 @@ def get_commission(id_commission):
 
 # Ruta para conseguir una commission por ID_Member
 @commission_bp.get("/member/<id_member>")
-@require_permission(["commission:read", "commission:read_own"])
+@require_permission(["commission:read", "commission:read_own", "profile:update_own"])
 @handle_exceptions()
 def get_commissions_by_member(id_member):
+    # Autoservicio: sin commission:read (el GQM Member lo tiene denegado) solo
+    # se leen las comisiones PROPIAS — la pestana Commissions de /profile usa
+    # esta ruta. Mismo patron que Member.get_member_by_id con
+    # self_profile_guard. require_permission ya dejo puestos g.user_policies y
+    # g.current_user, asi que no hace falta otra ida a la BD.
+    if not PolicyEvaluator.evaluate(getattr(g, "user_policies", []) or [],
+                                    "commission:read", "*"):
+        actual = getattr(g, "current_user", None) or {}
+        if actual.get("role") != "member" or actual.get("id") != id_member:
+            raise AppException("Forbidden: you can only view your own commissions.",
+                               "commission_forbidden", 403)
 
     with get_session() as session:
         statement = (
