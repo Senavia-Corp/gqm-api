@@ -1,5 +1,9 @@
 import re
+
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
+
+from src.utils.middleware.logs.logs import logger
 from src.database.db_sqlmodel import get_session
 from src.utils.middleware.retries.retries import retry_db
 from src.podio.services.job_services import podio_jobs_router
@@ -125,8 +129,46 @@ def upsert_order(
     )
 
     if not dry_run:
-        session.add(new_order)
-        session.flush()
+        # SAVEPOINT + degradar a UPDATE.
+        #
+        # Esto era check-then-insert sin lock: entre el SELECT de arriba y este
+        # INSERT cabe otra entrega del mismo evento (Podio reintenta, y una app
+        # puede tener varios hooks), y las dos ven "no existe". Hasta ahora nada
+        # lo paraba: la tabla no tenia restriccion.
+        #
+        # El dano esta VIVO y es exactamente uno: job_podio_id 3304340068
+        # (PAR6095) con ORD68994 (110) y ORD69726 (330) en el mismo
+        # `tech-1-ptl-original-pricing`. `recalculate_job_fields` recorre TODAS
+        # las orders y las acumula, asi que suma 660 donde deberia sumar 550.
+        #
+        # Con `ux_order_job_slot` (migracion e7a3c9d21f80) el perdedor de la
+        # carrera recibe IntegrityError; el savepoint evita que se lleve por
+        # delante la transaccion entera y se degrada a UPDATE, que es lo que el
+        # upsert queria hacer desde el principio.
+        try:
+            with session.begin_nested():
+                session.add(new_order)
+                session.flush()
+        except IntegrityError as choque:
+            if "ux_order_job_slot" not in str(getattr(choque, "orig", choque)):
+                raise
+            ganadora = session.exec(
+                select(Order).where(
+                    Order.job_podio_id == podio_item_id,
+                    Order.tech_field == tech_field)
+            ).first()
+            if ganadora is None:
+                raise
+            logger.info(
+                "otra entrega creo la Order de %s/%s; se actualiza en vez de "
+                "duplicar", podio_item_id, tech_field)
+            ganadora.Formula = formula
+            ganadora.Adj_formula = adj_formula
+            ganadora.ID_Subcontractor = subcontractor_id
+            ganadora.Ptl_hd_materials = hd_materials
+            ganadora.Notes = notes
+            session.add(ganadora)
+            return ganadora, False
 
     return new_order, True  # True = creado
 
@@ -205,7 +247,28 @@ def upsert_change_order(
     )
 
     if not dry_run:
-        session.add(new_co)
+        # Mismo patron que upsert_order: ver el comentario de alli.
+        try:
+            with session.begin_nested():
+                session.add(new_co)
+                session.flush()
+        except IntegrityError as choque:
+            if "ux_change_order_job_slot" not in str(getattr(choque, "orig", choque)):
+                raise
+            ganadora = session.exec(
+                select(ChangeOrder).where(
+                    ChangeOrder.job_podio_id == podio_item_id,
+                    ChangeOrder.podio_field == podio_field)
+            ).first()
+            if ganadora is None:
+                raise
+            logger.info(
+                "otra entrega creo el ChangeOrder de %s/%s; se actualiza en vez "
+                "de duplicar", podio_item_id, podio_field)
+            ganadora.ChangeOrderFormula = change_formula
+            ganadora.ID_Order = order.ID_Order if order else None
+            session.add(ganadora)
+            return ganadora, False
 
     return new_co, True
 
