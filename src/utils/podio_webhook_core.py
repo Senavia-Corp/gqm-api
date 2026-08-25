@@ -541,9 +541,22 @@ def process_item_attachments(
     Folder en Cloudinary:
     - Jobs:       Jobs/{app_type}/{id_jobs}     → Jobs/QID/QID51894
     - Otras apps: {app_type}/{entity_id}        → CLI/CLI-001
+
+    Devuelve {creados, omitidos, fallidos, file_ids_fallidos}.
+
+    Antes no devolvia NADA y se tragaba cada fallo por fichero con
+    `record_failed_attachment(...)` + `continue`. Como el llamador no tenia con
+    que distinguir, `POST /sync_podio/phase2/jobs/attachments/<id>` respondia
+    200 "Attachments del Job sincronizados ✅" aunque hubieran fallado los N
+    ficheros — y ese endpoint es justo el procedimiento que el 422 del resync le
+    indica al operador. Mientras mienta, NADA de lo que dependa de adjuntos se
+    puede verificar: todo dice que fue bien.
     """
+    resultado = {"creados": 0, "omitidos": 0, "fallidos": 0,
+                 "file_ids_fallidos": []}
+
     if not files:
-        return
+        return resultado
 
     headers = get_podio_headers(app_type, year=year)
 
@@ -557,9 +570,15 @@ def process_item_attachments(
         fk_field = ATTACHMENT_MODEL_MAP[app_type]["fk"]
         fk_value = entity_id
     else:
+        # No es un "se omite" inocuo: no hay donde colgar estos ficheros, asi
+        # que NINGUNO se va a guardar. Contarlos como fallidos es lo unico
+        # honesto — como omitidos, el llamador respondaria 200.
         print(
             f"⚠️ app_type '{app_type}' no está en ATTACHMENT_MODEL_MAP, se omite.")
-        return
+        resultado["fallidos"] = len(files)
+        resultado["file_ids_fallidos"] = [
+            str(f.get("file_id")) for f in files]
+        return resultado
 
     for file in files:
         file_id = str(file.get("file_id"))
@@ -572,6 +591,7 @@ def process_item_attachments(
         ).first()
         if existing:
             print(f"⏭️ {filename} ya existe, se omite.")
+            resultado["omitidos"] += 1
             continue
 
         # Igual que en file_created: el registro del fallo lo necesita.
@@ -654,6 +674,7 @@ def process_item_attachments(
                     print(f"↻ {new_id} ocupado (intento {intento}), reintentando")
 
             if duplicado:
+                resultado["omitidos"] += 1
                 continue
             if not guardado:
                 # Bandera propia y no `intento == 5`: con el contador del
@@ -668,7 +689,10 @@ def process_item_attachments(
                     fk_field=fk_field, fk_value=fk_value,
                     filename=filename, cloudinary_result=cloudinary_result,
                     error="No se pudo asignar ID_Attachment tras 5 intentos")
+                resultado["fallidos"] += 1
+                resultado["file_ids_fallidos"].append(file_id)
                 continue
+            resultado["creados"] += 1
             print(f"✅ {filename} → {fk_field}: {fk_value}")
 
         except Exception as e:
@@ -689,4 +713,8 @@ def process_item_attachments(
                 fk_field=fk_field, fk_value=fk_value,
                 filename=filename, cloudinary_result=cloudinary_result,
                 error=e)
+            resultado["fallidos"] += 1
+            resultado["file_ids_fallidos"].append(file_id)
             continue
+
+    return resultado
