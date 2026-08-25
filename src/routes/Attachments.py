@@ -16,7 +16,9 @@ from ..utils.middleware.auth.routes_protection import require_permission
 from ..utils.policy_evaluator import PolicyEvaluator
 from flask import g
 from src.podio.podio_auth import get_podio_headers
-from src.cloudinary.service import upload_to_cloudinary, delete_from_cloudinary, get_resource_type
+from src.cloudinary.service import (
+    upload_to_cloudinary, delete_from_cloudinary, get_resource_type,
+    identidad_cloudinary)
 
 # Blueprint de Attachments:
 attachments_bp = Blueprint("attachments_blueprint",
@@ -396,35 +398,17 @@ def delete_attachment(id_attachment):
             if not PolicyEvaluator.evaluate(user_policies, folder_action):
                 return jsonify({"error": "Forbidden: You do not have permission to delete this attachment"}), 403
 
-        # ----------- 🔴 BORRAR EN CLOUDINARY
-        if obj.Link:
-            try:
-                # REG-058: usar la identidad persistida al subir. El parseo de
-                # la URL quitaba la extensión, pero en resource_type=raw el
-                # public_id SÍ la lleva → destroy() devolvía "not found" y el
-                # archivo quedaba huérfano para siempre.
-                if obj.cloudinary_public_id:
-                    public_id = obj.cloudinary_public_id
-                    resource_type = obj.cloudinary_resource_type or "image"
-                else:
-                    # Legacy (filas previas a REG-058): derivar de la URL
-                    parts = obj.Link.split("/upload/")
-                    public_id = parts[1].split("/", 1)[1].rsplit(".", 1)[0]
-                    resource_type = get_resource_type(obj.Document_type or "")
-                deleted = delete_from_cloudinary(public_id, resource_type)
-
-                if deleted:
-                    logger.info(
-                        "☁️ Archivo eliminado de Cloudinary | public_id=%s", public_id)
-                else:
-                    logger.warning(
-                        "⚠️ No se pudo eliminar de Cloudinary | public_id=%s", public_id)
-
-            except Exception as e:
-                # No bloqueamos el delete si falla Cloudinary
-                logger.warning(
-                    "⚠️ Error al eliminar de Cloudinary | %s", str(e))
-
+        # ORDEN: Podio -> Cloudinary -> BD.
+        #
+        # Estaba al reves (Cloudinary -> Podio -> BD) y dejaba el peor estado
+        # posible: si el borrado en Podio fallaba, el 502 abortaba antes de
+        # tocar la BD... pero el binario de Cloudinary YA no existia. La fila
+        # sobrevivia con su `Link` apuntando a un fichero muerto, y el usuario
+        # veia el adjunto en el panel hasta que hacia clic.
+        #
+        # Podio primero porque es el unico paso reversible por el usuario y la
+        # fuente de verdad: si falla, no se ha destruido nada y se puede
+        # reintentar entero.
         # ----------- 🔴 BORRAR EN PODIO (SI APLICA)
         if sync_podio and obj.podio_file_id:
             try:
@@ -456,6 +440,37 @@ def delete_attachment(id_attachment):
                     "Error al eliminar el archivo de Podio.",
                     "podio_delete_failed", 502
                 )
+
+        # ----------- 🔴 BORRAR EN CLOUDINARY
+        if obj.Link:
+            try:
+                # REG-058: usar la identidad persistida al subir. Lo que hacia
+                # la rama legacy estaba mal por dos sitios y afecta a 2.288 de
+                # las 2.493 filas: no hacia `unquote()` (las URLs vienen
+                # percent-codificadas: %28 por parentesis, y son 13 de las 205
+                # comprobables) y le pasaba `Document_type` a
+                # `get_resource_type`, que espera un MIMETYPE — para las
+                # imagenes ahi hay una EXTENSION ('jpg', 'png', 'webp'), que no
+                # es clave del mapa y caia al default 'raw'.
+                #
+                # `identidad_cloudinary` centraliza las dos cosas. Validado
+                # contra las 205 filas con identidad persistida: resource_type
+                # 205/205, public_id 192/205 identico y las 13 que difieren son
+                # exactamente las de URL codificada.
+                public_id, resource_type = identidad_cloudinary(obj)
+                deleted = delete_from_cloudinary(public_id, resource_type)
+
+                if deleted:
+                    logger.info(
+                        "☁️ Archivo eliminado de Cloudinary | public_id=%s", public_id)
+                else:
+                    logger.warning(
+                        "⚠️ No se pudo eliminar de Cloudinary | public_id=%s", public_id)
+
+            except Exception as e:
+                # No bloqueamos el delete si falla Cloudinary
+                logger.warning(
+                    "⚠️ Error al eliminar de Cloudinary | %s", str(e))
 
         # ----------- 🔴 BORRAR EN DB
         delete_with_retry(session, obj)

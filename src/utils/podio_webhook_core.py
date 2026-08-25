@@ -9,7 +9,9 @@ from src.utils.mappers.mapper_aux_functions import is_recent_event
 from src.utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from src.utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from src.utils.id_generator import generate_custom_id
-from src.cloudinary.service import upload_to_cloudinary, delete_from_cloudinary, get_resource_type
+from src.cloudinary.service import (
+    upload_to_cloudinary, delete_from_cloudinary, get_resource_type,
+    identidad_cloudinary)
 from src.models.AttachmentsModel import Attachments
 from src.utils.failed_sync import record_failed_attachment
 from src.utils.middleware.logs.logs import logger
@@ -209,7 +211,11 @@ def process_file_change_event(
     Maneja el evento file.change de Podio.
     - file_created: descarga y sube a Cloudinary + DB
     - file_deleted: elimina de Cloudinary y DB
-    - file_replaced: elimina el viejo y sube el nuevo
+    - file_replaced: sube el nuevo. NO borra el viejo — el docstring decia que
+      si, y era mentira. No se ha añadido el borrado porque NO ESTA VERIFICADO
+      si Podio elimina el fichero anterior al reemplazar: si no lo elimina,
+      conservar las dos filas es lo correcto y borrar seria perder un adjunto
+      que sigue vivo en Podio. Resolver esa duda antes de tocarlo.
 
     Para Jobs:        pasar id_jobs
     Para otras apps:  pasar fk_field y fk_value
@@ -452,15 +458,42 @@ def process_file_change_event(
 
                 # ----------- 🔴 ELIMINAR DE CLOUDINARY
                 if obj.Link:
+                    # REG-058 arreglo el endpoint HTTP y dejo sin migrar ESTE
+                    # camino, que es el normal. Aqui convivian dos defectos que
+                    # se repartian los tipos y hacian que el borrado fallara al
+                    # 100%: medido contra produccion con las 205 filas de
+                    # identidad persistida como oraculo, no sobrevive ninguna —
+                    # 180/180 raw y 25/25 imagenes.
+                    #
+                    #   * los `raw` fallaban por el public_id: el parseo hacia
+                    #     `rsplit(".", 1)` y en resource_type=raw el public_id SI
+                    #     lleva la extension, asi que destroy() no encontraba
+                    #     nada.
+                    #   * las imagenes fallaban por el resource_type:
+                    #     `get_resource_type` espera un MIMETYPE y
+                    #     `Document_type` guarda la extension para las imagenes
+                    #     ('jpg' en 433 filas, 'png' en 45, 'webp' en 1).
+                    #     Ninguna es clave de RESOURCE_TYPE_MAP, asi que caia al
+                    #     default 'raw' y se borraba en el sitio equivocado.
+                    #
+                    # Y era MUDO: se tiraba el booleano de destroy(), asi que
+                    # nadie se entero de que llevaba roto desde siempre. Por eso
+                    # se arreglo un camino y no el otro.
                     try:
-                        parts = obj.Link.split("/upload/")
-                        public_id = parts[1].split("/", 1)[1].rsplit(".", 1)[0]
-                        resource_type = get_resource_type(
-                            obj.Document_type or "")
-                        delete_from_cloudinary(public_id, resource_type)
-                        print(
-                            f"☁️ Eliminado de Cloudinary | public_id={public_id}")
+                        public_id, resource_type = identidad_cloudinary(obj)
+                        if delete_from_cloudinary(public_id, resource_type):
+                            print(
+                                f"☁️ Eliminado de Cloudinary | public_id={public_id}")
+                        else:
+                            # Sin dead-letter propia: la fila local SI se borra
+                            # (el evento de Podio manda), pero que quede dicho.
+                            logger.warning(
+                                "Cloudinary no confirmo el borrado de %s "
+                                "(public_id=%s, resource_type=%s): el binario "
+                                "queda huerfano", file_id, public_id, resource_type)
                     except Exception as e:
+                        logger.exception(
+                            "Error eliminando de Cloudinary el fichero %s", file_id)
                         print(f"⚠️ Error eliminando de Cloudinary: {e}")
 
                 # ----------- 🔴 ELIMINAR DE DB
@@ -484,9 +517,14 @@ def process_file_change_event(
             filename = None
 
             try:
+                # ACOTADO A LA ENTIDAD DEL EVENTO, igual que file_deleted. El
+                # filtro era solo `podio_file_id == file_id`, global: un evento
+                # de un job podia dar por "ya existente" un fichero de otra
+                # entidad y omitir la subida legitima.
                 existing = session.exec(
                     select(Attachments).where(
-                        Attachments.podio_file_id == file_id)
+                        Attachments.podio_file_id == file_id,
+                        getattr(Attachments, _fk_field) == _fk_value)
                 ).first()
                 if existing:
                     print(f"⏭️ Archivo {file_id} ya existe, se omite.")

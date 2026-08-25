@@ -99,6 +99,15 @@ class Job(JobBase, table=True):
     building_dept: Optional[BuildingDept] = Relationship(back_populates="jobs")
 
     # Relaciones foráneas 1:M
+    #
+    # Al borrar un Job esta cascada borra sus filas de `attachments` pero NO
+    # toca Cloudinary: el binario se queda. Es DELIBERADO — decision de negocio
+    # tomada el 25-ago-2026. Conservar el fichero es preferible a un borrado
+    # irreversible que hoy, ademas, dependeria de derivar la identidad de la URL
+    # en 2.288 de las 2.493 filas.
+    #
+    # Si algun dia se quiere purgar, va por un barrido aparte que compare
+    # Cloudinary contra la tabla, no colgado del borrado del job.
     attachments: List["Attachments"] = Relationship(  # type: ignore
         back_populates="job",
         sa_relationship_kwargs={"cascade": "all, delete, delete-orphan"})
