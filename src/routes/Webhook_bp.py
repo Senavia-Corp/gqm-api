@@ -1087,6 +1087,46 @@ def resync_failed_sync(id):
 
             # Fallos generados por el propio API (B1): re-ejecutar de verdad,
             # jamás marcar resuelto sin haber reintentado (hallazgo review B1).
+            # `podio.others.{PMC|BDEP|CLI|SUBC}.*` — no era reintentable: el
+            # parser de arriba exige `parts[1] == "jobs"`, asi que estas filas
+            # caian al `else` con "hook_type desconocido". Faltaba el boton, no
+            # la reconciliacion: `process_item_attachments` ya sabe colgar
+            # adjuntos de esas entidades.
+            #
+            # Exposicion real (25-ago-2026): 18 adjuntos con ID_Subcontractor,
+            # 3 con ID_BldgDept y 3 en carpeta CLI.
+            elif failed_sync.hook_type.startswith("podio.others."):
+                from src.podio.sync.sync_attachments import (
+                    sync_entity_attachments_by_id)
+
+                partes_o = failed_sync.hook_type.split(".")
+                app_type_o = partes_o[2] if len(partes_o) > 2 else None
+                payload_o = failed_sync.payload or {}
+                entity_id_o = payload_o.get("fk_value")
+
+                if not (app_type_o and entity_id_o and failed_sync.item_id):
+                    return jsonify({
+                        "error": "el payload no dice de que entidad ni de que "
+                                 "item de Podio; no se puede reintentar",
+                        "app_type": app_type_o,
+                        "resuelto": False}), 422
+
+                try:
+                    resultado_o = sync_entity_attachments_by_id(
+                        app_type=app_type_o, entity_id=entity_id_o,
+                        podio_item_id=failed_sync.item_id)
+                except ValueError as err_o:
+                    return jsonify({"error": str(err_o), "resuelto": False}), 422
+
+                pendientes_o = _adjuntos_pendientes(failed_sync.payload)
+                if pendientes_o or resultado_o.get("fallidos"):
+                    return jsonify({
+                        "error": "el reintento no dejo los adjuntos en la tabla; "
+                                 "la falla sigue abierta",
+                        "file_ids_pendientes": pendientes_o,
+                        "resultado": resultado_o,
+                        "resuelto": False}), 502
+
             elif failed_sync.hook_type in ("auto_sync_to_podio", "update_job_divergence"):
                 from src.utils.podio_job_sync import sync_job_to_podio
                 job_id = (failed_sync.payload or {}).get("job_id")
