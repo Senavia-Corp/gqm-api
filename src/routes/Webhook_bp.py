@@ -344,9 +344,15 @@ def _webhook_state_converged(event_type, item_id, intentos=1, espera=0.0) -> boo
     return False
 
 
-def _cascade_delete_job_from_podio(session, item_id, app_type=None, year=None):
+def _cascade_delete_job_from_podio(session, item_id, *, app_type, year=None):
     """Cascada del delete de jobs venido de Podio — COMPARTIDA entre el webhook
     y el resync de failed_syncs. Simétrica al DELETE por API (Job.py).
+
+    `app_type` es OBLIGATORIO y va por nombre. Era `app_type=None` y el resync
+    llamaba sin el en sus dos sitios: sin `app_type` el `if job_id and app_type`
+    de mas abajo no entra, la confirmacion contra Podio NO CORRE, y el job se
+    borra con toda su cascada sin preguntarle a nadie. Que sea obligatorio hace
+    que ese olvido sea un TypeError en vez de un borrado silencioso.
 
     TODO en SQL bulk (no ORM) para los hijos: idempotente y tolerante a
     carreras — si el delete del panel (sync_podio) y el webhook de Podio
@@ -788,6 +794,48 @@ def auto_resolver_convergidos() -> int:
     return cerradas
 
 
+def _file_ids_del_payload(payload) -> list:
+    """Los file_id que menciona una entrega, venga en la forma que venga.
+
+    `podio.jobs.*.file.change` guarda el cuerpo crudo de Podio, donde `file_ids`
+    es una CADENA separada por comas ("2483721695" o "123,456").
+    `podio.attachment.*` lo guarda ya suelto en `file_id`. Medido sobre las 13
+    filas de produccion: las 12 de file.change traen `file_ids`, la de
+    attachment trae `file_id`.
+    """
+    crudo = (payload or {}).get("file_ids")
+    if crudo:
+        return [f.strip() for f in str(crudo).split(",") if f.strip()]
+    uno = (payload or {}).get("file_id")
+    return [str(uno)] if uno else []
+
+
+def _adjuntos_pendientes(payload) -> list:
+    """Los file_id que NO estan en el estado que el evento pedia.
+
+    Para un ALTA lo pendiente es lo que FALTA en `attachments`; para una BAJA,
+    lo que SOBRA. Lista vacia = el evento ya convergio.
+
+    Esto es lo que separa "resuelto" de "resuelto de mentira". Siete filas
+    figuran `resolved = true` en produccion y sus siete ficheros siguen sin
+    estar: el boton devolvia "Resync exitoso" sin haber trabajado, y ni el
+    endpoint ni el panel tenian con que desmentirlo.
+    """
+    from ..models.AttachmentsModel import Attachments
+
+    ids = _file_ids_del_payload(payload)
+    if not ids:
+        return []
+    with get_session() as s:
+        presentes = {
+            a.podio_file_id for a in s.exec(
+                select(Attachments).where(
+                    Attachments.podio_file_id.in_(ids))).all()}
+    if (payload or {}).get("action_type") == "file_deleted":
+        return [i for i in ids if i in presentes]      # deberian haberse ido
+    return [i for i in ids if i not in presentes]      # deberian estar
+
+
 @webhook_bp.route("/webhook/podio/failed_syncs", methods=["GET"])
 @require_permission("admin:sync")
 def get_failed_syncs():
@@ -796,7 +844,26 @@ def get_failed_syncs():
         auto_resolver_convergidos()
         with get_session() as session:
             failed_syncs = session.exec(select(PodioFailedSync).order_by(PodioFailedSync.created_at.desc())).all()
-            return jsonify([f.model_dump() for f in failed_syncs]), 200
+
+            filas = []
+            for f in failed_syncs:
+                fila = f.model_dump()
+                # El panel no tenia forma de distinguir un resuelto real de uno
+                # de mentira: los pintaba identicos. Con esto puede avisar de
+                # que la fila figura resuelta y el fichero sigue sin estar.
+                try:
+                    pendientes = _adjuntos_pendientes(f.payload)
+                    fila["file_ids_pendientes"] = pendientes
+                    fila["fichero_recuperado"] = (
+                        not pendientes if _file_ids_del_payload(f.payload) else None)
+                except Exception:
+                    # Que el panel no se caiga por no poder mirar la tabla.
+                    logger.exception("no se pudo comprobar el adjunto de la falla %s", f.id)
+                    fila["file_ids_pendientes"] = None
+                    fila["fichero_recuperado"] = None
+                filas.append(fila)
+
+            return jsonify(filas), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -833,29 +900,64 @@ def resync_failed_sync(id):
                 year = int(parts[3])
                 event_type = ".".join(parts[4:])
 
-                # GUARD: solo sabemos reintentar estos tres. `file.change`
-                # entraba aqui, no coincidia con NINGUN if de abajo, y caia
-                # directo al `resolved = True` del final devolviendo "Resync
-                # exitoso" SIN HABER HECHO NADA.
+                # `file.change` no tenia rama y caia directo al
+                # `resolved = True` del final devolviendo "Resync exitoso" SIN
+                # HABER HECHO NADA. El guard que lo sustituyo dejo de mentir,
+                # pero seguia sin recuperar: devolvia 422 y remitia a un
+                # endpoint manual.
                 #
-                # Medido en produccion: los 12 registros de agosto son todos
-                # `file.change`, 7 figuran resueltos, y los 12 ficheros seguian
-                # sin estar. Los updated_at de cinco de ellos son 18:53:10, :12,
-                # :13, :14 y :16 del 14-ago: cinco clics, cinco "exitos", cero
-                # ficheros recuperados. Mentir es peor que no poder.
+                # Y ese 422 estaba DENTRO de este `if len(parts)>=5 and
+                # parts[1]=="jobs"`, asi que Python salia antes de la cadena de
+                # `elif` de mas abajo: ninguna rama colocada ahi podia
+                # alcanzarlo jamas.
+                #
+                # Es el caso mayoritario: 12 de las 13 filas vivas en produccion
+                # son `podio.jobs.*.file.change`, las 13 con action_type
+                # `file_created`, y ninguno de sus ficheros esta en la tabla.
                 #
                 # NO ponerlo como `else:` de la cadena de abajo: quedaria pegado
                 # al `except` del bloque item.delete y Python lo leeria como el
                 # `else` de un try/except — que se ejecuta cuando NO hay
                 # excepcion. Comprobado: asi no dispara nunca.
-                if event_type not in ("item.create", "item.update", "item.delete"):
+                item_id = failed_sync.item_id
+
+                if event_type == "file.change":
+                    job_fc = session.exec(
+                        select(Job).where(
+                            Job.podio_item_id == str(item_id))).first()
+                    if not job_fc:
+                        return jsonify({
+                            "error": f"el job del item {item_id} ya no esta en "
+                                     f"la BD; el adjunto no tiene donde colgar",
+                            "resuelto": False}), 422
+
+                    # Misma funcion que ejecuta el webhook. Es idempotente: se
+                    # salta los file_id que ya estan.
+                    _pwc.process_file_change_event(
+                        session=session,
+                        data=failed_sync.payload or {},
+                        app_type=app_type,
+                        year=year,
+                        id_jobs=job_fc.ID_Jobs)
+                    session.commit()
+
+                    # No basta con que no reviente: hay que ver el estado que el
+                    # evento pedia. Para un alta, el fichero EN la tabla; para
+                    # una baja, fuera. Esa comprobacion es lo unico que separa
+                    # esto de las 7 filas que figuran resueltas en falso.
+                    pendientes = _adjuntos_pendientes(failed_sync.payload)
+                    if pendientes:
+                        return jsonify({
+                            "error": "el reintento no dejo los adjuntos como "
+                                     "pedia el evento; la falla sigue abierta",
+                            "file_ids_pendientes": pendientes,
+                            "resuelto": False}), 502
+
+                elif event_type not in ("item.create", "item.update", "item.delete"):
                     return jsonify({
-                        "error": f"el resync no sabe reintentar '{event_type}'; "
-                                 f"para adjuntos usa POST "
-                                 f"/sync_podio/phase2/jobs/attachments/<id_jobs>?year=YYYY",
+                        "error": f"el resync no sabe reintentar '{event_type}'",
                         "event_type": event_type,
                         "resuelto": False}), 422
-                item_id = failed_sync.item_id
                 
                 # Re-ejecutar la lógica
                 if event_type in ["item.create", "item.update"]:
@@ -863,12 +965,23 @@ def resync_failed_sync(id):
                         item = item_de_confianza(
                             failed_sync.payload, item_id, app_type, year=year)
                     except Exception as podio_err:
-                        # 404/410: el item ya no está en Podio (lo borraron
-                        # después del fallo). Converger = borrarlo también
-                        # aquí; el reintento eterno no arregla nada.
-                        if not any(c in str(podio_err) for c in ("404", "410")):
+                        # El item puede haber desaparecido de Podio despues del
+                        # fallo; converger es borrarlo tambien aqui. Pero la
+                        # pregunta hay que hacersela a PODIO, no al TEXTO del
+                        # error: esto era `any(c in str(podio_err) for c in
+                        # ("404","410"))`, una subcadena — y un mensaje que
+                        # contenga "404" por casualidad (una URL, un id, un
+                        # timestamp) disparaba un borrado en cascada.
+                        #
+                        # `item_sigue_vivo_en_podio` devuelve True/False/None y
+                        # solo `False` autoriza a borrar: un 5xx o un timeout da
+                        # None y no se toca nada.
+                        vivo = _pwc.item_sigue_vivo_en_podio(
+                            item_id, app_type, year=year)
+                        if vivo is not False:
                             raise
-                        _cascade_delete_job_from_podio(session, item_id)
+                        _cascade_delete_job_from_podio(
+                            session, item_id, app_type=app_type, year=year)
                         failed_sync.resolved = True
                         session.add(failed_sync)
                         session.commit()
@@ -895,7 +1008,8 @@ def resync_failed_sync(id):
                 elif event_type == "item.delete":
                     # Misma cascada que el webhook (antes esta rama era la
                     # versión vieja y reintroducía Bills huérfanas al reintentar)
-                    _cascade_delete_job_from_podio(session, item_id)
+                    _cascade_delete_job_from_podio(
+                        session, item_id, app_type=app_type, year=year)
 
             # Fallos generados por el propio API (B1): re-ejecutar de verdad,
             # jamás marcar resuelto sin haber reintentado (hallazgo review B1).
@@ -1090,6 +1204,49 @@ def resync_failed_sync(id):
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+@webhook_bp.route("/webhook/podio/failed_syncs/<int:id>/resolver", methods=["POST"])
+@require_permission("admin:sync")
+def resolver_failed_sync(id):
+    """Cerrar una falla que se recupero POR FUERA — pero solo con prueba.
+
+    Sin esto, la unica forma de sacar una fila del contador era DELETE, que
+    borra la evidencia: mientras el fichero siga sin estar, esa fila es el unico
+    inventario de lo que falta. El contador del panel crecia de forma monotona y
+    la salida barata era destruir el rastro.
+
+    A diferencia del boton de resync, esto NO reintenta nada: comprueba. Si el
+    evento hablaba de adjuntos y siguen sin converger, se niega. Asi no se puede
+    repetir lo de las 7 filas que figuran resueltas con sus 7 ficheros perdidos.
+    """
+    try:
+        from src.models.PodioFailedSyncModel import PodioFailedSync
+        with get_session() as session:
+            failed_sync = session.get(PodioFailedSync, id)
+            if not failed_sync:
+                return jsonify({"error": "Failed sync not found"}), 404
+            if failed_sync.resolved:
+                return jsonify({"status": "Already resolved"}), 200
+
+            pendientes = _adjuntos_pendientes(failed_sync.payload)
+            if pendientes:
+                return jsonify({
+                    "error": "no se puede cerrar: los adjuntos de esta falla "
+                             "siguen sin estar como pedia el evento",
+                    "file_ids_pendientes": pendientes,
+                    "resuelto": False}), 409
+
+            nota = (request.get_json(silent=True) or {}).get("nota") or ""
+            failed_sync.resolved = True
+            failed_sync.error_message = (
+                f"[cerrada a mano{': ' + nota if nota else ''}] "
+                f"{failed_sync.error_message or ''}")[:2000]
+            session.add(failed_sync)
+            session.commit()
+            return jsonify({"status": "ok", "resuelto": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @webhook_bp.route("/webhook/podio/failed_syncs/<int:id>", methods=["DELETE"])
 @require_permission("admin:sync")
