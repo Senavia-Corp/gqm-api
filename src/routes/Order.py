@@ -526,11 +526,23 @@ def update_order(id_order):
                 year=year
             )
 
-            payload = map_order_patch_to_podio(order, job.Job_type, session)
+            payload = map_order_patch_to_podio(
+                order, job.Job_type, session,
+                campos_tocados=set(update_data_dict))
+
+            # Antes: `if payload:` a secas. Un payload vacio SALTABA la
+            # llamada a Podio y respondia 200, dejando el importe viejo
+            # intacto en la fuente de verdad y sin fila en la dead-letter.
+            # El POST ya tomaba la decision explicita (400 si no hay nada
+            # que escribir); esto lo iguala.
+            if not payload:
+                raise AppException(
+                    "El PATCH no produjo ningun campo que escribir en Podio; "
+                    "no se sincroniza nada.",
+                    "empty_podio_payload", 400)
 
             try:
-                if payload:
-                    podio_service.update_item(order.job_podio_id, payload)
+                podio_service.update_item(order.job_podio_id, payload)
 
             except Exception as podio_err:
                 raise AppException(
@@ -617,7 +629,10 @@ def delete_order(id_order):
                 year=year
             )
 
-            payload = map_order_delete_to_podio(order, job.Job_type)
+            # `session` para que el mapper pueda ver si queda otra Order en el
+            # mismo slot: sin ella emitiria `[]` y borraria en Podio el importe
+            # de la Order que sigue viva.
+            payload = map_order_delete_to_podio(order, job.Job_type, session)
 
             try:
                 if payload:
