@@ -65,6 +65,8 @@ def sync_job_attachments_by_id(
                 "processed": 0,
                 "created":   0,
                 "skipped":   0,
+                "fallidos":  0,
+                "file_ids_fallidos": [],
                 "id_jobs":   id_jobs,
                 "message":   "No hay archivos adjuntos en este Job."
             }
@@ -85,16 +87,18 @@ def sync_job_attachments_by_id(
                 "processed": len(files),
                 "created":   len(files) - existing_count,
                 "skipped":   skipped,
+                "fallidos":  0,
+                "file_ids_fallidos": [],
                 "id_jobs":   id_jobs,
                 "dry_run":   True
             }
 
         # ── 5. Procesar archivos ──────────────────────────────────
-        before = session.exec(
-            select(Attachments).where(Attachments.ID_Jobs == id_jobs)
-        ).all()
-
-        process_item_attachments(
+        # `created` se deducia restando longitudes (after - before). Eso no
+        # distingue "no habia nada que crear" de "fallaron los tres": las dos
+        # dan 0, y el llamador respondia ✅ en ambos casos. Ahora los conteos
+        # los lleva quien procesa cada fichero y aqui solo se propagan.
+        conteos = process_item_attachments(
             session=session,
             files=files,
             app_type=job_type,
@@ -104,18 +108,15 @@ def sync_job_attachments_by_id(
 
         session.commit()
 
-        after = session.exec(
-            select(Attachments).where(Attachments.ID_Jobs == id_jobs)
-        ).all()
-
-        created = len(after) - len(before)
-
-        print(f"✅ Sync completado | created={created} skipped={skipped}")
+        print(f"✅ Sync completado | created={conteos['creados']} "
+              f"skipped={conteos['omitidos']} fallidos={conteos['fallidos']}")
 
         return {
-            "processed": len(files),
-            "created":   created,
-            "skipped":   skipped,
-            "id_jobs":   id_jobs,
-            "dry_run":   False
+            "processed":         len(files),
+            "created":           conteos["creados"],
+            "skipped":           conteos["omitidos"],
+            "fallidos":          conteos["fallidos"],
+            "file_ids_fallidos": conteos["file_ids_fallidos"],
+            "id_jobs":           id_jobs,
+            "dry_run":           False
         }

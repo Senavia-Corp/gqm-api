@@ -400,6 +400,23 @@ def sync_job_attachments_by_id_route(id_jobs):
         dry_run=dry_run
     )
 
+    # El codigo lo decide el dato, no el hecho de no haber reventado. Antes esto
+    # era un 200 con ✅ incondicional: fallaban los N ficheros y el operador leia
+    # "sincronizados". Este endpoint es el procedimiento que el 422 del resync le
+    # indica, asi que su respuesta es la unica senal que tiene.
+    fallidos = result.get("fallidos", 0)
+    if fallidos:
+        return jsonify({
+            "resource":          "jobs",
+            "phase":             2,
+            "module":            "attachments",
+            "id_jobs":           id_jobs,
+            "year":              int(year),
+            "message":           f"{fallidos} adjunto(s) NO se pudieron sincronizar",
+            "file_ids_fallidos": result.get("file_ids_fallidos", []),
+            "result":            result
+        }), 207 if result.get("created") else 502
+
     return jsonify({
         "resource": "jobs",
         "phase":    2,
