@@ -8,6 +8,62 @@ from src.models.JobModel import Job
 from src.utils.podio_webhook_core import process_item_attachments
 
 
+# ------------- SYNC DE ATTACHMENTS POR ENTIDAD (no Job) ------------ #
+def sync_entity_attachments_by_id(app_type: str, entity_id: str,
+                                  podio_item_id: str, dry_run: bool = False):
+    """Recupera los adjuntos de una entidad que NO es un Job.
+
+    `sync_job_attachments_by_id` lanza `ValueError` si el ID no empieza por
+    QID/PTL/PAR, asi que los adjuntos de subcontratistas, building departments,
+    clientes y communities no tenian NINGUN recuperador: si su entrega fallaba,
+    el fichero se quedaba perdido y el boton del panel no servia.
+
+    Exposicion real medida en produccion el 25-ago-2026: 18 adjuntos con
+    ID_Subcontractor, 3 con ID_BldgDept y 3 en carpeta CLI.
+    """
+    from src.utils.podio_webhook_core import ATTACHMENT_MODEL_MAP
+
+    if app_type not in ATTACHMENT_MODEL_MAP:
+        raise ValueError(
+            f"app_type {app_type} no esta en ATTACHMENT_MODEL_MAP; no se sabe "
+            f"a que columna colgar sus adjuntos")
+
+    print(f"\n📎 Sync Attachments por entidad | {app_type} {entity_id}")
+
+    with get_session() as session:
+        headers = get_podio_headers(app_type)
+        response = requests.get(
+            f"https://api.podio.com/item/{podio_item_id}", headers=headers)
+        response.raise_for_status()
+        files = response.json().get("files", [])
+        print(f"📁 Archivos encontrados en Podio: {len(files)}")
+
+        if not files:
+            return {"processed": 0, "created": 0, "skipped": 0, "fallidos": 0,
+                    "file_ids_fallidos": [], "entity_id": entity_id,
+                    "message": "No hay archivos adjuntos en esta entidad."}
+
+        if dry_run:
+            return {"processed": len(files), "created": 0, "skipped": 0,
+                    "fallidos": 0, "file_ids_fallidos": [],
+                    "entity_id": entity_id, "dry_run": True}
+
+        conteos = process_item_attachments(
+            session=session, files=files, app_type=app_type,
+            entity_id=entity_id)
+        session.commit()
+
+        return {
+            "processed":         len(files),
+            "created":           conteos["creados"],
+            "skipped":           conteos["omitidos"],
+            "fallidos":          conteos["fallidos"],
+            "file_ids_fallidos": conteos["file_ids_fallidos"],
+            "entity_id":         entity_id,
+            "dry_run":           False,
+        }
+
+
 # ------------- SYNC DE ATTACHMENTS POR JOB ------------ #
 def sync_job_attachments_by_id(
     id_jobs: str,

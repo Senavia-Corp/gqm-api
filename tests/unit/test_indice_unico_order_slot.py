@@ -137,7 +137,12 @@ def test_la_cadena_de_alembic_tiene_una_sola_cabeza():
     sc = ScriptDirectory.from_config(Config(str(raiz / "alembic.ini")))
     cabezas = sc.get_heads()
     assert len(cabezas) == 1, f"cadena bifurcada: {cabezas}"
-    assert cabezas[0] == "e7a3c9d21f80"
+
+    # Lo que importa es que haya UNA cabeza, no cual: fijar el id aqui obliga a
+    # tocar este test en cada migracion futura, y eso lo convierte en ruido.
+    # Lo que si se comprueba es que esta revision sigue en la cadena.
+    assert any(r.revision == "e7a3c9d21f80" for r in sc.walk_revisions()), (
+        "los indices unicos desaparecieron de la cadena de migraciones")
 
 
 # --------------------------------------------------------------------------

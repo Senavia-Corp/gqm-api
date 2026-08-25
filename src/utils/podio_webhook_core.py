@@ -12,7 +12,7 @@ from src.utils.id_generator import generate_custom_id
 from src.cloudinary.service import (
     upload_to_cloudinary, delete_from_cloudinary, get_resource_type,
     identidad_cloudinary)
-from src.models.AttachmentsModel import Attachments
+from src.models.AttachmentsModel import Attachments, es_fk_de_attachments
 from src.utils.failed_sync import record_failed_attachment
 from src.utils.middleware.logs.logs import logger
 from src.models.ClientModel import Client
@@ -242,6 +242,16 @@ def process_file_change_event(
         folder = f"{app_type}/{fk_value}"
         _fk_field = fk_field
         _fk_value = fk_value
+
+        # Ver el comentario largo en process_item_attachments: `ID_Client` e
+        # `ID_Community_Tracking` no existen como columnas y SQLModel las acepta
+        # sin rechistar, dejando la fila sin FK.
+        if not es_fk_de_attachments(_fk_field):
+            logger.error(
+                "file.change con fk_field '%s' que no es columna de "
+                "attachments (app_type=%s): se omite en vez de insertar "
+                "huerfanos", _fk_field, app_type)
+            return
     else:
         print(
             f"⚠️ No se pudo determinar FK para app_type={app_type}, se omite.")
@@ -349,6 +359,13 @@ def process_file_change_event(
                     continue
 
                 guardado = False
+                # Bandera propia, igual que en `item_attachments`. El
+                # `elif intento == 5` de mas abajo mandaba a la dead-letter un
+                # adjunto que era un DUPLICADO IDEMPOTENTE: si el `break` por
+                # `podio_file_id` caia en el quinto intento, `guardado` seguia
+                # False y la condicion se cumplia. Fila de ruido por algo que
+                # salio bien.
+                duplicado = False
                 for intento in range(1, 6):
                     # `resincronizar` a partir del 2.o intento: si el ID
                     # choco, el contador puede estar por detras de la tabla
@@ -381,12 +398,13 @@ def process_file_change_event(
                     except IntegrityError as choque:
                         if "podio_file_id" in str(choque.orig):
                             print(f"⏭️ Archivo {file_id} guardado en paralelo, se omite.")
+                            duplicado = True
                             break
                         print(f"↻ {new_id} ocupado (intento {intento}), reintentando")
 
                 if guardado:
                     print(f"✅ {filename} → {_fk_field}: {_fk_value}")
-                elif intento == 5:
+                elif not duplicado:
                     # Antes se perdia con un print y nadie se enteraba.
                     logger.error(
                         "No se pudo asignar ID para el adjunto %s tras 5 intentos",
@@ -607,6 +625,37 @@ def process_item_attachments(
         folder = f"{app_type}/{entity_id}"
         fk_field = ATTACHMENT_MODEL_MAP[app_type]["fk"]
         fk_value = entity_id
+
+        # CORRUPCION SILENCIOSA, y no es teorica.
+        #
+        # ATTACHMENT_MODEL_MAP promete `ID_Client` (CLI) e
+        # `ID_Community_Tracking` (PMC) y esas columnas NO EXISTEN en
+        # `attachments`. SQLModel con `table=True` no valida: acepta el kwarg,
+        # lo deja como atributo suelto e INSERTA LA FILA SIN NINGUNA FK.
+        #
+        # En produccion hay 3 filas asi — ATT61846, ATT62109 y ATT62146, todas
+        # de carpeta CLI y con podio_file_id — y son los UNICOS 3 huerfanos de
+        # las 2.493. O sea: dano ya hecho, no riesgo futuro.
+        #
+        # Mejor una fila en la dead-letter, que se puede recuperar cuando la
+        # columna exista, que un adjunto suelto que nadie sabe de quien es.
+        if not es_fk_de_attachments(fk_field):
+            logger.error(
+                "ATTACHMENT_MODEL_MAP declara '%s' para %s y esa columna no "
+                "existe en attachments: %s fichero(s) van a la dead-letter en "
+                "vez de insertarse huerfanos",
+                fk_field, app_type, len(files))
+            for file in files:
+                record_failed_attachment(
+                    item_id=entity_id, file_id=file.get("file_id"),
+                    app_type=app_type, action_type="item_attachments",
+                    fk_field=fk_field, fk_value=fk_value,
+                    filename=file.get("name"), cloudinary_result=None,
+                    error=f"columna {fk_field} inexistente en attachments")
+            resultado["fallidos"] = len(files)
+            resultado["file_ids_fallidos"] = [
+                str(f.get("file_id")) for f in files]
+            return resultado
     else:
         # No es un "se omite" inocuo: no hay donde colgar estos ficheros, asi
         # que NINGUNO se va a guardar. Contarlos como fallidos es lo unico
