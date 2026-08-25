@@ -53,6 +53,43 @@ def get_estimates(id_estimate):
 
 # --------------- RUTAS POST, PATCH AND DELETE ----------#
 
+def _rechazar_si_no_cabe_otro_bdf(session, obj, id_excluir=None) -> None:
+    """Impide aprobar mas BDF de los que Podio puede guardar.
+
+    Podio tiene EXACTAMENTE `BDF_SLOTS` (3) huecos de Bldg_dept_fees, y
+    `_build_bdf_array` trunca ahi. Un 4.o BDF aprobado nunca podria escribirse,
+    y en el siguiente `item.update` el webhook veria 3 en Podio contra 4 aqui y
+    lo BORRARIA — sin auditoria y sin soft-delete, o sea irrecuperable.
+
+    Se rechaza en el alta en vez de dejar que un webhook destruya datos despues.
+    """
+    from sqlalchemy import func
+
+    from src.utils.job_calculator import BDF_SLOTS
+
+    if (obj.Cost_type or "").strip() != "BDF":
+        return
+    if (obj.Status or "").strip() != "Approved":
+        return
+    if not obj.ID_Jobs:
+        return
+
+    stmt = select(func.count(EstimateCost.ID_EstimateCost)).where(
+        EstimateCost.ID_Jobs == obj.ID_Jobs,
+        EstimateCost.Cost_type == "BDF",
+        EstimateCost.Status == "Approved")
+    if id_excluir:
+        stmt = stmt.where(EstimateCost.ID_EstimateCost != id_excluir)
+
+    ya_aprobados = session.exec(stmt).one()
+    if ya_aprobados >= BDF_SLOTS:
+        raise AppException(
+            f"El job {obj.ID_Jobs} ya tiene {ya_aprobados} BDF aprobados y "
+            f"Podio solo admite {BDF_SLOTS}. Aprobar otro lo dejaria fuera de "
+            f"Podio y el siguiente webhook lo borraria de la base.",
+            "bdf_slots_agotados", 409)
+
+
 @estimate_bp.post("/")
 @handle_exceptions()
 @audit("Estimate Cost created", entity_type="EstimateCost", id_from="response", job_id_from="body")
@@ -71,6 +108,7 @@ def create_estimate():
         obj.Status = "Estimated"
 
     with get_session() as session:
+        _rechazar_si_no_cabe_otro_bdf(session, obj)
         obj.ID_EstimateCost = generate_custom_id(
             session, EstimateCost, "ID_EstimateCost", "EST")
         save_with_retry(session, obj)
@@ -114,6 +152,9 @@ def update_estimate(id_estimate):
             data).model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(obj, key, value)
+        # Tras aplicar los cambios: un PATCH que pone Status=Approved es
+        # exactamente el camino por el que se cuela el 4.o BDF.
+        _rechazar_si_no_cabe_otro_bdf(session, obj, id_excluir=id_estimate)
         save_with_retry(session, obj)
 
         # ── [NUEVO] Recálculo automático de la Order asociada ────────
