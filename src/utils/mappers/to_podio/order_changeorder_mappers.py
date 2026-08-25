@@ -198,8 +198,31 @@ def map_order_create_to_podio(order, job_type, podio_job_fields, session):
 
 
 # ============ PATCH
-def map_order_patch_to_podio(order, job_type, session):
+def map_order_patch_to_podio(order, job_type, session, campos_tocados=None):
+    """Campos de Podio a escribir por un PATCH de Order.
 
+    Sobre `campos_tocados`: son las claves que el PATCH trajo de verdad
+    (`model_dump(exclude_unset=True)`). Hacen falta para distinguir los dos
+    casos que antes se confundian:
+
+      * el campo NO viene en el PATCH  -> no se toca en Podio
+      * el campo viene con None        -> hay que LIMPIARLO ([]), no callarse
+
+    Antes solo se emitia el campo `if valor is not None`, asi que un None
+    devolvia `{}`, la ruta hacia `if payload:` y SALTABA la llamada a Podio
+    respondiendo 200. El valor quedaba NULL en la BD y el importe VIEJO intacto
+    en Podio —que es la fuente de verdad—, sin fila en la dead-letter.
+
+    No es teorico: el panel manda `ChangeOrderFormula: newFormula || null`
+    (ChangeOrdersSection.tsx:324) y `newFormula` sale de `parseFloat(...) || 0`,
+    asi que escribir 0 para limpiar manda `null` y dispara exactamente esto.
+
+    Que es un bug lo prueba el propio fichero: el mapper de CREATE si escribe
+    `[]` para limpiar, y el POST tiene un guard que devuelve 400.
+
+    `campos_tocados=None` conserva el comportamiento antiguo para cualquier
+    llamador que no lo pase.
+    """
     if not order.tech_field:
         raise Exception("Order has no assigned Podio field")
 
@@ -215,8 +238,9 @@ def map_order_patch_to_podio(order, job_type, session):
     is_co_field = order.tech_field not in formula_map.values()
 
     # ================= FORMULA =================
-    if order.Formula is not None:
-        fields_to_update[order.tech_field] = float(order.Formula)
+    if campos_tocados is None or "Formula" in campos_tocados:
+        fields_to_update[order.tech_field] = (
+            [] if order.Formula is None else float(order.Formula))
 
     # ================= PTL =================
     if not is_co_field:
@@ -224,21 +248,28 @@ def map_order_patch_to_podio(order, job_type, session):
             if tech_index in order_fields_map["Ptl_hd_materials"]:
                 hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
     
-                if getattr(order, "Ptl_hd_materials", None) is not None:
-                    fields_to_update[hd_field] = float(order.Ptl_hd_materials)
+                if campos_tocados is None or "Ptl_hd_materials" in campos_tocados:
+                    valor_hd = getattr(order, "Ptl_hd_materials", None)
+                    fields_to_update[hd_field] = (
+                        [] if valor_hd is None else float(valor_hd))
     
         # ================= PAR =================
         if "Notes" in order_fields_map:
             notes_field = order_fields_map["Notes"][tech_index]
     
-            if getattr(order, "Notes", None):
-                fields_to_update[notes_field] = order.Notes
+            if campos_tocados is None or "Notes" in campos_tocados:
+                fields_to_update[notes_field] = order.Notes or []
 
     return fields_to_update
 
 
 # ============ DELETE
-def map_order_delete_to_podio(order, job_type):
+def map_order_delete_to_podio(order, job_type, session=None):
+    """Campos de Podio a limpiar al borrar una Order.
+
+    `session` es opcional para no romper llamadores viejos, pero SIN ella no se
+    puede comprobar si queda otra Order en el mismo slot — ver dentro.
+    """
 
     if not order.tech_field:
         return {"fields": {}}
@@ -254,20 +285,49 @@ def map_order_delete_to_podio(order, job_type):
 
     is_co_field = order.tech_field not in formula_map.values()
 
+    # ¿QUEDA OTRA ORDER EN EL MISMO SLOT?
+    #
+    # Esto emitia `[]` a secas: borrar el campo en Podio. Y el slot
+    # (job_podio_id, tech_field) puede tener MAS DE UNA Order — hoy mismo, en
+    # produccion, el job 3304340068 (PAR6095) tiene ORD68994 y ORD69726 las dos
+    # en `tech-1-ptl-original-pricing`. Borrando una, el campo se vaciaba en
+    # Podio y el importe de la que SIGUE VIVA desaparecia de la fuente de
+    # verdad.
+    #
+    # Con la superviviente se reescribe su formula en vez de limpiar. Sin
+    # `session` no se puede mirar, y entonces se conserva el comportamiento
+    # antiguo: es el caso del llamador que aun no la pasa.
+    superviviente = None
+    if session is not None:
+        from src.models.OrderModel import Order
+
+        superviviente = session.exec(
+            select(Order).where(
+                Order.job_podio_id == order.job_podio_id,
+                Order.tech_field == order.tech_field,
+                Order.ID_Order != order.ID_Order)
+        ).first()
+
     # Formula
-    fields_to_update[order.tech_field] = []
+    if superviviente is not None and superviviente.Formula is not None:
+        fields_to_update[order.tech_field] = float(superviviente.Formula)
+    else:
+        fields_to_update[order.tech_field] = []
 
     if not is_co_field:
         # PTL
         if "Ptl_hd_materials" in order_fields_map:
             if tech_index in order_fields_map["Ptl_hd_materials"]:
                 hd_field = order_fields_map["Ptl_hd_materials"][tech_index]
-                fields_to_update[hd_field] = []
-    
+                hd_vivo = getattr(superviviente, "Ptl_hd_materials", None)
+                fields_to_update[hd_field] = (
+                    [] if hd_vivo is None else float(hd_vivo))
+
         # PAR
         if "Notes" in order_fields_map:
             notes_field = order_fields_map["Notes"][tech_index]
-            fields_to_update[notes_field] = []
+            fields_to_update[notes_field] = (
+                getattr(superviviente, "Notes", None) or [])
 
     return fields_to_update
 
@@ -360,16 +420,41 @@ def map_chorder_create_to_podio(change_order, job_type, podio_job_fields, sessio
 
 
 # ============ PATCH
-def map_chorder_patch_to_podio(change_order, job_type, session):
+def map_chorder_patch_to_podio(change_order, job_type, session,
+                               campos_tocados=None):
+    """Campos de Podio a escribir por un PATCH de Change Order.
 
+    Sobre `campos_tocados`: son las claves que el PATCH trajo de verdad
+    (`model_dump(exclude_unset=True)`). Hacen falta para distinguir los dos
+    casos que antes se confundian:
+
+      * el campo NO viene en el PATCH  -> no se toca en Podio
+      * el campo viene con None        -> hay que LIMPIARLO ([]), no callarse
+
+    Antes solo se emitia el campo `if valor is not None`, asi que un None
+    devolvia `{}`, la ruta hacia `if payload:` y SALTABA la llamada a Podio
+    respondiendo 200. El valor quedaba NULL en la BD y el importe VIEJO intacto
+    en Podio —que es la fuente de verdad—, sin fila en la dead-letter.
+
+    No es teorico: el panel manda `ChangeOrderFormula: newFormula || null`
+    (ChangeOrdersSection.tsx:324) y `newFormula` sale de `parseFloat(...) || 0`,
+    asi que escribir 0 para limpiar manda `null` y dispara exactamente esto.
+
+    Que es un bug lo prueba el propio fichero: el mapper de CREATE si escribe
+    `[]` para limpiar, y el POST tiene un guard que devuelve 400.
+
+    `campos_tocados=None` conserva el comportamiento antiguo para cualquier
+    llamador que no lo pase.
+    """
     if not change_order.podio_field:
         raise Exception("Change Order has no assigned Podio field")
 
     fields_to_update = {}
 
-    if change_order.ChangeOrderFormula is not None:
-        fields_to_update[change_order.podio_field] = float(
-            change_order.ChangeOrderFormula)
+    if campos_tocados is None or "ChangeOrderFormula" in campos_tocados:
+        valor = change_order.ChangeOrderFormula
+        fields_to_update[change_order.podio_field] = (
+            [] if valor is None else float(valor))
 
     return fields_to_update
 

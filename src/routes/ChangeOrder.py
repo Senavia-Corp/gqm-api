@@ -294,13 +294,24 @@ def update_changeOr(id_change_order):
                     job_type=job.Job_type, year=year)
 
                 payload = map_chorder_patch_to_podio(
-                    change_order, job.Job_type, session)
+                    change_order, job.Job_type, session,
+                    campos_tocados=set(update_data_dict))
+
+                # Antes: `if payload:` a secas. Un payload vacio SALTABA la
+                # llamada a Podio y respondia 200, dejando el importe viejo
+                # intacto en la fuente de verdad y sin fila en la dead-letter.
+                # El POST ya tomaba la decision explicita (400 si no hay nada
+                # que escribir); esto lo iguala.
+                if not payload:
+                    raise AppException(
+                        "El PATCH no produjo ningun campo que escribir en "
+                        "Podio; no se sincroniza nada.",
+                        "empty_podio_payload", 400)
 
                 try:
-                    if payload:
-                        podio_service.update_item(
-                            change_order.job_podio_id, payload)
-                        register_event(change_order.job_podio_id)
+                    podio_service.update_item(
+                        change_order.job_podio_id, payload)
+                    register_event(change_order.job_podio_id)
                 except Exception as podio_err:
                     raise AppException(
                         f"No se pudo sincronizar Change Order con Podio: {podio_err}",
