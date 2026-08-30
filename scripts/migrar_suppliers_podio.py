@@ -510,7 +510,7 @@ def respaldar(cur, destino: pathlib.Path) -> dict:
     return {"csv": csv_antes, "sha256": sha, "bytes": len(buf.getvalue())}
 
 
-def cargar(cur, filas: list[dict]):
+def cargar(cur, filas: list[dict], tras_rollback: bool = False):
     """Todo dentro de la transaccion del llamador. Todo o nada.
 
     El preflight va AQUI, en la misma transaccion que escribe, no antes: entre
@@ -524,11 +524,29 @@ def cargar(cur, filas: list[dict]):
             f"`supplier` tiene {n} filas y esperaba 0. PARA. Si la carga ya se "
             f"hizo, usa --verificar; no reintentes --aplicar.")
 
-    # 2. nadie ha creado suppliers por el panel entre medias
+    # 2. Nadie ha creado suppliers por el panel entre medias.
+    #
+    # Es un CINTURON sobre el chequeo (1), no un sustituto: la tabla vacia ya
+    # dice que nadie tiene suppliers AHORA; el contador dice que nadie los tuvo
+    # NUNCA. Con los dos, una carga a mitad de camino no puede pasar por virgen.
+    #
+    # Falso positivo conocido, y por eso existe `--recargar-tras-rollback`: tras
+    # ejecutar el rollback.sql la tabla queda a 0 pero el contador SIGUE
+    # existiendo si alguien llego a crear un supplier por el panel. Ahi la
+    # recarga es legitima y este cinturon la bloquearia sin salida. Saltarselo
+    # es SEGURO --el chequeo (1) sigue exigiendo la tabla vacia, y la siembra
+    # perezosa usa GREATEST, asi que el contador es monotono y no puede
+    # colisionar-- pero es una decision humana, no un automatismo.
     cur.execute("SELECT count(*) FROM id_counters WHERE prefix = %s", (PREFIJO,))
     if cur.fetchone()[0] != 0:
-        raise RuntimeError("`id_counters` ya tiene contador SUP: alguien creo "
-                           "suppliers desde el panel. PARA.")
+        if not tras_rollback:
+            raise RuntimeError(
+                "`id_counters` ya tiene contador SUP: hubo suppliers en algun "
+                "momento. Si es porque acabas de ejecutar el rollback.sql y "
+                "quieres RECARGAR, repite con --recargar-tras-rollback. Si no "
+                "lo es, PARA: alguien creo suppliers desde el panel.")
+        print("⚠️  --recargar-tras-rollback: se omite el cinturon de "
+              "`id_counters`. La tabla sigue teniendo que estar vacia.")
 
     # 3. red por CLAVE NATURAL. Redundante con (1) hoy, pero `podio_item_id`
     #    no tiene indice UNICO (verificado: ix_supplier_podio_item_id es
@@ -773,7 +791,7 @@ def fase3(args, salida: pathlib.Path):
         with conn.cursor() as cur:
             antes = contadores(cur)
             resp = respaldar(cur, salida)
-            cargar(cur, filas)
+            cargar(cur, filas, tras_rollback=args.recargar_tras_rollback)
             despues = contadores(cur)
         conn.commit()
     except Exception as e:
@@ -919,6 +937,10 @@ def main() -> int:
     p.add_argument("--dir", default="~/outputs/gqm-suppliers")
     p.add_argument("--esperados", type=int, default=56)
     p.add_argument("--excluir", default="", help="podio_item_id separados por coma")
+    p.add_argument("--recargar-tras-rollback", action="store_true",
+                   dest="recargar_tras_rollback",
+                   help="omite SOLO el cinturon de `id_counters`, para recargar despues "
+                        "de ejecutar el rollback.sql. La tabla sigue teniendo que estar vacia.")
     args = p.parse_args()
 
     # Antes de las guardas: no toca red, ni BD, ni credenciales.
