@@ -44,3 +44,33 @@ def test_qbo_connect_session_works_with_secret_key(client, admin_headers):
 def test_sync_routes_require_auth(client):
     assert client.get("/sync_podio/jobs/QID/2026").status_code in (401, 404)
     # el prefijo /sync ya no está en la whitelist: cualquier ruta bajo él exige JWT
+
+
+# ── Endpoints nuevos del cutover de webhooks ────────────────────────────────
+#
+# Los tres escriben en Podio de produccion: registran hooks, piden
+# verificaciones y BORRAN hooks por id. Que hereden `admin:sync` de
+# `protect_blueprint` es cierto por como funciona (un before_request sobre el
+# blueprint entero, no una enumeracion de rutas), pero razonarlo no basta: un
+# DELETE de hooks abierto seria un apagon de la sincronizacion al alcance de
+# cualquiera. Se mide.
+
+def test_register_hooks_requires_auth(client):
+    assert client.post("/admin/webhooks/QID/register?year=2026").status_code == 401
+
+
+def test_verify_hook_requires_auth(client):
+    assert client.post("/admin/webhooks/QID/verify/1?year=2026").status_code == 401
+
+
+def test_delete_hook_requires_auth(client):
+    """El mas peligroso de los tres: borrar los hooks mata la sync entrante."""
+    assert client.delete("/admin/webhooks/QID/hook/1?year=2026").status_code == 401
+
+
+def test_clear_hooks_requires_auth(client):
+    assert client.delete("/admin/webhooks/QID/clear?year=2026").status_code == 401
+
+
+def test_listar_hooks_requires_auth(client):
+    assert client.get("/admin/webhooks/QID?year=2026").status_code == 401
