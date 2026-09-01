@@ -39,6 +39,43 @@ NO_RELATION_APP_TYPES = {"PMC", "BDEP"}
 FILE_CHANGE_APP_TYPES = {"CLI", "SUBC", "PMC", "BDEP", "QID", "PTL", "PAR"}
 
 ITEM_EVENTS = ["item.create", "item.update", "item.delete"]
+EVENTOS_VALIDOS = set(ITEM_EVENTS) | {"file.change"}
+
+# El token se concatena a la RUTA sin escapar (`build_webhook_target`). Un `/`
+# mete un segmento de mas y Flask NO enruta: mueren las entregas *y* el
+# hook.verify, con lo que el hook se queda `inactive` para siempre... y
+# /register responde 200 igual. Un `%` abre una secuencia de escape y un `+`
+# o un `=` se comen la comparacion. `openssl rand -base64 32` produce `/` casi
+# la mitad de las veces, asi que el error es probable, silencioso y permanente.
+#
+# Exigir hexadecimal lo hace imposible por construccion. `secrets.token_hex(32)`
+# da 64 caracteres, muy por encima del minimo.
+_TOKEN_HEX = re.compile(r"^[0-9a-f]{32,}$")
+
+
+def token_de_webhook() -> str:
+    """El token vigente, o "" si no hay. Lanza si lo hay y esta mal formado.
+
+    Falla ANTES de registrar, nunca despues: un token ilegal grabado en 48 URLs
+    queda congelado ahi y el sintoma es 404 en todo, sin un solo error visible.
+    El mensaje no incluye el valor: es un secreto y acaba en logs.
+    """
+    token = env_config("PODIO_WEBHOOK_TOKEN", default="")
+    if token and not _TOKEN_HEX.match(token):
+        # El motivo exacto, no uno generico: durante un cutover, un diagnostico
+        # que apunta al sitio equivocado cuesta mas que el fallo.
+        malos = sorted(set(c for c in token if c not in "0123456789abcdef"))
+        motivos = []
+        if len(token) < 32:
+            motivos.append(f"tiene {len(token)} caracteres y el minimo es 32")
+        if malos:
+            motivos.append(f"contiene {len(malos)} caracter(es) fuera de [0-9a-f]"
+                           + (" (incluida una BARRA, que parte la ruta)" if "/" in malos else ""))
+        raise ValueError(
+            "PODIO_WEBHOOK_TOKEN mal formado: " + "; ".join(motivos) + ". "
+            "Debe casar ^[0-9a-f]{32,}$. Genera uno con "
+            "`python3 -c \'import secrets; print(secrets.token_hex(32))\'`.")
+    return token
 
 
 def get_app_id(app_type: str, year: int | None = None):
@@ -69,7 +106,7 @@ def build_webhook_target(app_type: str, year: int | None = None) -> str:
 
     # Podio no firma sus webhooks: el token en la URL es la autenticación
     # (la validación del lado del API se activa en el Bloque 2).
-    token = env_config("PODIO_WEBHOOK_TOKEN", default="")
+    token = token_de_webhook()
     if token:
         # En la RUTA, no en el query: Podio descarta el query string al entregar
         # (comprobado en los logs el 10-ago-2026). El prefijo se mantiene
@@ -106,13 +143,30 @@ def clear_existing_webhooks(app_type: str, year: int | None = None, only_own: bo
         hooks = list_webhooks(app_type, year=year)
     except Exception as e:
         print(f"❌ No se pudo listar webhooks: {e}")
-        return False, str(e)
+        return False, {"errors": [str(e)]}
 
     if not hooks:
         print("ℹ️ No hay webhooks para borrar")
-        return True, "No hooks"
+        return True, {"errors": [], "detalle": "no habia hooks"}
 
     own_prefix = PUBLIC_URL.rstrip("/")
+
+    # GUARDA DEL CUTOVER. `is_own` decide por PREFIJO de PUBLIC_URL, y los hooks
+    # NUEVOS —los que llevan el token al final de la ruta— comparten ese mismo
+    # prefijo. Sin esta guarda, un /clear durante o despues del cutover borra
+    # las DOS generaciones y deja la app con CERO hooks: sincronizacion muerta,
+    # y con `success: true` porque este endpoint responde 200 pase lo que pase.
+    #
+    # Peor aun en el orden real de la operacion: los 48 viejos los creo una
+    # cuenta de usuario (medido el 1-sep-2026), asi que el app token no puede
+    # borrarlos y devuelven 403 — mientras que los nuevos los crea la app y si
+    # se borran. Es decir, /clear borraria EXACTAMENTE los que hay que conservar.
+    #
+    # Con la guarda, /clear solo puede tocar hooks legado (sin el token vigente),
+    # que es justo para lo que sirve durante el cutover.
+    token_vigente = token_de_webhook()
+    conservados_por_token = 0
+
     errors = []
     skipped = 0
     for hook in hooks:
@@ -121,6 +175,11 @@ def clear_existing_webhooks(app_type: str, year: int | None = None, only_own: bo
             continue
 
         hook_url = hook.get("url") or ""
+        if token_vigente and token_vigente in hook_url:
+            conservados_por_token += 1
+            print(f"🛡️ Webhook {hook_id} lleva el token vigente — no se toca")
+            continue
+
         is_own = hook_url == own_prefix or hook_url.startswith((own_prefix + "/", own_prefix + "?"))
         if only_own and not is_own:
             skipped += 1
@@ -141,16 +200,98 @@ def clear_existing_webhooks(app_type: str, year: int | None = None, only_own: bo
 
     if skipped:
         print(f"ℹ️ {skipped} webhooks ajenos conservados")
-    return (len(errors) == 0), errors
+    if conservados_por_token:
+        print(f"🛡️ {conservados_por_token} webhooks con el token vigente conservados")
+    return (len(errors) == 0), {"errors": errors,
+                                "omitidos_ajenos": skipped,
+                                "conservados_por_token": conservados_por_token}
+
+
+def borrar_hook(hook_id, app_type: str, year: int | None = None):
+    """Borra UN hook por su id. Sin heuristicas de prefijo ni de token.
+
+    Existe porque `clear_existing_webhooks` no sirve para dos cosas que si
+    hacen falta:
+
+      * Es el camino de vuelta del cutover. La guarda que impide que /clear
+        borre la generacion del token vigente tambien impide deshacerla, y sin
+        rollback por API la unica salida serian 48 borrados a mano en la UI.
+        Los hooks NUEVOS los crea la aplicacion, asi que el app token si puede
+        borrarlos (los 48 VIEJOS los creo una cuenta de usuario: daran 403).
+      * /clear decide por prefijo de PUBLIC_URL y borra en bloque. Aqui se
+        borra exactamente lo que se nombra.
+
+    No lleva @retry_api a proposito: un DELETE que "falla" pero llego a
+    aplicarse no debe repetirse a ciegas. El 404 se trata como exito porque el
+    estado final es el mismo — no existe.
+    """
+    headers = get_podio_headers(app_type, year=year)
+    resp = requests.delete(f"https://api.podio.com/hook/{hook_id}",
+                           headers=headers, timeout=30)
+
+    if resp.status_code in (200, 202, 204):
+        print(f"🗑️ Webhook {hook_id} eliminado")
+        return True, {"hook_id": hook_id, "status": resp.status_code}
+    if resp.status_code == 404:
+        print(f"ℹ️ Webhook {hook_id} ya no existe")
+        return True, {"hook_id": hook_id, "status": 404, "detalle": "ya no existia"}
+    if resp.status_code == 403:
+        # El caso esperado con los 48 viejos: los creo una cuenta de usuario.
+        print(f"⛔ Webhook {hook_id}: 403 — no lo creo la aplicacion, "
+              f"hay que borrarlo desde la UI de Podio")
+    return False, {"hook_id": hook_id, "status": resp.status_code,
+                   "text": resp.text[:300]}
 
 
 @retry_api(max_retries=3, backoff=2)
-def register_podio_webhooks(app_type: str, year: int | None = None):
+def solicitar_verificacion_hook(hook_id, app_type: str, year: int | None = None):
+    """Pide a Podio que mande el `hook.verify` de un hook concreto.
+
+    Por que existe: un hook nace `inactive` y NO dispara jamas hasta que se
+    verifica. La verificacion la dispara Podio por su cuenta... o no, y el repo
+    no tenia forma de pedirla: `/hook/<id>/verify/request` no aparecia en
+    ninguna linea. Se midio en dev el 10-ago-2026 que Podio la manda sola; en
+    produccion NUNCA se ha medido.
+
+    Sin esto, un hook que se quede `inactive` no tiene camino de vuelta y la
+    sincronizacion de esa app queda muerta en silencio — no hay cron, alerta ni
+    test que lo detecte. Es la unica recuperacion del riesgo n.º 1 del cutover.
+
+    La respuesta al `hook.verify` ya esta implementada
+    (`parse_and_validate_webhook` → `activate_podio_webhook`, que valida el
+    `code` contra `/hook/<id>/verify/validate`).
+    """
+    headers = get_podio_headers(app_type, year=year)
+    url = f"https://api.podio.com/hook/{hook_id}/verify/request"
+    resp = requests.post(url, headers=headers, timeout=30)
+
+    if resp.status_code in (200, 202, 204):
+        print(f"📨 Verificacion solicitada para el hook {hook_id} ({app_type})")
+        return True, {"hook_id": hook_id, "status": resp.status_code}
+    return False, {"hook_id": hook_id, "status": resp.status_code,
+                   "text": resp.text[:300]}
+
+
+@retry_api(max_retries=3, backoff=2)
+def register_podio_webhooks(app_type: str, year: int | None = None,
+                            events: list[str] | None = None):
     """Registra los webhooks de la app en las rutas reales del API.
 
     - Jobs (QID/PTL/PAR): item.create/update/delete → /jobs/<type>/<year>,
       credenciales de la app real del año (get_job_app_credentials).
     - CLI/SUBC/PMC/BDEP: item.* + file.change (adjuntos) → /others/...
+
+    `events` registra EXACTAMENTE los indicados, en vez del juego por defecto.
+
+    Hace falta porque el juego por defecto no representa la realidad: como
+    FILE_CHANGE_APP_TYPES contiene las 7 familias, el `if` de mas abajo siempre
+    entra y toda app recibe los 4 eventos. Las apps de produccion no estan asi
+    —PMC, QID/2024, PTL/2024 y PAR/2024 tienen 3, sin `file.change`—, de modo
+    que re-registrar sin `events` les añadiria un hook que hoy no tienen y
+    empezaria a subir adjuntos de años cerrados a Cloudinary.
+
+    El cutover del token se guia por el censo de los hooks reales y pasa la
+    lista por aqui, para que rotar el token no cambie de paso la topologia.
     """
     app_type = app_type.upper()
     headers = get_podio_headers(app_type, year=year)
@@ -159,9 +300,22 @@ def register_podio_webhooks(app_type: str, year: int | None = None):
     base_url = f"https://api.podio.com/hook/app/{app_id}"
     target = build_webhook_target(app_type, year=year)
 
-    events = list(ITEM_EVENTS)
-    if app_type in FILE_CHANGE_APP_TYPES:
-        events.append("file.change")
+    if events is None:
+        events = list(ITEM_EVENTS)
+        if app_type in FILE_CHANGE_APP_TYPES:
+            events.append("file.change")
+    else:
+        desconocidos = [e for e in events if e not in EVENTOS_VALIDOS]
+        if desconocidos:
+            raise ValueError(
+                f"eventos no reconocidos: {desconocidos}. "
+                f"Validos: {sorted(EVENTOS_VALIDOS)}")
+        # Sin duplicados y en el orden pedido. Que Podio responda 409 a un
+        # duplicado exacto no esta comprobado, asi que no se depende de ello:
+        # se elimina aqui y no se manda la peticion.
+        events = list(dict.fromkeys(events))
+        if not events:
+            raise ValueError("la lista de eventos esta vacia")
 
     # target redactado: el token no sale ni por logs ni por la respuesta HTTP
     results = {"target": redact_hook_url(target), "created": [], "skipped": [], "errors": []}

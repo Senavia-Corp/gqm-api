@@ -39,6 +39,49 @@ from src.services.commission_service import process_job_to_commissions
 webhook_bp = Blueprint("webhook", __name__)
 
 
+def _gracia_de_cutover_vigente() -> bool:
+    """Ventana de gracia para el cutover de PODIO_WEBHOOK_TOKEN.
+
+    El problema que resuelve: los 48 hooks de PRODUCCION estan registrados SIN
+    token en la ruta (medido el 1-sep-2026). En el instante en que
+    PODIO_WEBHOOK_TOKEN existe, los 48 pasan a 403 — y eso NO es un retraso,
+    es perdida definitiva:
+
+      * Podio solo reintenta los 5xx, nunca un 403.
+      * El 403 sale de este mismo before_request, ANTES del handler, asi que no
+        se escribe nada en `podio_failed_syncs`: no queda ni el item_id.
+      * Y Podio DESACTIVA los hooks que fallan de forma persistente, con lo que
+        el camino de vuelta tambien se cierra.
+
+    Mientras la ventana no caduque, una entrega SIN token se acepta con WARNING.
+    Eso permite definir la variable y re-registrar los hooks sin perder ni una
+    entrega: los viejos siguen entrando por la gracia mientras se crean los
+    nuevos, que ya llevan token.
+
+    Tres propiedades deliberadas:
+      * CADUCA SOLA. Si nadie la retira, el agujero se cierra igual en la fecha.
+      * FALLA CERRADO. Un valor ilegible no concede gracia (y se registra).
+      * Solo cubre la AUSENCIA de token. Un token equivocado sigue dando 403,
+        que es lo que mantiene vivo el test de `test_webhook_wrong_token_*`.
+    """
+    from datetime import datetime, timezone
+
+    from decouple import config as _env
+
+    hasta = (_env("PODIO_WEBHOOK_TOKEN_GRACIA_HASTA", default="") or "").strip()
+    if not hasta:
+        return False
+    try:
+        limite = datetime.fromisoformat(hasta.replace("Z", "+00:00"))
+    except ValueError:
+        logger.error(
+            "PODIO_WEBHOOK_TOKEN_GRACIA_HASTA ilegible (%r): no se concede gracia", hasta)
+        return False
+    if limite.tzinfo is None:                      # sin offset se asume UTC
+        limite = limite.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) < limite
+
+
 @webhook_bp.before_request
 def _validate_podio_webhook_token():
     """REG-018: Podio no firma sus webhooks — el ?token= registrado en la URL
@@ -94,6 +137,14 @@ def _validate_podio_webhook_token():
     en_ruta = (_request.view_args or {}).get("token") or ""
     provided = en_ruta or _request.args.get("token", "")
     if not _hmac.compare_digest(provided, expected):
+        # Ventana de gracia del cutover: solo cubre la AUSENCIA de token, nunca
+        # un token equivocado. Ver _gracia_de_cutover_vigente().
+        if not provided and _gracia_de_cutover_vigente():
+            logger.warning(
+                "webhook %s aceptado SIN token: ventana de gracia del cutover "
+                "vigente (PODIO_WEBHOOK_TOKEN_GRACIA_HASTA). Re-registra los "
+                "hooks y retirala.", path)
+            return None
         return jsonify({"error": "invalid webhook token"}), 403
     return None
 
