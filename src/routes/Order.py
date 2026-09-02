@@ -24,6 +24,7 @@ from ..utils.mappers.to_podio.order_changeorder_mappers import (
 )
 from ..utils.mappers.mapper_aux_functions import register_event
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from src.utils.audit import actor_member_id, audit, log_activity, SOURCE_APP
 from src.utils.job_calculator import recalculate_and_apply, recalculate_order_formulas  # ← MODIFIED
 
@@ -228,6 +229,51 @@ def get_orders_by_job_id(id_job):
 
 # --------------- RUTAS POST, PATCH AND DELETE ----------#
 
+SLOT_OCUPADO = ("El técnico ya tiene una orden principal creada. "
+                "Edite la existente en lugar de crear una nueva.")
+
+
+def _slot_ocupado(session, job_podio_id, tech_field, excluir=None):
+    """La Order que YA ocupa (job_podio_id, tech_field) en la BD, o None.
+
+    `map_order_create_to_podio` ya trae un guard equivalente —`is_primary_taken`,
+    order_changeorder_mappers.py:160— pero mira la CASILLA DE PODIO, no la BD.
+    Ese desfase es justo lo que creo el duplicado de PAR6095: el 18-ago-2026 un
+    DELETE pre-#129 emitio `[]` y vacio la casilla mientras la fila seguia en la
+    BD, y el CREATE de siete minutos despues la vio libre y colo la segunda.
+
+    Sin esto, con `ux_order_job_slot` puesto el INSERT ya no duplica: revienta
+    con un 500 sin explicacion. La BD es la que manda sobre el slot, asi que se
+    pregunta a la BD.
+
+    `excluir` es el ID_Order de la propia orden en curso. Hace falta porque en
+    el camino sync_podio=true la orden ya esta en la sesion cuando el mapper le
+    asigna el `tech_field`: sin excluirla, `.first()` puede devolverla a ella
+    misma y dar el slot por libre.
+
+    Va en `no_autoflush` por lo mismo: el SELECT arrastraria a la sesion a
+    volcar esa orden con el slot ya puesto, y el INSERT chocaria con el indice
+    AQUI —un 500 crudo— en vez de contestar el 409 que se esta calculando.
+    """
+    if not (job_podio_id and tech_field):
+        return None
+    condiciones = [Order.job_podio_id == job_podio_id,
+                   Order.tech_field == tech_field]
+    if excluir:
+        condiciones.append(Order.ID_Order != excluir)
+    with session.no_autoflush:
+        return session.exec(select(Order).where(*condiciones)).first()
+
+
+def _es_choque_de_slot(err):
+    """True si el IntegrityError viene del unico parcial de slot.
+
+    Cualquier otra violacion se re-lanza: tragarsela la disfrazaria de conflicto
+    de slot y mandaria al usuario a editar una orden que no existe.
+    """
+    return "ux_order_job_slot" in str(getattr(err, "orig", err))
+
+
 @order_bp.post("/")
 @handle_exceptions()
 @audit("Order created", entity_type="Order", id_from="response", job_id_from="body")
@@ -276,6 +322,12 @@ def create_order():
         # afecta a la unicidad (el contador es monotono y el sembrado usa
         # GREATEST) ni a ningun dato. Reordenar el flujo de validacion sobre
         # produccion viva costaria mas de lo que vale.
+
+        # El slot puede venir ya en el body (camino sync_podio=false). Se
+        # comprueba ANTES de quemar un ORD del contador.
+        if _slot_ocupado(session, obj.job_podio_id, obj.tech_field):
+            raise AppException(SLOT_OCUPADO, "order_slot_taken", 409)
+
         new_id = generate_custom_id(session, Order, "ID_Order", "ORD")
         obj.ID_Order = new_id
         session.add(obj)
@@ -361,6 +413,13 @@ def create_order():
                     400
                 )
 
+            # `map_order_create_to_podio` acaba de asignar `obj.tech_field`
+            # mirando la casilla de Podio. Si la BD dice que ese slot ya esta
+            # ocupado, manda la BD: es el desfase que creo el duplicado.
+            if _slot_ocupado(session, obj.job_podio_id, obj.tech_field,
+                             excluir=obj.ID_Order):
+                raise AppException(SLOT_OCUPADO, "order_slot_taken", 409)
+
             # 🔥 FIX RACE CONDITION 🔥
             # Guardamos la orden localmente (ya tiene tech_field) ANTES de avisar a Podio.
             # Esto evita que si hay webhooks despachados previamente (como la vinculación 
@@ -368,6 +427,14 @@ def create_order():
             # puedan no encontrar la orden y dupliquen el slot.
             try:
                 session.commit()
+            except IntegrityError as choque:
+                # Segunda linea de defensa: entre el pre-chequeo y el commit
+                # cabe otra creacion concurrente. El indice la para; aqui se
+                # traduce a la misma respuesta que da el pre-chequeo.
+                session.rollback()
+                if not _es_choque_de_slot(choque):
+                    raise
+                raise AppException(SLOT_OCUPADO, "order_slot_taken", 409)
             except Exception as db_err:
                 session.rollback()
                 raise AppException("Error guardando temporalmente la orden.", "db_tmp_save_error", 500)
@@ -387,7 +454,12 @@ def create_order():
 
         else:
             # Si sync_podio es falso, aplicamos el guardado normal aquí
-            save_with_retry(session, obj)
+            try:
+                save_with_retry(session, obj)
+            except IntegrityError as choque:
+                if not _es_choque_de_slot(choque):
+                    raise
+                raise AppException(SLOT_OCUPADO, "order_slot_taken", 409)
 
         logger.info(
             "✅ Order creado | order_id=%s | job_item_id=%s",
