@@ -50,12 +50,54 @@ def admin_id(app):
     return resp.get_json()["user_id"]
 
 
+def _limpiar_rbac_test():
+    """Borra los jobs que siembra este fichero. Idempotente, corre a los dos lados.
+
+    Al entrar, porque un run interrumpido (o un teardown que reventó) deja el job
+    vivo y el residuo no falla aquí: falla en `test_regla_anio_unica`, que cuenta
+    los jobs de develop sin año resoluble. El `7` de `QID7` no está en
+    `DIGITO_A_ANIO`, así que cada fuga rompe una suite que no tiene nada que ver.
+    Al salir, con verificación: un DELETE que se cae por una FK no deja rastro
+    visible, pero sí deja la fila.
+
+    Los únicos hijos que este fichero crea son los tres enlaces. Si mañana algún
+    test escribe un chat_message o un attachment del job, el DELETE fallará y el
+    assert lo dirá con el ID delante — que es justo lo que faltó la vez pasada.
+    """
+    with get_session() as session:
+        ids = session.exec(
+            select(Job.ID_Jobs).where(Job.Job_status == "RBAC-TEST")).all()
+        if not ids:
+            return
+        for modelo in (JobSubcontractorLink, JobTechnicianLink, JobMemberLink):
+            for link in session.exec(select(modelo).where(modelo.job_id.in_(ids))).all():
+                session.delete(link)
+        for job in session.exec(select(Job).where(Job.ID_Jobs.in_(ids))).all():
+            session.delete(job)
+        session.commit()
+    # Conexión nueva a propósito: la sesión que borra ve su propio DELETE aunque
+    # el commit no haya persistido, y entonces la verificación diría que todo
+    # bien con la fila viva. Que es exactamente lo que se vio pasar una vez.
+    with get_session() as session:
+        vivos = session.exec(
+            select(Job.ID_Jobs).where(Job.Job_status == "RBAC-TEST")).all()
+    assert not vivos, (
+        f"jobs RBAC-TEST sin borrar: {vivos}. Bórralos de develop o "
+        "test_regla_anio_unica fallará por un residuo con año NULL.")
+
+
 @pytest.fixture()
 def two_jobs(sub_session, tech_session, admin_id):
     """Un job del sub (con su técnico y un PM) y uno ajeno, ambos con el mismo
-    status/tipo/cliente/PM para que cada ruta de listado tenga que FILTRAR."""
+    status/tipo/cliente/PM para que cada ruta de listado tenga que FILTRAR.
+
+    El prefijo `QID7` es a propósito: no es un año de Podio, así que si un job de
+    aquí se escapa, `test_regla_anio_unica` lo canta. No lo cambies a `QID6` para
+    silenciarlo — se arregla la fuga, no el detector.
+    """
     _, sub_id = sub_session
     _, tech_id = tech_session
+    _limpiar_rbac_test()   # residuos de un run anterior que no llegó al teardown
     suffix = uuid.uuid4().int % 90000 + 10000
     mine, other = f"QID7{suffix}", f"QID6{suffix}"
     with get_session() as session:
@@ -76,15 +118,7 @@ def two_jobs(sub_session, tech_session, admin_id):
             session.add(JobMemberLink(job_id=jid, member_id=admin_id, rol="PM"))
         session.commit()
     yield mine, other, pmc, id_client, admin_id
-    with get_session() as session:
-        for modelo in (JobSubcontractorLink, JobTechnicianLink, JobMemberLink):
-            for link in session.exec(select(modelo).where(modelo.job_id.in_((mine, other)))).all():
-                session.delete(link)
-        for jid in (mine, other):
-            job = session.exec(select(Job).where(Job.ID_Jobs == jid)).first()
-            if job:
-                session.delete(job)
-        session.commit()
+    _limpiar_rbac_test()
 
 
 def test_sub_list_only_contains_their_jobs(client, sub_session, two_jobs):
