@@ -9,10 +9,17 @@ existe".
 La asimetria prueba que fue un descuido: `jobs` se blindo con
 `ux_jobs_podio_item_id` y `attachments` con `ux_attachments_podio_file_id`.
 
-El dano esta vivo y es exactamente uno (medido el 25-ago-2026): job_podio_id
-3304340068 (PAR6095) con ORD68994 (110) y ORD69726 (330) en
-`tech-1-ptl-original-pricing`. `recalculate_job_fields` acumula TODAS las orders
-del job, asi que suma 660 donde deberia sumar 550.
+OJO — LA MIGRACION YA NO PROTEGE `"order"` (2-sep-2026)
+-------------------------------------------------------
+Lo que se tenia por "el unico slot duplicado en 9.801 orders" —PAR6095, con
+ORD68994 (110) y ORD69726 (330) en `tech-1-ptl-original-pricing`— resulto NO
+ser un duplicado: son dos POs reales del mismo subcontratista que suman los 440
+que se le pagaron, sobre un job en estado `Paid` cuyo margen Podio deriva de
+660. Asi que `ux_order_job_slot` se retiro: prohibia un registro real.
+
+Lo que sigue vivo aqui: el indice de `change_order`, y la degradacion savepoint
++ `IntegrityError` → UPDATE de los dos upserts, que se conserva por si el indice
+de `order` vuelve algun dia. Ver el docstring de la revision.
 """
 import ast
 import inspect
@@ -91,16 +98,43 @@ def _sin_contador(monkeypatch):
 # --------------------------------------------------------------------------
 # La migracion
 # --------------------------------------------------------------------------
-def test_los_dos_indices_son_parciales():
-    """502 de 9.729 orders no tienen slot, y 2 de 1.283 change orders tampoco.
+def _indices_de_la_migracion():
+    """Los indices que la revision crea de verdad, leidos de `INDICES`.
 
-    Un unico TOTAL las haria colisionar entre ellas. Mismo motivo que en
-    ux_attachments_podio_file_id.
+    Se importa el modulo en vez de buscar el nombre en el texto: el docstring
+    NOMBRA `ux_order_job_slot` para explicar por que ya no esta, y un `in
+    fuente` daria por creado justo el indice que se retiro.
     """
-    fuente = MIGRACION.read_text(encoding="utf-8")
-    for indice in ("ux_order_job_slot", "ux_change_order_job_slot"):
-        assert indice in fuente
-    assert fuente.count("IS NOT NULL") >= 4, "algun indice no es parcial"
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_rev_e7a3c9d21f80", MIGRACION)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo.INDICES
+
+
+def test_el_indice_de_change_order_es_parcial():
+    """2 de los 1.285 change orders no tienen slot. Un unico TOTAL las haria
+    colisionar entre ellas. Mismo motivo que en ux_attachments_podio_file_id."""
+    indices = _indices_de_la_migracion()
+    nombres = [n for n, _, _, _ in indices]
+
+    assert "ux_change_order_job_slot" in nombres
+    for nombre, _, _, condicion in indices:
+        assert "IS NOT NULL" in condicion, f"{nombre} no es parcial"
+
+
+def test_la_revision_ya_no_crea_el_indice_de_order():
+    """`ux_order_job_slot` se retiro el 2-sep-2026: PAR6095 no era un duplicado
+    —dos POs reales de 110 y 330 que suman los 440 pagados al mismo sub— y el
+    indice habria obligado a borrar una fila de un job ya cobrado.
+
+    Si alguien lo repone sin haber contestado antes si varios POs por slot son
+    validos en el negocio, este test se lo recuerda."""
+    nombres = [n for n, _, _, _ in _indices_de_la_migracion()]
+
+    assert "ux_order_job_slot" not in nombres, (
+        "vuelve a crearse el indice de order: lee el docstring de la revision "
+        "antes de tocar esto")
 
 
 def test_la_migracion_aborta_si_hay_duplicados():

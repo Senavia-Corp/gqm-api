@@ -1,0 +1,330 @@
+{
+  "app_item_id_formatted": "PAR6095",
+  "campos": {
+    "acc-rec": {
+      "label": "Acc. Rec.",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **ACCOUNTS RECEIVABLE - GQM Inc.- PAYMENT COLLECTION**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "acc-receivable": {
+      "label": "Acc. Receivable",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "910.0000"
+        }
+      ]
+    },
+    "amount-left-to-collect": {
+      "label": "Amount Left To Collect",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "0.0000"
+        }
+      ]
+    },
+    "calculation": {
+      "label": "Tech 1 Final Formula",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "440.0000"
+        }
+      ]
+    },
+    "calculation-2": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **TECH 3**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "calculation-3": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **TECH 1**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "calculation-4": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **TECH 2**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "check-amount-payment-1": {
+      "label": "Tech 1 - Payment 1",
+      "type": "money",
+      "values": [
+        {
+          "currency": "USD",
+          "value": "440.0000"
+        }
+      ]
+    },
+    "check-amount-payment-1-2": {
+      "label": "Tech 2 - Payment 1",
+      "type": "money",
+      "values": [
+        {
+          "currency": "USD",
+          "value": "220.0000"
+        }
+      ]
+    },
+    "date-received": {
+      "label": "Week Assigned",
+      "type": "date",
+      "values": [
+        {
+          "end": "2026-05-18 00:00:00",
+          "end_date": "2026-05-18",
+          "end_date_utc": "2026-05-18",
+          "end_time": null,
+          "end_time_utc": null,
+          "end_utc": "2026-05-18",
+          "start": "2026-05-14 00:00:00",
+          "start_date": "2026-05-14",
+          "start_date_utc": "2026-05-14",
+          "start_time": null,
+          "start_time_utc": null,
+          "start_utc": "2026-05-14"
+        }
+      ]
+    },
+    "field": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **TECHNICIAN 3 PAYMENT SCHEDULE**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "field-10": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **PROPOSAL PRICING - BY GQM Inc**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "field-2": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **TECH 4**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "field-3": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **TECHNICIAN 4 PAYMENT SCHEDULE**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "field-5": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **TECHNICIAN 1 PAYMENT SCHEDULE**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "field-6": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **TECHNICIAN 2 PAYMENT SCHEDULE**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "field-9": {
+      "label": "--",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "# **PRICING ANALYSIS**\n\n  \n\n* * *"
+        }
+      ]
+    },
+    "gqm-formula-total-cost": {
+      "label": "GQM (Formula) Pricing",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "660.0000"
+        }
+      ]
+    },
+    "gqm-pricing-return-premium-in": {
+      "label": "GQM (Premium in $) PAR",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "250.0000"
+        }
+      ]
+    },
+    "gqm-target-sold-price": {
+      "label": "GQM (Target) Sold PAR",
+      "type": "money",
+      "values": [
+        {
+          "currency": "USD",
+          "value": "910.0000"
+        }
+      ]
+    },
+    "gross-profit-margin": {
+      "label": "GQM (Target) PAR Return %",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "0.2747"
+        }
+      ]
+    },
+    "job-status": {
+      "label": "Job Status",
+      "type": "category",
+      "values": [
+        {
+          "value": {
+            "color": "DCEBD8",
+            "id": 10,
+            "status": "active",
+            "text": "Paid"
+          }
+        }
+      ]
+    },
+    "par-id": {
+      "label": "PAR ID",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "PAR6095"
+        }
+      ]
+    },
+    "par-lead": {
+      "label": "PAR Lead",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "1.5000"
+        }
+      ]
+    },
+    "par-pricing-target": {
+      "label": "PAR Pricing Target",
+      "type": "category",
+      "values": [
+        {
+          "value": {
+            "color": "DCEBD8",
+            "id": 1,
+            "status": "active",
+            "text": "Yes"
+          }
+        }
+      ]
+    },
+    "par-sell-commission": {
+      "label": "PAR Sell Commission",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "6.7500"
+        }
+      ]
+    },
+    "payment-received-1": {
+      "label": "Payment Received 1",
+      "type": "money",
+      "values": [
+        {
+          "currency": "USD",
+          "value": "910.0000"
+        }
+      ]
+    },
+    "tech-1-ptl-original-pricing": {
+      "label": "TECH 1 - Formula",
+      "type": "money",
+      "values": [
+        {
+          "currency": "USD",
+          "value": "440.0000"
+        }
+      ]
+    },
+    "tech-2-final-formula": {
+      "label": "Tech 2 Final Formula",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "220.0000"
+        }
+      ]
+    },
+    "tech-2-ptl-original-pricing": {
+      "label": "TECH 2 - Formula",
+      "type": "money",
+      "values": [
+        {
+          "currency": "USD",
+          "value": "220.0000"
+        }
+      ]
+    },
+    "total-left-to-pay-tech-2": {
+      "label": "Total (Left to) Pay Tech 2",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "0.0000"
+        }
+      ]
+    },
+    "total-left-to-pay-tech-3": {
+      "label": "Total (Left to) Pay Tech 3",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "0.0000"
+        }
+      ]
+    },
+    "total-paid": {
+      "label": "Total (Left to) Pay Tech 1",
+      "type": "calculation",
+      "values": [
+        {
+          "value": "0.0000"
+        }
+      ]
+    }
+  },
+  "item_id": "3304340068"
+}
