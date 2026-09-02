@@ -48,16 +48,6 @@ def flag_encendido(monkeypatch):
     monkeypatch.setenv("PODIO_VACIA_SLOTS", "true")
 
 
-@pytest.fixture(autouse=True)
-def sin_dead_letter(monkeypatch):
-    """El dead-letter abre su propia sesión contra Neon: aquí se intercepta."""
-    import src.podio.webhook.jobs_hook_sync as jh
-    avisos = []
-    monkeypatch.setattr(jh, "record_failed_sync_propia",
-                        lambda **kw: avisos.append(kw))
-    return avisos
-
-
 def _orden(sesion, tech_field, **kw):
     campos = {"Formula": 500.0, "Adj_formula": 500.0, "Notes": "nota vieja",
               "Ptl_hd_materials": 42.0, "ID_Subcontractor": None}
@@ -136,7 +126,7 @@ def test_id_subcontractor_no_se_toca_en_esta_fase(sesion):
 
 @pytest.mark.parametrize("cuelga", ["Title", "estimate_cost",
                                     "financial_document", "opportunity"])
-def test_una_order_con_datos_locales_no_se_vacia(sesion, sin_dead_letter, cuelga):
+def test_una_order_con_datos_locales_no_se_vacia(sesion, caplog, cuelga):
     """`upsert_order` no escribe `Title` ni cuelga costes, facturas ni
     oportunidades: si algo de eso está ahí la fila la hizo una persona, y su
     slot puede no existir en Podio (`POST /order/?sync_podio=false`)."""
@@ -151,11 +141,14 @@ def test_una_order_con_datos_locales_no_se_vacia(sesion, sin_dead_letter, cuelga
         sesion.add(Opportunities(ID_Opportunities="OPP1", ID_Order=orden.ID_Order))
     sesion.commit()
 
-    informe = _vaciar(sesion)
+    import logging
+    with caplog.at_level(logging.WARNING):
+        informe = _vaciar(sesion)
 
     assert orden.Formula == 500.0, "destruyó un importe que Podio nunca gobernó"
     assert informe and informe[0]["saltada"] is True
-    assert len(sin_dead_letter) == 1, "la divergencia se resolvió en silencio"
+    assert "NO se vacia" in caplog.text, "la divergencia se resolvió en silencio"
+    assert orden.ID_Order in caplog.text
 
 
 def test_una_order_en_slot_de_change_order_no_se_encuentra(sesion):
@@ -437,3 +430,20 @@ def test_el_log_del_dry_run_no_afirma_que_vacio(sesion, caplog):
 
     assert "SE VACIARIA" in simulado and "se vacia " not in simulado
     assert "se vacia " in real and "SE VACIARIA" not in real
+
+
+@pytest.mark.parametrize("tipo, tech_field", [
+    ("QID", "labor-tech-5"),
+    ("PTL", "tech-3-ptl-original-pricing"),
+])
+def test_las_cuotas_no_se_vacian_en_tipos_que_no_las_tienen(sesion, tipo, tech_field):
+    """`TECH_PAYMENT_FIELDS` solo tiene PAR: en QID y PTL, Podio no tiene campo de
+    cuota, así que un `Payment_N` con valor solo lo pudo escribir una persona por
+    `POST`/`PATCH /order/` y no hay nada en Podio con lo que devolverlo. Es la
+    misma regla que `upsert_order` ya documenta: `payments=None` = no tocar."""
+    orden = _orden(sesion, tech_field, Payment_1=1500.0)
+
+    _vaciar(sesion, tipo=tipo)
+
+    assert orden.Formula is None, "la fórmula sí se vacía"
+    assert orden.Payment_1 == 1500.0, "destruyó un cheque sin vuelta atrás"

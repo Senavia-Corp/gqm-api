@@ -332,9 +332,19 @@ def slots_vaciables(job_type: str, anio) -> frozenset:
 
 
 def cuotas_vaciables(job_type: str, anio) -> frozenset:
-    """Los slots donde una ausencia puede además vaciar `Payment_1..3`."""
-    return slots_vaciables(job_type, anio) - SLOTS_SIN_CUOTAS.get(
-        (job_type, anio), frozenset())
+    """Los slots donde una ausencia puede además vaciar `Payment_1..3`.
+
+    Se cruza con `TECH_PAYMENT_FIELDS` ANTES de restar los huecos por año: los
+    cheques parciales solo existen en PAR. En QID y PTL, Podio no tiene campo de
+    cuota, asi que un `Payment_N` con valor solo puede haberlo escrito una
+    persona por `POST`/`PATCH /order/` —estan en `OrderBase`— y no hay nada en
+    Podio con lo que devolverlo. Vaciarlo seria destruirlo sin vuelta.
+    Es la misma regla que `upsert_order` ya documenta en su firma: `payments=None`
+    para QID/PTL significa NO TOCAR.
+    """
+    return (slots_vaciables(job_type, anio)
+            & frozenset(TECH_PAYMENT_FIELDS.get(job_type, {}))
+            ) - SLOTS_SIN_CUOTAS.get((job_type, anio), frozenset())
 
 
 def cos_declarados(job_type: str) -> set:

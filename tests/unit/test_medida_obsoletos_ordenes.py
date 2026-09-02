@@ -302,3 +302,24 @@ def test_si_la_app_se_movio_a_mitad_del_recuento_no_es_completo(
 
     assert cuerpo["completo"] is False
     assert "se movió mientras se contaba" in cuerpo["inconsistente"]
+
+
+def test_un_job_cuyas_filas_solo_se_saltan_no_es_un_job_afectado(sesion, podio):
+    """`jobs_afectados_con_comision_emitida` existe para avisar «a estos jobs el
+    vaciado les mueve el dinero». Un job cuya única Order la protege la guarda no
+    va a perder ni una columna: nombrarlo ahí es una alarma falsa."""
+    from src.models.ComDetailModel import CommissionDetail
+
+    _sembrar(sesion, 101, "QID50101", Title="PO-QID50101-01")
+    sesion.add(CommissionDetail(ID_ComDetail="CDT1", ID_Jobs="QID50101",
+                                Type="Standard"))
+    sesion.commit()
+    podio([_item(101)])
+
+    resumen, _ = _medir(sesion)
+
+    assert resumen["orders_a_vaciar"] == 0
+    assert resumen["orders_saltadas_por_datos_locales"] == 1
+    assert resumen["jobs_afectados"] == 0
+    assert resumen["jobs_afectados_con_comision_emitida"] == []
+    assert resumen["jobs_solo_con_filas_saltadas"] == 1, "se perdió la señal"

@@ -352,18 +352,6 @@ def _la_toco_un_humano(order) -> bool:
                 or order.opportunities)
 
 
-def _avisar_saltada(order, motivo: dict) -> None:
-    # Import tardio: `jobs_hook_sync` importa de este modulo, y al ejecutarse
-    # esta funcion los dos ya estan cargados.
-    from src.podio.webhook.jobs_hook_sync import record_failed_sync_propia
-
-    record_failed_sync_propia(
-        item_id=order.job_podio_id,
-        hook_type="slot_vaciado_en_podio_con_datos_locales",
-        payload=motivo,
-        error="la Order tiene datos que no puso el sync; no se vacia")
-
-
 def slots_y_cos_presentes(fields, job_type: str):
     """Lo que el item SI menciona: (indices de tecnico, external_ids de CO).
 
@@ -487,15 +475,20 @@ def vaciar_slots_ausentes(session, podio_item_id: str, job_type: str, anio,
 
         if _la_toco_un_humano(order):
             fila["saltada"] = True
+            # LOG, NO DEAD-LETTER. La condicion es PERMANENTE —un `Title`
+            # sigue ahi para siempre— asi que una fila en `podio_failed_syncs`
+            # nacería `resolved=False` y no habria forma de cerrarla: su
+            # `hook_type` no lo entiende ni `auto_resolver_convergidos` ni el
+            # boton de resync, que responde 422. Con 33 ordenes tocadas por
+            # humanos, cada corrida masiva y cada `item.update` irian sumando
+            # incidencias que no son fallos, enterrando en el badge del panel
+            # los fallos reales que esa cola existe para enseñar. La visibilidad
+            # de estas filas la da `/admin/podio/obsoletos_ordenes`, que las
+            # cuenta en `orders_saltadas_por_datos_locales` y las lista.
             logger.warning(
                 "slot %s de %s vacio en Podio, pero %s tiene datos locales "
                 "(Title/costes/facturas/oportunidades): NO se vacia %s",
                 slot, podio_item_id, order.ID_Order, sorted(antes))
-            if not dry_run:
-                _avisar_saltada(order, {"ID_Order": order.ID_Order,
-                                        "job_podio_id": podio_item_id,
-                                        "slot": slot,
-                                        "columnas": sorted(antes)})
             informe.append(fila)
             continue
 

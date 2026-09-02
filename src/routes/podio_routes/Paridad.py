@@ -831,7 +831,7 @@ def _obsoletos_de_ordenes(session, tipo: str, anio: int, presupuesto: int,
     por_slot, detalle = {}, []
     n_ordenes = n_saltadas = n_cos = 0
     formula_vaciada = adj_en_riesgo = 0.0
-    jobs_tocados, jobs_con_comision = set(), set()
+    jobs_tocados, jobs_con_comision, jobs_solo_saltados = set(), set(), set()
     # Los ítems ya evaluados en ESTA llamada. Podio pagina por offset sobre una
     # app viva: si alguien edita un job entre dos páginas, puede reaparecer en la
     # siguiente. Sin esto su Order candidata se contaría dos veces en
@@ -873,9 +873,20 @@ def _obsoletos_de_ordenes(session, tipo: str, anio: int, presupuesto: int,
             if not ordenes and not cos:
                 continue
 
-            jobs_tocados.add(job.ID_Jobs)
-            if job.ID_Jobs in con_comision:
-                jobs_con_comision.add(job.ID_Jobs)
+            # Un job cuyas filas SOLO se saltan no es un job afectado: la
+            # guarda no le va a tocar ni una columna. Contarlo inflaba
+            # `jobs_afectados` y, peor, metia jobs en
+            # `jobs_afectados_con_comision_emitida` —la lista que existe para
+            # avisar «a estos el vaciado les mueve el dinero»— cuando no se les
+            # mueve nada. Con 33 ordenes tocadas por humanos, ese aviso podia
+            # ser enteramente falso con `orders_a_vaciar: 0`.
+            hay_vaciado = bool(cos) or any(not f["saltada"] for f in ordenes)
+            if hay_vaciado:
+                jobs_tocados.add(job.ID_Jobs)
+                if job.ID_Jobs in con_comision:
+                    jobs_con_comision.add(job.ID_Jobs)
+            else:
+                jobs_solo_saltados.add(job.ID_Jobs)
             n_cos += len(cos)
 
             for fila in ordenes:
@@ -918,6 +929,7 @@ def _obsoletos_de_ordenes(session, tipo: str, anio: int, presupuesto: int,
                      "El movimiento real es menor si la order tiene change "
                      "orders, porque `recalculate_order_formulas` los conserva."),
         "jobs_afectados": len(jobs_tocados),
+        "jobs_solo_con_filas_saltadas": len(jobs_solo_saltados),
         "jobs_afectados_con_comision_emitida": sorted(jobs_con_comision),
         "por_slot": dict(sorted(por_slot.items())),
         "detalle": detalle,
@@ -934,9 +946,16 @@ def obsoletos_ordenes():
     SELECT contra la BD, y los dos helpers en `dry_run`. No repara nada.
 
     Trocear: `&presupuesto_s=` y reencadenar con el `siguiente_offset` que
-    devuelve, hasta que venga `null`. Mientras `completo` sea `false` las cifras
-    son un **MÍNIMO**, no el total (regla 5: nada parcial se presenta como
+    devuelve, hasta que venga `null`. Mientras `completo` sea `false`, las cifras
+    de ESA respuesta no son el total (regla 5: nada parcial se presenta como
     completo).
+
+    Y el acumulado de varios tramos tampoco es exacto en ninguna direccion: el
+    dedupe de `ya_evaluados` es por LLAMADA, y Podio pagina por offset sobre una
+    app viva, asi que un item que se edita entre dos tramos puede reaparecer en
+    el siguiente y SOBRECONTARSE. Para una cifra en la que basar la decision,
+    mide de una sola pasada (sube `presupuesto_s`); si tienes que trocear,
+    deduplica por `ID_Jobs` con el `detalle` de cada tramo.
     """
     tipo = (request.args.get("type") or "").upper().strip()
     anio = request.args.get("year", type=int)
@@ -959,8 +978,9 @@ def obsoletos_ordenes():
         resumen["siguiente_offset"] = siguiente
         resumen["parcial"] = (
             f"se agotó el presupuesto tras {resumen['revisados']} jobs de "
-            f"{resumen['items_en_podio']}. Las cifras son un MÍNIMO: reencadena "
-            f"con offset={siguiente}.")
+            f"{resumen['items_en_podio']}. Estas cifras cubren solo ese tramo; "
+            f"reencadena con offset={siguiente}. Encadenar puede SOBRECONTAR si "
+            f"la app se mueve entre tramos: para decidir, mide de una pasada.")
 
     elif offset:
         # EL TRAMO FINAL DE UNA ENUMERACIÓN TROCEADA NO ES LA MEDIDA.
