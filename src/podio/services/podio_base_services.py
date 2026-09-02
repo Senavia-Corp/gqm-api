@@ -153,6 +153,25 @@ class PodioBaseService:
             "offset": offset,
         }
 
+    @retry_api_lectura()
+    def get_app_fields(self) -> set:
+        """Los `external_id` ACTIVOS del ESQUEMA de la app, no de un item.
+
+        Un item solo trae los campos con valor, asi que de el no se puede
+        distinguir "vacio en Podio" de "ese campo no existe en esta app-anio".
+        Y la diferencia mueve dinero: medido el 2026-09-02, la app de QID 2025
+        no tiene 11 de los 49 slugs de change order declarados para QID, y en
+        produccion cuelgan 8 change orders vivos de esos slugs — uno de 18.000
+        USD en QID 2023. Vaciar por una ausencia que solo significa "aqui ese
+        campo no existe" seria destruirlos.
+        """
+        url = f"{BASE_URL}/app/{self.app_id}"
+        response = requests.get(url, headers=self._headers(), timeout=30)
+        response.raise_for_status()
+        return {c.get("external_id")
+                for c in (response.json().get("fields") or [])
+                if c.get("status") == "active" and c.get("external_id")}
+
     def get_items(self, limit=50, offset=0):
         # Firma intacta a propósito: los llamadores vivos esperan solo la lista.
         # Al delegar hereda `retry_api_lectura`, así que un 403 ahora falla al
