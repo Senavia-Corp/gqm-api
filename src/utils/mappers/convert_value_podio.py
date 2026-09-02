@@ -23,7 +23,11 @@ def convert_value_for_podio(value, field_type="text", end_value=None, with_time=
             return [str(value)]
 
     if field_type == "text":
-        return {"value": str(value)} if value is not None else None
+        # Podio exige >= 1 caracter: un {"value": ""} devuelve 400 y tumba el PUT
+        # del item ENTERO, no solo ese campo. Vacio = ausencia de dato, se omite.
+        # Borrar es un acto explicito y va por `limpiar_slots`
+        # (ver to_podio/limpieza_slots.py).
+        return {"value": str(value)} if value not in (None, "") else None
 
     if field_type == "category":
         if not value:
@@ -131,7 +135,8 @@ def convert_value_for_podio(value, field_type="text", end_value=None, with_time=
         return [{"value": int(value)}]  # profile_id
 
     if field_type == "location":
-        if value is None:
+        # Misma serializacion que `text`, mismo 400 con "".
+        if value in (None, ""):
             return None
         return {"value": str(value)}
 
