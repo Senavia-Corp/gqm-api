@@ -40,6 +40,9 @@ from src.utils.borrado_job import (
     sentinela_huerfanos,
 )
 from src.utils.job_app_year import expr_anio_app
+from src.utils.mappers.from_podio.order_changeorder_mapper import (
+    slots_vaciables,
+)
 from src.utils.middleware.exceptions_handler import handle_exceptions
 
 paridad_bp = Blueprint("paridad", __name__, url_prefix="/admin/podio")
@@ -764,6 +767,232 @@ def reconciliar_dinero():
     return jsonify({"dry_run": False, "tipo": tipo, "anio": anio,
                     "jobs_actualizados": len(diffs),
                     "ID_Jobs": [d["ID_Jobs"] for d in diffs]}), 200
+
+
+# ==========================================================================
+# Medida del vaciado de slots de órdenes (1-sep-2026)
+# ==========================================================================
+# Hasta hoy, quitar un técnico de Podio NO vaciaba su fila `Order`: los dos
+# lectores construían `tech_data` solo con los campos presentes, así que un slot
+# que desaparecía entero no se visitaba nunca. Esto cuenta cuánta deuda dejó ese
+# defecto y, sobre todo, cuánto dinero movería encender `PODIO_VACIA_SLOTS`.
+#
+# NO usa `_censo_y_diffs`: ése es todo-o-nada a propósito porque lo consume un
+# ESCRITOR y de una página parcial no se puede inferir que a un job le falte su
+# item. Aquí el predicado es por ítem —«la BD tiene valor y Podio no»—, así que
+# una enumeración parcial sigue siendo una medida válida: un MÍNIMO. Se trocea y
+# se dice que es mínimo.
+
+# El detalle por job se acota para que la respuesta quepa; los CONTADORES nunca
+# se acotan, y cuando se recorta se dice cuántos se omitieron: un tope
+# silencioso se lee como «esto es todo lo que hay».
+TOPE_DETALLE_ORDENES = 200
+
+
+def _obsoletos_de_ordenes(session, tipo: str, anio: int, presupuesto: int,
+                          offset: int):
+    """Pagina la app aplicando el MISMO predicado que el arreglo, en `dry_run`.
+
+    Medir con otra lista diría otra cosa: `vaciar_slots_ausentes` y
+    `vaciar_cos_ausentes` son las que deciden, y aquí se llaman tal cual con
+    `dry_run=True`, que no escribe ni pasa por el interruptor de despliegue.
+    """
+    from src.podio.sync.sync_orders import (
+        catalogo_de_slots,
+        slots_y_cos_presentes,
+        vaciado_de_slots_activo,
+        vaciar_cos_ausentes,
+        vaciar_slots_ausentes,
+    )
+
+    servicio = podio_jobs_router.get_readonly_service(tipo, anio)
+    sonda = servicio.get_items_page(limit=1)
+    total_podio = sonda.get("filtered") or sonda.get("total") or 0
+
+    por_item = {
+        str(j.podio_item_id): j
+        for j in session.exec(
+            select(Job).where(Job.Job_type == tipo,
+                              Job.podio_item_id.is_not(None),
+                              expr_anio_app() == anio)).all()
+    }
+    # `select(col)` devuelve escalares, no tuplas (mismo uso que en
+    # `_cascade_delete_job_from_podio`).
+    con_comision = {
+        j for j in session.exec(
+            select(CommissionDetail.ID_Jobs).distinct()).all() if j}
+
+    # Dos consultas por adelantado en vez de una por slot y por item: sin esto
+    # el presupuesto se agota antes de cubrir una app y la medida sale siempre
+    # parcial, que es justo lo que no sirve para decidir.
+    catalogo = catalogo_de_slots(session, por_item)
+
+    inicio, revisados, siguiente = time.monotonic(), 0, offset
+    por_slot, detalle = {}, []
+    n_ordenes = n_saltadas = n_cos = 0
+    formula_vaciada = adj_en_riesgo = 0.0
+    jobs_tocados, jobs_con_comision = set(), set()
+    # Los ítems ya evaluados en ESTA llamada. Podio pagina por offset sobre una
+    # app viva: si alguien edita un job entre dos páginas, puede reaparecer en la
+    # siguiente. Sin esto su Order candidata se contaría dos veces en
+    # `orders_a_vaciar` y en `formula_que_se_vacia` (`jobs_afectados` no, porque
+    # es un set) y los contadores dejarían de cuadrar entre sí en silencio.
+    ya_evaluados, repetidos = set(), 0
+
+    while True:
+        if siguiente > offset:
+            gastado = time.monotonic() - inicio
+            por_pagina = gastado / max(1, (siguiente - offset) / TOPE_PAGINA)
+            if gastado + por_pagina > presupuesto:
+                break
+        lote = (servicio.get_items_page(
+            limit=TOPE_PAGINA, offset=siguiente) or {}).get("items") or []
+        if not lote:
+            siguiente = None
+            break
+
+        for item in lote:
+            ref = str(item.get("item_id"))
+            if ref in ya_evaluados:
+                repetidos += 1
+                continue  # la app se movió entre páginas
+            ya_evaluados.add(ref)
+
+            job = por_item.get(ref)
+            if job is None:
+                continue  # sin fila en la BD: eso lo mide /parity, no esto
+            revisados += 1
+
+            vistos, cos_vistos = slots_y_cos_presentes(
+                item.get("fields", []), tipo)
+            ordenes = vaciar_slots_ausentes(
+                session, ref, tipo, anio, vistos, dry_run=True,
+                catalogo=catalogo)
+            cos = vaciar_cos_ausentes(
+                session, ref, tipo, cos_vistos, dry_run=True, catalogo=catalogo)
+            if not ordenes and not cos:
+                continue
+
+            jobs_tocados.add(job.ID_Jobs)
+            if job.ID_Jobs in con_comision:
+                jobs_con_comision.add(job.ID_Jobs)
+            n_cos += len(cos)
+
+            for fila in ordenes:
+                if fila["saltada"]:
+                    n_saltadas += 1
+                    continue
+                # El desglose va DESPUÉS de la guarda a propósito: si contara
+                # también las saltadas, `sum(por_slot.values())` no cuadraría
+                # con `orders_a_vaciar` y el desglose prometería vaciados que la
+                # guarda no va a hacer.
+                por_slot[f"slot-{fila['slot']}"] = por_slot.get(
+                    f"slot-{fila['slot']}", 0) + 1
+                n_ordenes += 1
+                formula_vaciada += float(fila["antes"].get("Formula") or 0)
+                adj_en_riesgo += float(fila.get("adj_formula") or 0)
+
+            if len(detalle) < TOPE_DETALLE_ORDENES:
+                detalle.append({"ID_Jobs": job.ID_Jobs, "orders": ordenes,
+                                "change_orders": cos})
+
+        siguiente += len(lote)
+        if len(lote) < TOPE_PAGINA or siguiente >= total_podio:
+            siguiente = None
+            break
+
+    return {
+        "tipo": tipo, "anio": anio,
+        "vaciado_activo": vaciado_de_slots_activo(),
+        "items_en_podio": total_podio,
+        "items_enumerados": len(ya_evaluados),
+        "items_repetidos_entre_paginas": repetidos,
+        "revisados": revisados,
+        "slots_evaluados": sorted(slots_vaciables(tipo, anio)),
+        "orders_a_vaciar": n_ordenes,
+        "orders_saltadas_por_datos_locales": n_saltadas,
+        "change_orders_a_vaciar": n_cos,
+        "formula_que_se_vacia": round(formula_vaciada, 2),
+        "adj_formula_en_riesgo": round(adj_en_riesgo, 2),
+        "nota_adj": ("cota SUPERIOR: es el `Adj_formula` actual de esas orders. "
+                     "El movimiento real es menor si la order tiene change "
+                     "orders, porque `recalculate_order_formulas` los conserva."),
+        "jobs_afectados": len(jobs_tocados),
+        "jobs_afectados_con_comision_emitida": sorted(jobs_con_comision),
+        "por_slot": dict(sorted(por_slot.items())),
+        "detalle": detalle,
+        "jobs_omitidos_del_detalle": max(0, len(jobs_tocados) - len(detalle)),
+    }, siguiente
+
+
+@paridad_bp.get("/obsoletos_ordenes")
+@handle_exceptions()
+def obsoletos_ordenes():
+    """`?type=QID&year=2025`. Qué haría encender `PODIO_VACIA_SLOTS`.
+
+    **Solo lectura, sin excepción**: servicio de solo lectura contra Podio,
+    SELECT contra la BD, y los dos helpers en `dry_run`. No repara nada.
+
+    Trocear: `&presupuesto_s=` y reencadenar con el `siguiente_offset` que
+    devuelve, hasta que venga `null`. Mientras `completo` sea `false` las cifras
+    son un **MÍNIMO**, no el total (regla 5: nada parcial se presenta como
+    completo).
+    """
+    tipo = (request.args.get("type") or "").upper().strip()
+    anio = request.args.get("year", type=int)
+    offset = request.args.get("offset", default=0, type=int)
+    presupuesto = request.args.get("presupuesto_s", default=PRESUPUESTO_S,
+                                   type=int)
+
+    if tipo not in JOB_TYPES or anio not in JOB_YEARS:
+        return jsonify({"detail": f"type y year obligatorios. "
+                                  f"Válidos: {JOB_TYPES} / {JOB_YEARS}"}), 400
+
+    with get_session() as session:
+        resumen, siguiente = _obsoletos_de_ordenes(
+            session, tipo, anio, presupuesto, offset)
+
+    resumen["offset"] = offset
+    resumen["completo"] = siguiente is None
+
+    if siguiente is not None:
+        resumen["siguiente_offset"] = siguiente
+        resumen["parcial"] = (
+            f"se agotó el presupuesto tras {resumen['revisados']} jobs de "
+            f"{resumen['items_en_podio']}. Las cifras son un MÍNIMO: reencadena "
+            f"con offset={siguiente}.")
+
+    elif offset:
+        # EL TRAMO FINAL DE UNA ENUMERACIÓN TROCEADA NO ES LA MEDIDA.
+        #
+        # `siguiente is None` solo dice que ESTA llamada llegó al final de la
+        # app, no que haya visto la app entera: con `?offset=N` las cifras
+        # cubren los ítems N..final y nada más. Marcarlo `completo` hacía que la
+        # ÚLTIMA respuesta —la única sin aviso de parcialidad— fuera justo la que
+        # más subestima, y es la que un operador leería para decidir si enciende
+        # `PODIO_VACIA_SLOTS`. En QID 2025 (1.879 ítems contra un techo de
+        # función de 300 s) trocear es el caso normal, no el raro.
+        #
+        # El vecino `_paridad_de_app` ya guarda esto mismo (:249-256).
+        resumen["completo"] = False
+        resumen["parcial"] = (
+            f"tramo final de una enumeración troceada: estas cifras cubren solo "
+            f"los ítems desde offset={offset}. El total lo acumula quien "
+            f"encadene todos los tramos.")
+
+    elif resumen["items_enumerados"] != (resumen["items_en_podio"] or 0):
+        # La sonda y la enumeración tienen que coincidir. Si no, alguien tocó la
+        # app a mitad del recuento y las cifras no describen un estado que haya
+        # existido. No se promedia ni se redondea: se dice.
+        resumen["completo"] = False
+        resumen["inconsistente"] = (
+            f"la sonda dice {resumen['items_en_podio']} ítems y se enumeraron "
+            f"{resumen['items_enumerados']} "
+            f"({resumen['items_repetidos_entre_paginas']} repetidos y "
+            f"descartados): la app se movió mientras se contaba. Repite la "
+            f"medida entera.")
+
+    return jsonify(resumen), 200
 
 
 @paridad_bp.post("/purge_orphans")

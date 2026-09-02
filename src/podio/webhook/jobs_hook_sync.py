@@ -9,7 +9,15 @@ from src.models.SubcontractorModel import Subcontractor
 from src.models.link_models.JobSubcontractor import JobSubcontractorLink
 from src.models.ClientModel import Client
 from src.models.BldgDeptModel import BuildingDept
-from ..sync.sync_orders import upsert_order, upsert_change_order, extract_subcontractor_from_field
+from ..sync.sync_orders import (
+    upsert_order,
+    upsert_change_order,
+    extract_subcontractor_from_field,
+    slots_y_cos_presentes,
+    vaciar_cos_ausentes,
+    vaciar_slots_ausentes,
+)
+from src.utils.job_app_year import resolver_anio_app
 from src.utils.mappers.from_podio.order_changeorder_mapper import (
     TECHNICIAN_FIELDS,
     TECH_FORMULA_FIELDS,
@@ -441,6 +449,13 @@ def add_job_orders_and_change_orders(
 
         orders_map[tech_index] = order
 
+    # Los slots que YA NO vienen en el item. `tech_data` solo tiene los que el
+    # payload menciona, asi que un tecnico quitado entero de Podio no pasaba
+    # por `upsert_order` y su fila conservaba el dinero para siempre.
+    slots_vistos, cos_vistos = slots_y_cos_presentes(fields, app_type)
+    vaciar_slots_ausentes(session, podio_item_id, app_type,
+                          resolver_anio_app(job), slots_vistos)
+
     # =============================
     # 3️⃣ PROJECT CHANGE ORDERS
     # =============================
@@ -496,6 +511,10 @@ def add_job_orders_and_change_orders(
                 change_formula=value,
                 order=order_obj
             )
+
+    # Mismo agujero que arriba: `order_change_data` solo se puebla con los
+    # slugs presentes, asi que vaciar un CO en Podio no llegaba nunca aqui.
+    vaciar_cos_ausentes(session, podio_item_id, app_type, cos_vistos)
 
 
 def record_failed_sync_propia(*, item_id, hook_type, payload, error) -> None:

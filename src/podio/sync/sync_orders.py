@@ -1,3 +1,4 @@
+import os
 import re
 
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +23,9 @@ from src.utils.mappers.from_podio.order_changeorder_mapper import (
     PROJECT_CHANGE_ORDER_FIELDS,
     ORDER_CHANGE_ORDERS_FIELDS,
     collect_payment_slots,
+    cos_declarados,
+    cuotas_vaciables,
+    slots_vaciables,
 )
 from src.utils.mappers.mapper_aux_functions import has_html, clean_html
 
@@ -297,6 +301,252 @@ def extract_subcontractor_from_field(session, field):
 
 
 # ===============================
+# --- VACIADO DE SLOTS AUSENTES -
+# ===============================
+#
+# Podio omite del item los campos vacios, y `item_de_confianza` relee SIEMPRE
+# el item entero antes de escribir: un slot ausente significa "ese tecnico ya
+# no esta en Podio". Los dos lectores construian `tech_data` solo con lo
+# presente, asi que un slot que desaparecia ENTERO no se visitaba y la fila
+# conservaba su dinero indefinidamente. Gemelo en filas del arreglo de columnas
+# de `job_mapper.campos_vaciables`.
+#
+# Se VACIA, nunca se borra: `order` no tiene columna de soft-delete y borrar
+# exigiria replicar aqui el desenlazado de `DELETE /order/<id>`. Vaciar
+# converge igual (Formula=None -> baja `Adj_formula` -> bajan los agregados) y
+# se deshace rellenando el campo en Podio.
+
+# Lo que gobierna Podio en una Order. `Adj_formula` NO esta: la reescribe
+# siempre `recalculate_order_formulas`, asi que vaciarla seria churn puro.
+# `ID_Subcontractor` tampoco: desvincular saca la orden del portal de ese
+# subcontratista (REG-110, `routes/Order.py:42`) y los agregados no lo leen.
+COLUMNAS_DE_PODIO = ("Formula", "Ptl_hd_materials", "Notes")
+COLUMNAS_DE_CUOTAS = ("Payment_1", "Payment_2", "Payment_3")
+
+
+def vaciado_de_slots_activo() -> bool:
+    """Interruptor de despliegue. Apagado, el comportamiento es el de siempre.
+
+    Existe para que "desplegar" y "mover los agregados de 9.297 ordenes" no
+    sean el mismo acto: se despliega apagado, se mide con
+    `/admin/podio/obsoletos_ordenes`, y se enciende a mano.
+    """
+    return os.getenv("PODIO_VACIA_SLOTS", "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def _la_toco_un_humano(order) -> bool:
+    """Algo que no puso el sync cuelga de esta Order.
+
+    `upsert_order` nunca escribe `Title` ni vincula costes, facturas u
+    oportunidades. Si algo de eso esta ahi, la fila la construyo una persona
+    —tipicamente un PO desde el panel— y su slot puede no existir en Podio:
+    `POST /order/?sync_podio=false` guarda sin avisar a Podio, y la ventana
+    entre el commit y el `update_item` de `Order.py:370-376` deja el mismo
+    rastro. Vaciarla destruiria un dato bueno.
+
+    Mismo precedente que `sync_bdf_from_podio`: cuando el desajuste puede
+    venir de nuestro propio lado, no se poda — se avisa.
+    """
+    return bool(order.Title or order.estimate_costs or order.financial_docs
+                or order.opportunities)
+
+
+def _avisar_saltada(order, motivo: dict) -> None:
+    # Import tardio: `jobs_hook_sync` importa de este modulo, y al ejecutarse
+    # esta funcion los dos ya estan cargados.
+    from src.podio.webhook.jobs_hook_sync import record_failed_sync_propia
+
+    record_failed_sync_propia(
+        item_id=order.job_podio_id,
+        hook_type="slot_vaciado_en_podio_con_datos_locales",
+        payload=motivo,
+        error="la Order tiene datos que no puso el sync; no se vacia")
+
+
+def slots_y_cos_presentes(fields, job_type: str):
+    """Lo que el item SI menciona: (indices de tecnico, external_ids de CO).
+
+    Se mira el PAYLOAD, no `tech_data`. La diferencia importa: un
+    `technician-N` presente cuyo Subcontractor no esta en la BD no llega a
+    `tech_data` (`extract_subcontractor_from_field` devuelve None), y tomar eso
+    por "el slot ya no esta" vaciaria una Order que Podio sigue teniendo.
+
+    Se cuentan TODOS los mapas del slot —formula, adj, HD, notas, cuotas y el
+    propio technician— porque cualquiera de ellos prueba que el tecnico sigue
+    ahi. Predicado unico: lo usan los dos lectores y la ruta de medida.
+    """
+    presentes = {f.get("external_id") for f in fields
+                 if f.get("external_id") and f.get("values")}
+
+    mapas = (TECH_FORMULA_FIELDS.get(job_type, {}),
+             TECH_ADJ_FORMULA_FIELDS.get(job_type, {}),
+             TECH_HD_MATERIALS_FIELDS.get(job_type, {}),
+             TECH_NOTES_FIELDS.get(job_type, {}),
+             TECH_PAYMENT_FIELDS.get(job_type, {}),
+             TECHNICIAN_FIELDS)
+    vistos = {indice
+              for mapa in mapas
+              for indice, slugs in mapa.items()
+              if presentes.intersection(slugs)}
+
+    return vistos, presentes & cos_declarados(job_type)
+
+
+def catalogo_de_slots(session, podio_item_ids) -> dict:
+    """Indice en memoria de las filas por slot, para medir muchos items.
+
+    Sin esto, `/admin/podio/obsoletos_ordenes` haria una consulta por slot y por
+    item —hasta 80 por job— y el presupuesto de la funcion se agotaria antes de
+    cubrir una app entera: la medida saldria siempre parcial. Con el indice, las
+    9.297 orders y los 1.283 change orders de produccion caben de sobra en dos
+    consultas.
+    """
+    refs = {str(r) for r in podio_item_ids if r}
+    if not refs:
+        return {"orders": {}, "change_orders": {}}
+
+    ordenes = session.exec(select(Order).where(
+        Order.job_podio_id.in_(refs), Order.tech_field.is_not(None))).all()
+    cos = session.exec(select(ChangeOrder).where(
+        ChangeOrder.job_podio_id.in_(refs),
+        ChangeOrder.podio_field.is_not(None),
+        ChangeOrder.ID_Order.is_not(None))).all()
+
+    return {
+        "orders": {(o.job_podio_id, o.tech_field): o for o in ordenes},
+        "change_orders": {(c.job_podio_id, c.podio_field): c for c in cos},
+    }
+
+
+def _buscar_order(session, catalogo, podio_item_id, slugs):
+    if catalogo is None:
+        return session.exec(
+            select(Order).where(Order.job_podio_id == podio_item_id,
+                                Order.tech_field.in_(slugs))).first()
+    for slug in slugs:
+        fila = catalogo["orders"].get((podio_item_id, slug))
+        if fila is not None:
+            return fila
+    return None
+
+
+def _buscar_co(session, catalogo, podio_item_id, slug):
+    if catalogo is None:
+        return session.exec(
+            select(ChangeOrder).where(
+                ChangeOrder.job_podio_id == podio_item_id,
+                ChangeOrder.podio_field == slug,
+                ChangeOrder.ID_Order.is_not(None))).first()
+    return catalogo["change_orders"].get((podio_item_id, slug))
+
+
+def vaciar_slots_ausentes(session, podio_item_id: str, job_type: str, anio,
+                          vistos, *, dry_run: bool = False,
+                          catalogo: dict = None) -> list:
+    """Vacia las Orders cuyo slot ya no viene en el item de Podio.
+
+    `vistos` son los indices que el payload SI menciona, y salen de
+    `slots_y_cos_presentes` — NO de las claves de `tech_data`: un `technician-N`
+    cuyo Subcontractor no esta en la BD no llega a `tech_data`, y tomarlo por
+    ausente vaciaria una Order que Podio sigue teniendo.
+
+    Devuelve el informe de lo hecho —o de lo que se haria con `dry_run`— para
+    que la ruta de medida use exactamente este predicado.
+    """
+    if not dry_run and not vaciado_de_slots_activo():
+        return []  # `dry_run` no escribe, asi que la medida no pasa por el flag
+
+    formula_map = TECH_FORMULA_FIELDS.get(job_type, {})
+    con_cuotas = cuotas_vaciables(job_type, anio)
+    informe = []
+
+    for slot in sorted(slots_vaciables(job_type, anio) - set(vistos)):
+        slugs = formula_map.get(slot) or []
+        if not slugs:
+            continue
+
+        order = _buscar_order(session, catalogo, podio_item_id, slugs)
+        if order is None:
+            continue  # el slot nunca tuvo fila: nada que vaciar
+
+        columnas = list(COLUMNAS_DE_PODIO)
+        if slot in con_cuotas:
+            columnas += list(COLUMNAS_DE_CUOTAS)
+
+        antes = {c: getattr(order, c) for c in columnas
+                 if getattr(order, c) is not None}
+        if not antes:
+            continue  # ya convergen; no se toca para no mover `updated_at`
+
+        # `Adj_formula` no se vacia (la reescribe el recalculo local), pero se
+        # informa: es lo que la fila aporta hoy a los agregados del job, o sea
+        # la cota superior de lo que este vaciado mueve.
+        fila = {"ID_Order": order.ID_Order, "slot": slot, "antes": antes,
+                "adj_formula": order.Adj_formula, "saltada": False}
+
+        if _la_toco_un_humano(order):
+            fila["saltada"] = True
+            logger.warning(
+                "slot %s de %s vacio en Podio, pero %s tiene datos locales "
+                "(Title/costes/facturas/oportunidades): NO se vacia %s",
+                slot, podio_item_id, order.ID_Order, sorted(antes))
+            if not dry_run:
+                _avisar_saltada(order, {"ID_Order": order.ID_Order,
+                                        "job_podio_id": podio_item_id,
+                                        "slot": slot,
+                                        "columnas": sorted(antes)})
+            informe.append(fila)
+            continue
+
+        if not dry_run:
+            for columna in antes:
+                setattr(order, columna, None)
+            session.add(order)
+        # El verbo distingue la simulacion: la ruta de medida recorre miles de
+        # items en `dry_run`, y un log que dijera "se vacia" en los dos casos
+        # dejaria miles de lineas afirmando que el cambio corrio cuando no.
+        logger.info("Order %s: el slot %s ya no esta en Podio, %s %s",
+                    order.ID_Order, slot,
+                    "SE VACIARIA" if dry_run else "se vacia", antes)
+        informe.append(fila)
+
+    return informe
+
+
+def vaciar_cos_ausentes(session, podio_item_id: str, job_type: str, presentes,
+                        *, dry_run: bool = False,
+                        catalogo: dict = None) -> list:
+    """Vacia los Change Orders de NIVEL ORDEN que ya no vienen en el item.
+
+    `presentes` son los external_ids de CO que el payload si trae. Solo se
+    tocan los que tienen `ID_Order`: los de nivel proyecto mueven
+    `Acc_receivable` y van en otra fase. Nunca se toca `ID_Order` —reparentar
+    un CO lo colaria en `Gqm_total_change_orders`— ni se borra ninguna fila.
+    """
+    if not dry_run and not vaciado_de_slots_activo():
+        return []  # ver `vaciar_slots_ausentes`
+
+    informe = []
+    for slug in sorted(cos_declarados(job_type) - set(presentes)):
+        co = _buscar_co(session, catalogo, podio_item_id, slug)
+        if co is None or co.ChangeOrderFormula is None:
+            continue
+
+        antes = {"ChangeOrderFormula": co.ChangeOrderFormula}
+        if not dry_run:
+            co.ChangeOrderFormula = None
+            session.add(co)
+        logger.info("ChangeOrder %s: el campo %s ya no esta en Podio, %s %s",
+                    co.ID_ChangeOrder, slug,
+                    "SE VACIARIA" if dry_run else "se vacia", antes)
+        informe.append({"ID_ChangeOrder": co.ID_ChangeOrder, "slot": slug,
+                        "antes": antes, "saltada": False})
+
+    return informe
+
+
+# ===============================
 # ----------- FASE 2 -----------
 # ===============================
 # Viene desde las apps de Jobs
@@ -504,6 +754,13 @@ def sync_job_orders_and_change_orders(
 
                 orders_map[tech_index] = order
 
+            # Los slots que YA NO vienen en el item (mismo arreglo que en el
+            # webhook). Aqui importa mas: esta corrida no llama a
+            # `recalculate_and_apply`, asi que lo que quede mal se persiste.
+            slots_vistos, cos_vistos = slots_y_cos_presentes(fields, job_type)
+            vaciar_slots_ausentes(session, podio_item_id, job_type, year,
+                                  slots_vistos, dry_run=dry_run)
+
             # -----------------------------
             # 3️⃣ UPSERT PROJECT CHANGE ORDERS
             # -----------------------------
@@ -550,6 +807,9 @@ def sync_job_orders_and_change_orders(
                         order=order_obj,  # 🔥 IMPORTANTE → Order level
                         dry_run=dry_run
                     )
+
+            vaciar_cos_ausentes(session, podio_item_id, job_type, cos_vistos,
+                                dry_run=dry_run)
 
         if not dry_run:
             session.commit()
