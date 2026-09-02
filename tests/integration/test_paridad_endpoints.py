@@ -202,3 +202,53 @@ def test_local_jobs_lista_los_que_nunca_llegaron_a_podio(client, admin_headers):
     cuerpo = resp.get_json()
     assert cuerpo["total"] == len(cuerpo["jobs"])
     assert all(j["ID_Jobs"] for j in cuerpo["jobs"])
+
+
+# ---------------------------------------------------------------- /obsoletos
+# Mide la deuda del defecto del 1-sep-2026 (vaciar en Podio no vaciaba en la
+# BD). Es un MEDIDOR: si algún día escribe, es un defecto, no una mejora.
+
+def test_obsoletos_exige_autenticacion(client):
+    assert client.get("/admin/podio/obsoletos").status_code in (401, 403)
+
+
+def test_obsoletos_valida_los_parametros(client, admin_headers):
+    assert client.get(
+        "/admin/podio/obsoletos?type=NOPE&year=2026",
+        headers=admin_headers).status_code == 400
+    assert client.get(
+        "/admin/podio/obsoletos?type=QID&year=2019",
+        headers=admin_headers).status_code == 400
+    # sin type ni year no se adivina la app
+    assert client.get(
+        "/admin/podio/obsoletos", headers=admin_headers).status_code == 400
+
+
+def test_obsoletos_dice_siempre_si_la_medida_es_completa(client, admin_headers):
+    """Regla 5: ningún resultado parcial se presenta como completo."""
+    resp = client.get("/admin/podio/obsoletos?type=PAR&year=2026",
+                      headers=admin_headers)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
+
+    cuerpo = resp.get_json()
+    assert "completo" in cuerpo, "sin este flag la cifra no se puede leer"
+    if not cuerpo["completo"]:
+        assert cuerpo["siguiente_offset"] is not None
+        assert "MÍNIMO" in cuerpo["parcial"]
+    assert isinstance(cuerpo["jobs_con_valor_obsoleto"], int)
+    assert cuerpo["revisados"] <= cuerpo["items_en_podio"]
+
+
+def test_obsoletos_solo_evalua_columnas_que_el_mapeador_puede_vaciar(
+        client, admin_headers):
+    """La medida y el arreglo comparten `campos_vaciables`; se comprueba que la
+    respuesta lo refleje y no incluya agregados de recálculo local."""
+    from src.utils.mappers.from_podio.job_mapper import campos_vaciables
+
+    resp = client.get("/admin/podio/obsoletos?type=PAR&year=2026",
+                      headers=admin_headers)
+    cuerpo = resp.get_json()
+
+    assert cuerpo["columnas_evaluadas"] == sorted(campos_vaciables("PAR", 2026))
+    assert "Gqm_formula_pricing" not in cuerpo["columnas_evaluadas"], (
+        "los agregados los reconstruye job_calculator: no son deuda del sync")

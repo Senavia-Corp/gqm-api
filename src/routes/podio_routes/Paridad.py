@@ -40,6 +40,10 @@ from src.utils.borrado_job import (
     sentinela_huerfanos,
 )
 from src.utils.job_app_year import expr_anio_app
+from src.utils.mappers.from_podio.job_mapper import (
+    campos_vaciables,
+    map_podio_item_to_job,
+)
 from src.utils.mappers.from_podio.order_changeorder_mapper import (
     slots_vaciables,
 )
@@ -767,6 +771,144 @@ def reconciliar_dinero():
     return jsonify({"dry_run": False, "tipo": tipo, "anio": anio,
                     "jobs_actualizados": len(diffs),
                     "ID_Jobs": [d["ID_Jobs"] for d in diffs]}), 200
+
+
+# ==========================================================================
+# Medida del arreglo del 1-sep-2026: valores que Podio ya no tiene
+# ==========================================================================
+# Hasta ese día, vaciar un campo en Podio NO lo vaciaba en la BD: el mapeador
+# saltaba lo ausente y la fila conservaba el valor viejo indefinidamente. El
+# arreglo vive en `from_podio/job_mapper.py`; esto cuenta cuánta deuda dejó.
+#
+# NO usa `_censo_y_diffs`: ése es todo-o-nada a propósito porque lo consume un
+# ESCRITOR (`reconciliar_dinero` y su cron), y de una página parcial no se puede
+# inferir que a un job le falta su item. Aquí el predicado es por ítem —«la BD
+# tiene valor y Podio no»— así que una enumeración parcial sigue siendo una
+# medida válida: un MÍNIMO. Se trocea y se dice que es mínimo.
+
+SENTINELA_AUSENTE = object()
+
+# El detalle por job se acota para que la respuesta quepa en la función; los
+# CONTADORES nunca se acotan. Cuando se recorta se dice cuántos se omitieron:
+# un tope silencioso se lee como «esto es todo lo que hay».
+TOPE_DETALLE = 200
+
+
+def _obsoletos_de_item(job, mapeado: dict, columnas) -> dict:
+    """Columnas donde la BD conserva algo que en Podio ya no está.
+
+    `columnas` sale de `campos_vaciables(tipo, anio)`, la MISMA función que usa
+    el mapeador para decidir qué puede vaciar. Medir con otra lista sería medir
+    otra cosa.
+    """
+    hallazgos = {}
+    for col in columnas:
+        valor_podio = mapeado.get(col, SENTINELA_AUSENTE)
+        if valor_podio is SENTINELA_AUSENTE or valor_podio is not None:
+            # O Podio tiene valor, o el mapeador no declaró la columna vaciable
+            # en esta app-año. En los dos casos no hay nada obsoleto que contar.
+            continue
+        actual = getattr(job, col, None)
+        if actual is None or actual == "":
+            continue  # la BD tampoco tiene nada: ya convergen
+        hallazgos[col] = actual.isoformat() if hasattr(actual, "isoformat") else actual
+    return hallazgos
+
+
+def _medir_obsoletos(session, tipo: str, anio: int, presupuesto: int, offset: int):
+    """Pagina la app aplicando el predicado. Devuelve (resumen, siguiente_offset)."""
+    servicio = podio_jobs_router.get_readonly_service(tipo, anio)
+    sonda = servicio.get_items_page(limit=1)
+    total_podio = sonda.get("filtered") or sonda.get("total") or 0
+
+    columnas = sorted(campos_vaciables(tipo, anio))
+    por_item = {
+        str(j.podio_item_id): j
+        for j in session.exec(
+            select(Job).where(Job.Job_type == tipo,
+                              Job.podio_item_id.is_not(None),
+                              expr_anio_app() == anio)).all()
+    }
+
+    inicio, revisados, siguiente = time.monotonic(), 0, offset
+    por_columna, jobs, con_deuda = {}, [], 0
+    while True:
+        if siguiente > offset:
+            gastado = time.monotonic() - inicio
+            por_pagina = gastado / max(1, (siguiente - offset) / TOPE_PAGINA)
+            if gastado + por_pagina > presupuesto:
+                break
+        lote = (servicio.get_items_page(
+            limit=TOPE_PAGINA, offset=siguiente) or {}).get("items") or []
+        if not lote:
+            siguiente = None
+            break
+        for item in lote:
+            job = por_item.get(str(item.get("item_id")))
+            if job is None:
+                continue  # sin fila en la BD: eso lo mide /parity, no esto
+            revisados += 1
+            hallazgos = _obsoletos_de_item(
+                job, map_podio_item_to_job(item, job_type=tipo), columnas)
+            if hallazgos:
+                con_deuda += 1
+                if len(jobs) < TOPE_DETALLE:
+                    jobs.append({"ID_Jobs": job.ID_Jobs, "columnas": hallazgos})
+                for col in hallazgos:
+                    por_columna[col] = por_columna.get(col, 0) + 1
+        siguiente += len(lote)
+        if len(lote) < TOPE_PAGINA or siguiente >= total_podio:
+            siguiente = None
+            break
+
+    return {
+        "tipo": tipo, "anio": anio,
+        "items_en_podio": total_podio,
+        "revisados": revisados,
+        "columnas_evaluadas": columnas,
+        "jobs_con_valor_obsoleto": con_deuda,
+        "por_columna": dict(sorted(por_columna.items())),
+        "jobs": jobs,
+        "jobs_omitidos_del_detalle": max(0, con_deuda - len(jobs)),
+    }, siguiente
+
+
+@paridad_bp.get("/obsoletos")
+@handle_exceptions()
+def obsoletos():
+    """`?type=QID&year=2025`. Cuántas filas conservan lo que Podio ya no tiene.
+
+    **Solo lectura, sin excepción**: servicio de solo lectura contra Podio,
+    SELECT contra la BD, y ni `confirmar` ni `_aplicar`. No repara nada — sólo
+    dice cuánta deuda dejó el defecto del mapeador antes de arreglarlo.
+
+    Trocear: `&presupuesto_s=` y reencadenar con el `siguiente_offset` que
+    devuelve, hasta que venga `null`. Mientras `completo` sea `false` la cifra
+    es un **mínimo**, no el total (regla 5: nada parcial se presenta como
+    completo).
+    """
+    tipo = (request.args.get("type") or "").upper().strip()
+    anio = request.args.get("year", type=int)
+    offset = request.args.get("offset", default=0, type=int)
+    presupuesto = request.args.get("presupuesto_s", default=PRESUPUESTO_S, type=int)
+
+    if tipo not in JOB_TYPES or anio not in JOB_YEARS:
+        return jsonify({"detail": f"type y year obligatorios. "
+                                  f"Válidos: {JOB_TYPES} / {JOB_YEARS}"}), 400
+
+    with get_session() as session:
+        resumen, siguiente = _medir_obsoletos(
+            session, tipo, anio, presupuesto, offset)
+
+    resumen["offset"] = offset
+    resumen["completo"] = siguiente is None
+    if siguiente is not None:
+        resumen["siguiente_offset"] = siguiente
+        resumen["parcial"] = (
+            f"se agotó el presupuesto tras {resumen['revisados']} jobs de "
+            f"{resumen['items_en_podio']}. La cifra es un MÍNIMO: reencadena "
+            f"con offset={siguiente}.")
+    return jsonify(resumen), 200
 
 
 # ==========================================================================
