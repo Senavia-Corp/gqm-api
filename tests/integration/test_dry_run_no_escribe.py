@@ -9,9 +9,17 @@ el sync, así que tiene que ser de verdad de sólo lectura.
 De paso, este fichero es el gate de extremo a extremo del vaciado explícito:
 un campo de texto presente en el body y vacío sale como `[]` (borrar en Podio),
 y uno de dinero puesto a `null` NO — un `[]` ahí borraba el importe.
+
+Y el otro defecto del mismo endpoint: el payload de un job sin líneas de
+coste no puede llevar los totales calculados, porque ese 0 pisa el importe
+real en Podio (medido en QID6904: 0 contra 437,91).
 """
+import uuid
+
 import pytest
 from sqlmodel import select
+
+from src.database.db_sqlmodel import get_session
 
 from src.models.JobModel import Job
 
@@ -135,3 +143,69 @@ def test_dry_run_sin_podio_item_id_tampoco_escribe(client, admin_headers, db_ses
 
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     assert _releer(db_session, id_job).Project_name == "Casa dry-run"
+
+# ── El otro defecto del mismo endpoint: los totales calculados ──
+# Helpers propios: estos tests siembran la fila directamente en vez de
+# usar la fixture `job_qid`, porque necesitan un job SIN lineas de coste.
+
+TOTALES_QID = ("estimated-material-total", "estimated-hoa-admin-total", "fees-and-cost")
+
+
+def _seed():
+    suffix = uuid.uuid4().int % 90000 + 10000
+    tracking = f"QID8{suffix}"
+    with get_session() as session:
+        session.add(Job(ID_Jobs=tracking, Job_type="QID",
+                        podio_item_id=str(890000000 + suffix),
+                        podio_app_year=2026,
+                        Additional_detail="antes",
+                        Estimated_material=0.0))
+        session.commit()
+    return tracking
+
+
+def _leer(tracking):
+    with get_session() as session:
+        return session.exec(select(Job).where(Job.ID_Jobs == tracking)).first()
+
+
+def _cleanup(tracking):
+    with get_session() as session:
+        job = session.exec(select(Job).where(Job.ID_Jobs == tracking)).first()
+        if job:
+            session.delete(job)
+            session.commit()
+
+
+def test_dry_run_no_toca_la_fila(client, admin_headers):
+    tracking = _seed()
+    try:
+        resp = client.patch(f"/jobs/{tracking}?dry_run=true",
+                            json={"Additional_detail": "despues"},
+                            headers=admin_headers)
+        assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+        cuerpo = resp.get_json()
+
+        # el ensayo SÍ enseña el cambio pendiente...
+        assert cuerpo["dry_run"] is True
+        assert cuerpo["podio_payload"]["superintendent"] == {"value": "despues"}
+
+        # ...y la BD sigue como estaba
+        assert _leer(tracking).Additional_detail == "antes"
+    finally:
+        _cleanup(tracking)
+
+
+def test_el_payload_no_lleva_los_totales_de_un_job_sin_lineas(client, admin_headers):
+    tracking = _seed()
+    try:
+        resp = client.patch(f"/jobs/{tracking}?dry_run=true",
+                            json={"Additional_detail": "x"},
+                            headers=admin_headers)
+        assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+        payload = resp.get_json()["podio_payload"]
+
+        presentes = [k for k in TOTALES_QID if k in payload]
+        assert presentes == [], f"borrarían el importe real en Podio: {presentes}"
+    finally:
+        _cleanup(tracking)
