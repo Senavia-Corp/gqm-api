@@ -29,6 +29,7 @@ from ..utils.mappers.mapper_aux_functions import register_event
 from ..utils.mappers.to_podio.qid_mapper import map_job_to_podio_qid
 from ..utils.mappers.to_podio.ptl_mapper import map_job_to_podio_ptl
 from ..utils.mappers.to_podio.par_mapper import map_job_to_podio_par
+from ..utils.mappers.to_podio.job_fields_map import external_ids_de
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
@@ -1073,8 +1074,17 @@ def update_job(id_job):
         update_data = JobUpdate.model_validate(
             data).model_dump(exclude_unset=True)
 
+        # El panel manda sólo los campos que el usuario tocó, así que un campo
+        # PRESENTE en el body y vacío es un borrado deliberado — no un hueco que la
+        # app no sabe rellenar. Sólo eso autoriza el `[]` de Podio (ver
+        # utils/mappers/to_podio/limpieza_slots.py). El guard "antes tenía
+        # contenido" evita que un panel que algún día mande el objeto entero pida
+        # borrar de golpe todos los campos que ya estaban vacíos.
+        vaciados = [k for k, v in update_data.items()
+                    if v in (None, "") and getattr(obj, k, None) not in (None, "")]
+
         for key, value in update_data.items():
-            setattr(obj, key, value)
+            setattr(obj, key, None if value == "" else value)
 
         if not dry_run:
             save_with_retry(session, obj)
@@ -1093,8 +1103,13 @@ def update_job(id_job):
 
         # ── Recálculo automático de campos derivados ──────────────────────
         recalculate_and_apply(id_job, session)
-        session.commit()
-        session.refresh(obj)
+        if dry_run:
+            # El recálculo tiene que ser visible para el mapper, pero un dry_run no
+            # puede persistir nada: este commit escribía el body de la petición.
+            session.flush()
+        else:
+            session.commit()
+            session.refresh(obj)
         # ─────────────────────────────────────────────────────────────────
 
         if (sync_podio or dry_run) and obj.podio_item_id:
@@ -1102,17 +1117,22 @@ def update_job(id_job):
                 # Sin ?year explícito: usar el año persistido del job (REG-015)
                 from src.utils.podio_job_sync import resolve_job_app_year
                 year = resolve_job_app_year(obj)
+            limpiar = external_ids_de(obj.Job_type, vaciados)
             if obj.Job_type == "QID":
-                podio_fields = map_job_to_podio_qid(obj, session=session, year=year)
+                podio_fields = map_job_to_podio_qid(
+                    obj, session=session, year=year, limpiar_slots=limpiar)
             elif obj.Job_type == "PTL":
-                podio_fields = map_job_to_podio_ptl(obj, session=session, year=year)
+                podio_fields = map_job_to_podio_ptl(
+                    obj, session=session, year=year, limpiar_slots=limpiar)
             elif obj.Job_type == "PAR":
-                podio_fields = map_job_to_podio_par(obj, session=session, year=year)
+                podio_fields = map_job_to_podio_par(
+                    obj, session=session, year=year, limpiar_slots=limpiar)
             else:
                 raise AppException(
                     f"Job_type inválido: {obj.Job_type}", "invalid_job_type", 400)
 
             if dry_run:
+                session.rollback()
                 return {"dry_run": True, "podio_payload": podio_fields}, 200
 
             podio_service = podio_jobs_router.get_service(
@@ -1143,6 +1163,9 @@ def update_job(id_job):
                     "update o usa el resync).",
                     "podio_update_failed_local_saved", 502)
 
+        if dry_run:
+            # Un job sin `podio_item_id` no entra en el bloque de arriba y cae aquí.
+            session.rollback()
         return obj.model_dump(), 200
 
 

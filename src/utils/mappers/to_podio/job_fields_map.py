@@ -159,3 +159,37 @@ BASE_PAR_FIELDS = {
         "type": "text"
     }
 }
+
+
+# ================== Vaciado explícito desde el PATCH de un job ================== #
+# Traduce los atributos del modelo que una petición pidió VACIAR a los `external_id`
+# que `limpiar_slots` sabe borrar. Sólo texto: un `[]` en un `money` borra el importe
+# en Podio (fix/patch-delete-no-borran-dinero) y en un `date` borra la fecha, así que
+# esos tipos siguen omitiéndose cuando no hay valor, exactamente como hasta hoy.
+
+_BASES = {"QID": BASE_QID_FIELDS, "PTL": BASE_PTL_FIELDS, "PAR": BASE_PAR_FIELDS}
+
+_VACIABLES = {"text", "location"}
+
+
+def external_ids_de(job_type, attrs):
+    """`external_id` de los campos de texto indicados. Todo lo demás se ignora.
+
+    Los campos `multi` quedan fuera solos: declaran `external_ids` (plural), no
+    `external_id`. Las relaciones (`ID_Client`, `ID_BldgDept`) tampoco están en
+    estos catálogos, así que desvincular sigue sin pasar por aquí.
+
+    `Ptl_property_id` mapea al `external_id` "title" y estuvo excluido por temor a
+    que fuese el título obligatorio del item. Medido el 2-sep-2026 contra Podio:
+    en la app PTL de producción (30577946) ese campo es `required=False`, se llama
+    "Property ID", 1 de 38 items ya lo tiene vacío, y el título visible del item
+    sale de otro campo. Un `PUT` con `{"title": []}` sobre la app de prueba
+    devolvió 200 y lo vació. No hay motivo para excluirlo.
+    """
+    base = _BASES.get(job_type, {})
+    return [
+        base[a]["external_id"]
+        for a in attrs
+        if a in base
+        and base[a].get("type") in _VACIABLES
+    ]

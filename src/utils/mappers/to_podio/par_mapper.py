@@ -12,18 +12,20 @@ def map_job_to_podio_par(job_obj, session=None, year=None, limpiar_slots=None):
     for attr, config in BASE_PAR_FIELDS.items():
         value = getattr(job_obj, attr, None)
 
-        if value is None:
-            continue
+        # Vacío = ausencia de dato: ni se convierte. Para los tipos lista,
+        # convertir un vacío daría `[]`, que en Podio BORRA el campo. Sólo
+        # `limpiar_slots` autoriza ese borrado.
+        if value in (None, ""):
+            converted = None
+        else:
+            end_value = getattr(job_obj, config["end_attr"], None) if config.get(
+                "end_attr") else None
+            if config.get("end_attr") and end_value is None:
+                end_value = value
+            converted = convert_value_for_podio(
+                value, config["type"], end_value=end_value, with_time=config.get("with_time", False))
 
-        end_value = getattr(job_obj, config["end_attr"], None) if config.get(
-            "end_attr") else None
-        if config.get("end_attr") and end_value is None:
-            end_value = value
-        converted = convert_value_for_podio(
-            value, config["type"], end_value=end_value, with_time=config.get("with_time", False))
-
-        if converted is not None:
-            payload[config["external_id"]] = converted
+        asignar(payload, config["external_id"], converted, limpiar)
 
     # Relación con Client (M:1). Que la app no sepa el cliente no autoriza a
     # desvincularlo en Podio: sólo se vacía si se pide por `limpiar_slots`.
