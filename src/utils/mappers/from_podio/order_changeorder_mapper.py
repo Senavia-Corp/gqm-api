@@ -280,3 +280,81 @@ ORDER_CHANGE_ORDERS_FIELDS = {
         7: ["tech-7-change-order-1"]
     }
 }
+
+
+# ==========================================================================
+# Qué significa "el slot no viene en el item"  (1-sep-2026)
+# ==========================================================================
+# Podio OMITE del item los campos vacíos. Como `item_de_confianza` relee
+# SIEMPRE el item entero de Podio antes de escribir, un slot que no aparece
+# significa "ese técnico ya no está en Podio".
+#
+# Hasta hoy los dos lectores de órdenes (`jobs_hook_sync` y `sync_orders`)
+# construían `tech_data` SOLO con los campos presentes, así que un slot que
+# desaparecía entero no se visitaba nunca: `upsert_order` no se llamaba y la
+# fila conservaba su `Formula`, sus `Notes` y sus cuotas indefinidamente. Es el
+# mismo defecto que el de `job_mapper.campos_vaciables`, pero en filas.
+#
+# El vaciado parcial (el técnico sigue y se vacía UNO de sus campos) ya
+# funcionaba: `upsert_order` recibe None y lo escribe. Lo que faltaba era
+# enumerar el universo de slots.
+
+# El universo son los índices con campo de FÓRMULA, porque `Order.tech_field`
+# guarda justo ese external_id: un índice sin fórmula no puede tener Order.
+# Verificado contra producción el 1-sep-2026: los 29 valores distintos de
+# `tech_field` son todos campos de fórmula de su propio tipo de job.
+
+# Cuotas que NO existen en esa app-año (REG-073, medido 2026-08-09 con un GET a
+# las 12 apps reales: ~/outputs/gqm-entrega/reports/REG-073-mapper-vs-apps.md).
+# Ahí `collect_payment_slots` devuelve {} y pisar `Payment_1..3` borraría un
+# dato bueno por un hueco del esquema, no por un vaciado en Podio.
+SLOTS_SIN_CUOTAS = {
+    ("PAR", 2023): frozenset({3, 4}),
+    ("PAR", 2024): frozenset({4}),
+}
+
+
+def slots_vaciables(job_type: str, anio) -> frozenset:
+    """Los índices de técnico cuya ausencia SÍ puede vaciar su fila `Order`.
+
+    Fuente única a propósito: la usan los dos lectores para decidir y
+    `/admin/podio/obsoletos_ordenes` para medir. Si cada uno tuviera su lista,
+    la medida dejaría de decir nada sobre lo que el arreglo hace.
+
+    Sin año devuelve el conjunto vacío —no hay tabla de huecos que consultar—,
+    igual que `campos_vaciables`: es el caso de los jobs sembrados por tests
+    (`QID80001`, `PAR99901`) y de cualquier `ID_Jobs` que la regla del año no
+    reconozca.
+    """
+    if anio is None:
+        return frozenset()
+    return frozenset(TECH_FORMULA_FIELDS.get(job_type, {}))
+
+
+def cuotas_vaciables(job_type: str, anio) -> frozenset:
+    """Los slots donde una ausencia puede además vaciar `Payment_1..3`.
+
+    Se cruza con `TECH_PAYMENT_FIELDS` ANTES de restar los huecos por año: los
+    cheques parciales solo existen en PAR. En QID y PTL, Podio no tiene campo de
+    cuota, asi que un `Payment_N` con valor solo puede haberlo escrito una
+    persona por `POST`/`PATCH /order/` —estan en `OrderBase`— y no hay nada en
+    Podio con lo que devolverlo. Vaciarlo seria destruirlo sin vuelta.
+    Es la misma regla que `upsert_order` ya documenta en su firma: `payments=None`
+    para QID/PTL significa NO TOCAR.
+    """
+    return (slots_vaciables(job_type, anio)
+            & frozenset(TECH_PAYMENT_FIELDS.get(job_type, {}))
+            ) - SLOTS_SIN_CUOTAS.get((job_type, anio), frozenset())
+
+
+def cos_declarados(job_type: str) -> set:
+    """Los external_ids de change order de NIVEL ORDEN de ese tipo.
+
+    Los de nivel proyecto (`PROJECT_CHANGE_ORDER_FIELDS`) quedan fuera a
+    propósito: alimentan `Gqm_total_change_orders` -> `Gqm_final_sold_pricing`
+    -> `Acc_receivable`, o sea el lado de los INGRESOS, y ese movimiento se
+    mide antes de hacerlo.
+    """
+    return {slug
+            for slugs in ORDER_CHANGE_ORDERS_FIELDS.get(job_type, {}).values()
+            for slug in slugs}
