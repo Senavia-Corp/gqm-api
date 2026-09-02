@@ -352,6 +352,37 @@ def _la_toco_un_humano(order) -> bool:
                 or order.opportunities)
 
 
+# El esquema de cada app-anio, cacheado por proceso. Son 12 apps como mucho, y
+# el esquema no cambia entre dos webhooks.
+_ESQUEMA_APP: dict = {}
+
+
+def campos_de_la_app(job_type: str, anio):
+    """Los `external_id` activos de esa app-anio, o None si no se pudo saber.
+
+    Cierra la Excepcion 2 MIDIENDO en vez de tabulando a mano: un slug que no
+    existe en esta app-anio no puede estar "vacio en Podio", asi que su ausencia
+    del item no autoriza a vaciar nada.
+
+    `None` significa "no se sabe", y quien lo consume NO vacia: fallar cerrado.
+    Es la unica respuesta honesta si Podio no contesta, y el coste de
+    equivocarse en la otra direccion es destruir dinero que nadie puede
+    devolver.
+    """
+    clave = (job_type, anio)
+    if clave not in _ESQUEMA_APP:
+        try:
+            _ESQUEMA_APP[clave] = frozenset(
+                podio_jobs_router.get_readonly_service(job_type, anio)
+                .get_app_fields())
+        except Exception:
+            logger.exception(
+                "no se pudo leer el esquema de la app %s %s: no se vacia nada "
+                "en esta pasada", job_type, anio)
+            _ESQUEMA_APP[clave] = None
+    return _ESQUEMA_APP[clave]
+
+
 def slots_y_cos_presentes(fields, job_type: str):
     """Lo que el item SI menciona: (indices de tecnico, external_ids de CO).
 
@@ -445,12 +476,17 @@ def vaciar_slots_ausentes(session, podio_item_id: str, job_type: str, anio,
     if not dry_run and not vaciado_de_slots_activo():
         return []  # `dry_run` no escribe, asi que la medida no pasa por el flag
 
+    campos_app = campos_de_la_app(job_type, anio)
+    if campos_app is None:
+        return []  # sin esquema no se distingue "vacio" de "no existe aqui"
+
     formula_map = TECH_FORMULA_FIELDS.get(job_type, {})
     con_cuotas = cuotas_vaciables(job_type, anio)
     informe = []
 
     for slot in sorted(slots_vaciables(job_type, anio) - set(vistos)):
-        slugs = formula_map.get(slot) or []
+        # Solo los slugs que ESTA app-anio tiene de verdad.
+        slugs = [s for s in (formula_map.get(slot) or []) if s in campos_app]
         if not slugs:
             continue
 
@@ -508,7 +544,7 @@ def vaciar_slots_ausentes(session, podio_item_id: str, job_type: str, anio,
 
 
 def vaciar_cos_ausentes(session, podio_item_id: str, job_type: str, presentes,
-                        *, dry_run: bool = False,
+                        anio=None, *, dry_run: bool = False,
                         catalogo: dict = None) -> list:
     """Vacia los Change Orders de NIVEL ORDEN que ya no vienen en el item.
 
@@ -520,8 +556,17 @@ def vaciar_cos_ausentes(session, podio_item_id: str, job_type: str, presentes,
     if not dry_run and not vaciado_de_slots_activo():
         return []  # ver `vaciar_slots_ausentes`
 
+    campos_app = campos_de_la_app(job_type, anio)
+    if campos_app is None:
+        return []
+
+    # `cos_declarados` NO lleva año, al contrario que `slots_vaciables`: la lista
+    # de slugs de change order es la misma para todo QID. Pero las apps NO son
+    # iguales — la de QID 2025 no tiene 11 de los 49 declarados— y en produccion
+    # cuelgan 8 change orders vivos de slugs asi. Cruzar con el esquema real es
+    # lo que impide vaciarlos.
     informe = []
-    for slug in sorted(cos_declarados(job_type) - set(presentes)):
+    for slug in sorted(cos_declarados(job_type) & campos_app - set(presentes)):
         co = _buscar_co(session, catalogo, podio_item_id, slug)
         if co is None or co.ChangeOrderFormula is None:
             continue
@@ -802,7 +847,7 @@ def sync_job_orders_and_change_orders(
                     )
 
             vaciar_cos_ausentes(session, podio_item_id, job_type, cos_vistos,
-                                dry_run=dry_run)
+                                year, dry_run=dry_run)
 
         if not dry_run:
             session.commit()

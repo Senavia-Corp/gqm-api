@@ -29,6 +29,10 @@ from src.models.OpportunitiesModel import Opportunities
 from src.models.OrderModel import Order
 from tests.fixtures.podio_items import app_ref, calc, item, money, text
 
+# La real, capturada antes de que el fixture autouse la sustituya: los dos
+# tests del final prueban ESTA funcion, no el doble.
+_CAMPOS_DE_LA_APP_REAL = so.campos_de_la_app
+
 ITEM = "990500"
 TABLAS = ("order", "change_order", "estimate_cost", "financial_document",
           "opportunities")
@@ -46,6 +50,23 @@ def sesion():
 @pytest.fixture(autouse=True)
 def flag_encendido(monkeypatch):
     monkeypatch.setenv("PODIO_VACIA_SLOTS", "true")
+
+
+@pytest.fixture(autouse=True)
+def esquema_de_la_app(monkeypatch):
+    """`campos_de_la_app` sale a Podio a leer el esquema. En unitarios se
+    sustituye por uno que lo tiene todo, para que cada test hable de lo que dice
+    su nombre y no de la red. El comportamiento del esquema tiene sus propios
+    tests, abajo."""
+    todo = frozenset(
+        [s for m in (so.TECH_FORMULA_FIELDS, so.TECH_ADJ_FORMULA_FIELDS,
+                     so.TECH_HD_MATERIALS_FIELDS, so.TECH_NOTES_FIELDS,
+                     so.TECH_PAYMENT_FIELDS, so.ORDER_CHANGE_ORDERS_FIELDS)
+         for por_tipo in (m.values() if "QID" in m else [m])
+         for slugs in (por_tipo.values() if isinstance(por_tipo, dict) else [])
+         for s in slugs] + list(so.TECHNICIAN_FIELDS.values())[0])
+    monkeypatch.setattr(so, "campos_de_la_app", lambda t, a: todo)
+    return todo
 
 
 def _orden(sesion, tech_field, **kw):
@@ -447,3 +468,84 @@ def test_las_cuotas_no_se_vacian_en_tipos_que_no_las_tienen(sesion, tipo, tech_f
 
     assert orden.Formula is None, "la fórmula sí se vacía"
     assert orden.Payment_1 == 1500.0, "destruyó un cheque sin vuelta atrás"
+
+
+# ------------------------------------ el esquema real de la app (Excepción 2)
+#
+# Un item de Podio solo trae los campos CON VALOR, así que de él no se puede
+# distinguir «vacío en Podio» de «ese campo no existe en esta app-año». Y la
+# diferencia mueve dinero: medido el 2026-09-02, la app de QID 2025 no tiene 11
+# de los 49 slugs de change order declarados para QID, y en producción cuelgan 8
+# change orders vivos de slugs así — uno de 18.000 USD en QID 2023.
+
+def test_un_co_cuyo_slug_no_existe_en_esa_app_anio_no_se_vacia(sesion, monkeypatch):
+    """El caso de los 18.000 USD: `tech-4-change-order-4` no está en todas las
+    apps de QID. Su ausencia del item no dice que esté vacío."""
+    co = _co(sesion, "tech-4-change-order-4", formula=18000.0)
+    monkeypatch.setattr(so, "campos_de_la_app",
+                        lambda t, a: frozenset({"tech-1-change-order-2"}))
+
+    assert so.vaciar_cos_ausentes(sesion, ITEM, "QID", set(), 2023) == []
+    assert co.ChangeOrderFormula == 18000.0
+
+
+def test_un_slot_cuya_formula_no_existe_en_esa_app_anio_no_se_vacia(sesion, monkeypatch):
+    orden = _orden(sesion, "labor-tech-5")
+    monkeypatch.setattr(so, "campos_de_la_app",
+                        lambda t, a: frozenset({"tech-1-ptl-original-pricing"}))
+
+    assert _vaciar(sesion) == []
+    assert orden.Formula == 500.0
+
+
+@pytest.mark.parametrize("fn", ["slots", "cos"])
+def test_si_no_se_puede_leer_el_esquema_no_se_vacia_nada(sesion, monkeypatch, fn):
+    """Fallar CERRADO: `None` significa «no se sabe», y el coste de equivocarse
+    en la otra dirección es destruir dinero que nadie puede devolver."""
+    orden = _orden(sesion, "labor-tech-5")
+    co = _co(sesion, "tech-1-change-order-2")
+    monkeypatch.setattr(so, "campos_de_la_app", lambda t, a: None)
+
+    if fn == "slots":
+        assert _vaciar(sesion) == []
+    else:
+        assert so.vaciar_cos_ausentes(sesion, ITEM, "QID", set(), 2025) == []
+    assert orden.Formula == 500.0 and co.ChangeOrderFormula == 250.0
+
+
+def test_el_esquema_ilegible_se_registra_y_no_revienta(monkeypatch, caplog):
+    """Un fallo de Podio no puede tumbar el webhook, pero tampoco puede pasar
+    desapercibido: si no se avisa, «no se vació nada» se lee como «no había nada»."""
+    import logging
+
+    class _Explota:
+        def get_app_fields(self):
+            raise RuntimeError("Podio no contesta")
+
+    monkeypatch.setattr(so.podio_jobs_router, "get_readonly_service",
+                        lambda t, a: _Explota())
+    monkeypatch.setattr(so, "_ESQUEMA_APP", {})
+
+    with caplog.at_level(logging.ERROR):
+        assert _CAMPOS_DE_LA_APP_REAL("QID", 2025) is None
+    assert "no se pudo leer el esquema" in caplog.text
+
+
+def test_el_esquema_se_cachea_y_no_se_pide_dos_veces(monkeypatch):
+    """Sin caché, cada `item.update` añadiría una llamada a Podio."""
+    llamadas = []
+
+    class _Servicio:
+        def get_app_fields(self):
+            llamadas.append(1)
+            return {"labor-tech-5"}
+
+    monkeypatch.setattr(so.podio_jobs_router, "get_readonly_service",
+                        lambda t, a: _Servicio())
+    monkeypatch.setattr(so, "_ESQUEMA_APP", {})
+
+    _CAMPOS_DE_LA_APP_REAL("QID", 2025)
+    _CAMPOS_DE_LA_APP_REAL("QID", 2025)
+    _CAMPOS_DE_LA_APP_REAL("QID", 2026)
+
+    assert len(llamadas) == 2, "no cacheó por app-año"

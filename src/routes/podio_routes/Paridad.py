@@ -869,7 +869,8 @@ def _obsoletos_de_ordenes(session, tipo: str, anio: int, presupuesto: int,
                 session, ref, tipo, anio, vistos, dry_run=True,
                 catalogo=catalogo)
             cos = vaciar_cos_ausentes(
-                session, ref, tipo, cos_vistos, dry_run=True, catalogo=catalogo)
+                session, ref, tipo, cos_vistos, anio, dry_run=True,
+                catalogo=catalogo)
             if not ordenes and not cos:
                 continue
 

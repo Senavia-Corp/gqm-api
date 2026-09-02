@@ -452,9 +452,10 @@ def add_job_orders_and_change_orders(
     # Los slots que YA NO vienen en el item. `tech_data` solo tiene los que el
     # payload menciona, asi que un tecnico quitado entero de Podio no pasaba
     # por `upsert_order` y su fila conservaba el dinero para siempre.
+    anio_app = resolver_anio_app(job)
     slots_vistos, cos_vistos = slots_y_cos_presentes(fields, app_type)
-    vaciar_slots_ausentes(session, podio_item_id, app_type,
-                          resolver_anio_app(job), slots_vistos)
+    vaciar_slots_ausentes(session, podio_item_id, app_type, anio_app,
+                          slots_vistos)
 
     # =============================
     # 3️⃣ PROJECT CHANGE ORDERS
@@ -514,7 +515,7 @@ def add_job_orders_and_change_orders(
 
     # Mismo agujero que arriba: `order_change_data` solo se puebla con los
     # slugs presentes, asi que vaciar un CO en Podio no llegaba nunca aqui.
-    vaciar_cos_ausentes(session, podio_item_id, app_type, cos_vistos)
+    vaciar_cos_ausentes(session, podio_item_id, app_type, cos_vistos, anio_app)
 
 
 def record_failed_sync_propia(*, item_id, hook_type, payload, error) -> None:

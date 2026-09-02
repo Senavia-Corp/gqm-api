@@ -44,6 +44,18 @@ class _ServicioPodio:
         return {"items": self.items[offset:offset + (limit or self.tope)]}
 
 
+@pytest.fixture(autouse=True)
+def esquema_de_la_app(monkeypatch):
+    """Sin esto la medida saldria a Podio a leer el esquema de la app."""
+    import src.podio.sync.sync_orders as so
+    todo = frozenset(
+        [s for por_tipo in so.TECH_FORMULA_FIELDS.values()
+         for slugs in por_tipo.values() for s in slugs]
+        + [s for por_tipo in so.ORDER_CHANGE_ORDERS_FIELDS.values()
+           for slugs in por_tipo.values() for s in slugs])
+    monkeypatch.setattr(so, "campos_de_la_app", lambda t, a: todo)
+
+
 @pytest.fixture()
 def podio(monkeypatch):
     def montar(items, tope_pagina=500):
