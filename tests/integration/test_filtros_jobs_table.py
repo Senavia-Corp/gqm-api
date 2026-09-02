@@ -12,6 +12,8 @@ pertenece el item), no de `Date_assigned`. Y tiene que salir con el `coalesce` a
 `ID_Jobs`, porque la columna está NULL en todos los PTL — filtrar por la columna
 pelada los haría desaparecer del panel.
 """
+import warnings
+
 import pytest
 
 from src.config import JOB_TYPES, JOB_YEARS
@@ -60,23 +62,33 @@ def test_el_status_ya_no_es_sensible_a_mayusculas(client, admin_headers, ruta):
 ])
 def test_las_filas_paginadas_suman_exactamente_el_total(
         client, admin_headers, ruta, filtros):
-    """La red de verdad: recorre todas las páginas y compara con `total`.
+    """La red de verdad: las filas que llegan y el `total` cuentan lo mismo.
+
+    En UNA sola petición: el conteo y las filas salen del mismo `get_session()`,
+    así que no hay ventana para que otra sesión inserte o borre un job entre
+    medias. Con `limit=200` —el tope de las dos rutas— y 105 jobs en develop,
+    esa única página ES el conjunto completo, así que se comprueba lo mismo que
+    antes. Paginando de 20 en 20 contra un `total` leído decenas de segundos
+    antes, este test fallaba sin que hubiera ningún defecto: develop es
+    compartida y otra sesión puede insertar o borrar a mitad del recorrido.
 
     Cualquier divergencia futura entre los dos WHERE la rompe, sea cual sea el
     filtro que la cause.
     """
-    primera = _pedir(client, admin_headers, ruta, page=1, limit=20, **filtros)
-    total = primera["total"]
+    LIMITE = 200  # el tope que aplican las dos rutas
+    cuerpo = _pedir(client, admin_headers, ruta, page=1, limit=LIMITE, **filtros)
 
-    vistas, pagina = len(primera["results"]), 1
-    while vistas < total and pagina < 25:
-        pagina += 1
-        vistas += len(
-            _pedir(client, admin_headers, ruta, page=pagina, limit=20,
-                   **filtros)["results"])
+    if cuerpo["total"] > LIMITE:
+        # ponytail: con 105 jobs en develop esto no salta. Si algún día se
+        # re-clona desde prod, que se vea que solo se miró la primera página.
+        warnings.warn(
+            f"{ruta} con {filtros}: {cuerpo['total']} filas no caben en una "
+            f"página de {LIMITE}; solo se comprueba la primera")
 
-    assert vistas == total, (
-        f"{ruta} con {filtros}: total dice {total} pero paginando salen {vistas}")
+    esperadas = min(cuerpo["total"], LIMITE)
+    assert len(cuerpo["results"]) == esperadas, (
+        f"{ruta} con {filtros}: total dice {cuerpo['total']} pero la página "
+        f"trae {len(cuerpo['results'])} filas (esperadas {esperadas})")
 
 
 def test_el_filtro_por_año_incluye_los_ptl(client, admin_headers):
