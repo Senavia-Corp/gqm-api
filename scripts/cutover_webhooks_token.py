@@ -215,7 +215,7 @@ def verificar_activos(token, ruta_registro, pedir, aplicar):
     for h in creados:
         por_app.setdefault((h["app"], h["anio"]), []).append(h["hook_id"])
 
-    inactivos, activos, perdidos = [], 0, []
+    inactivos, activos, perdidos, sin_token = [], 0, [], []
     for (app, anio), ids in sorted(por_app.items(), key=lambda x: str(x[0])):
         etiqueta = f"{app}/{anio}" if anio else app
         cod, resp = _peticion("GET", _ruta(app, anio), token=token)
@@ -223,17 +223,34 @@ def verificar_activos(token, ruta_registro, pedir, aplicar):
             print(f"  {etiqueta:12} NO CONSULTABLE ({cod})  <-- NO es 'limpia'")
             perdidos.append(etiqueta)
             continue
-        estado = {h.get("hook_id"): h.get("status") for h in resp}
+        info = {h.get("hook_id"): (h.get("status"), h.get("url") or "") for h in resp}
         for hid in ids:
-            st = estado.get(hid)
+            st, url = info.get(hid, (None, ""))
+
+            # EL ORACULO DEL TOKEN. El API redacta a *** solo el token VIGENTE,
+            # asi que una URL que acabe en *** demuestra que el token con el que
+            # se registro el hook es el mismo que hay desplegado. Si acaba en
+            # otra cosa, el hook se registro sin token o con uno viejo — y eso
+            # es indistinguible de un hook sano hasta que deja de entregar.
+            redactada = url.rstrip("/").endswith("***")
+            if not redactada:
+                print(f"  {etiqueta:12} hook_id={hid} 🔴 URL SIN TOKEN VIGENTE: {url}")
+                sin_token.append((app, anio, hid, url))
+
             if st == "active":
                 activos += 1
+                if redactada:
+                    print(f"  {etiqueta:12} hook_id={hid} ✅ active  {url}")
             else:
-                print(f"  {etiqueta:12} hook_id={hid} status={st}")
+                print(f"  {etiqueta:12} hook_id={hid} ⏳ status={st}  {url}")
                 inactivos.append((app, anio, hid))
 
     print(f"\n  activos: {activos}   NO activos: {len(inactivos)}   "
+          f"sin el token vigente: {len(sin_token)}   "
           f"apps no consultables: {len(perdidos)}")
+    if sin_token:
+        print("  🔴 Hay hooks que NO llevan el token vigente. Entregarian 403 en"
+              "\n     cuanto se retire la gracia. Borralos y vuelve a registrarlos.")
 
     if inactivos and pedir:
         print(f"\n  {'Pidiendo' if aplicar else 'DRY RUN — pediria'} la verificacion "
@@ -249,18 +266,28 @@ def verificar_activos(token, ruta_registro, pedir, aplicar):
     if perdidos:
         print("\n  ⚠️ Hay apps que no se pudieron leer: el recuento de arriba "
               "NO es completo.")
-    return 1 if (inactivos or perdidos) else 0
+    return 1 if (inactivos or perdidos or sin_token) else 0
 
 
 # ── ROLLBACK ────────────────────────────────────────────────────────────────
 
-def revertir(token, ruta_registro, aplicar):
+def revertir(token, ruta_registro, aplicar, ids=None):
     """Borra EXACTAMENTE los hooks que creo este script. Los hooks nuevos los
     creo la aplicacion, asi que el app token si puede borrarlos; los 48 viejos
     los creo una cuenta de usuario y darian 403."""
-    creados = json.load(open(ruta_registro, encoding="utf-8"))["creados"]
-    print(f"\n{'BORRANDO' if aplicar else 'DRY RUN'} — {len(creados)} hooks del registro\n")
-    fallos = []
+    todos = json.load(open(ruta_registro, encoding="utf-8"))["creados"]
+    if ids:
+        creados = [h for h in todos if h["hook_id"] in ids]
+        desconocidos = ids - {h["hook_id"] for h in todos}
+        if desconocidos:
+            sys.exit(f"--ids {sorted(desconocidos)} no estan en el registro: "
+                     f"borrar a ciegas un hook que no creo este script NO.")
+    else:
+        creados = todos
+
+    print(f"\n{'BORRANDO' if aplicar else 'DRY RUN'} — {len(creados)} de "
+          f"{len(todos)} hooks del registro\n")
+    fallos, borrados = [], []
     for h in creados:
         ruta = _ruta(h["app"], h["anio"], f"hook/{h['hook_id']}")
         if not aplicar:
@@ -269,8 +296,16 @@ def revertir(token, ruta_registro, aplicar):
         cod, resp = _peticion("DELETE", ruta, token=token)
         ok = isinstance(resp, dict) and resp.get("success")
         print(f"  hook_id={h['hook_id']}: {'🗑️ borrado' if ok else f'❌ {cod} {resp}'}")
-        if not ok:
-            fallos.append(h["hook_id"])
+        (borrados if ok else fallos).append(h["hook_id"])
+
+    # El registro deja de nombrar lo que ya no existe: es el inventario de la
+    # generacion nueva, y un inventario que miente es peor que no tenerlo.
+    if aplicar and borrados:
+        quedan = [h for h in todos if h["hook_id"] not in set(borrados)]
+        with open(ruta_registro, "w", encoding="utf-8") as f:
+            json.dump({"creados": quedan}, f, indent=2, ensure_ascii=False)
+        print(f"\n  registro actualizado: quedan {len(quedan)} hooks")
+
     if fallos:
         print(f"\n  ❌ {len(fallos)} no se pudieron borrar: {fallos}")
         print("  Borralos desde la UI de Podio (Modify template -> Webhooks).")
@@ -339,6 +374,8 @@ def main():
     ap.add_argument("--pedir-verificacion", action="store_true",
                     help="a los que sigan inactive, pedirle a Podio el hook.verify")
     ap.add_argument("--revertir", action="store_true")
+    ap.add_argument("--ids", help="acota --revertir a estos hook_id (coma). "
+                                  "Deben estar en el registro.")
     ap.add_argument("--aplicar", action="store_true",
                     help="sin esto no se escribe NADA")
     ap.add_argument("--autochequeo", action="store_true",
@@ -356,8 +393,10 @@ def main():
         if not os.path.exists(args.registro):
             sys.exit(f"no existe el registro {args.registro}")
         if args.revertir:
+            ids = ({int(x) for x in args.ids.split(",") if x.strip()}
+                   if args.ids else None)
             return revertir(_login() if args.aplicar else None,
-                            args.registro, args.aplicar)
+                            args.registro, args.aplicar, ids)
         return verificar_activos(_login(), args.registro,
                                  args.pedir_verificacion, args.aplicar)
 
