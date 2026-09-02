@@ -19,6 +19,8 @@ ruta de borrado de un coste para liberar su hueco.
 """
 from typing import Iterable, Optional
 
+from src.utils.mappers.from_podio.job_mapper import CAMPOS_CALCULADOS_EN_LOCAL
+
 
 def normalizar(limpiar_slots: Optional[Iterable[str]]) -> frozenset[str]:
     """Los `external_id` que ESTA llamada quiere vaciar en Podio."""
@@ -36,3 +38,33 @@ def asignar(payload: dict, ext_id: str, convertido, limpiar: frozenset[str]) -> 
         payload[ext_id] = convertido
     elif ext_id in limpiar:
         payload[ext_id] = []
+
+
+def es_cero_sin_respaldo(attr: str, value) -> bool:
+    """El mismo hueco de siempre, disfrazado de 0 en vez de None.
+
+    Medido en producción el 2-sep-2026. `PATCH /jobs/QID6904?dry_run=true`
+    llevaba `estimated-material-total = 0` mientras Podio tenía **437,91**:
+    ejecutarlo sin `dry_run` borraba esos 437,91. Los tres totales de QID
+    (`estimated-material-total`, `estimated-hoa-admin-total`, `fees-and-cost`)
+    y los dos de PTL los reconstruye `job_calculator.recalculate_job_fields`
+    desde los `EstimateCost`, así que un job cuyas líneas nunca cruzaron la API
+    los tiene a 0 — y ese 0 salía en cada empujón. En la app QID 2026: 227
+    ítems con material distinto de 0 en Podio, **165 con 0/NULL en la BD**.
+
+    Es la regla de `asignar` aplicada al caso en que la ausencia de dato no
+    llega como None sino como 0: **que la app no conozca un valor no autoriza
+    a borrarlo en Podio.** La lista es la misma que ya usa el sentido
+    entrante para no vaciar estas columnas (`CAMPOS_CALCULADOS_EN_LOCAL`), de
+    modo que ida y vuelta no puedan discrepar sobre qué es un agregado.
+
+    Contrapeso aceptado a sabiendas: si un total baja a 0 de verdad —se borran
+    todas sus líneas—, Podio conserva el importe viejo. Vaciar sigue siendo un
+    acto explícito y pasa por `limpiar_slots`, igual que en los huecos.
+    """
+    if attr not in CAMPOS_CALCULADOS_EN_LOCAL:
+        return False
+    try:
+        return float(value) == 0
+    except (TypeError, ValueError):
+        return False

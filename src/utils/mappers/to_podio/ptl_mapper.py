@@ -1,7 +1,7 @@
 from ..convert_value_podio import convert_value_for_podio
 from sqlmodel import select
 from .job_fields_map import BASE_PTL_FIELDS
-from .limpieza_slots import asignar, normalizar
+from .limpieza_slots import asignar, es_cero_sin_respaldo, normalizar
 from src.models.ClientModel import Client
 
 
@@ -26,6 +26,11 @@ def map_job_to_podio_ptl(job_obj, session=None, year=None, limpiar_slots=None):
             # convertir un vacío daría `[]`, que en Podio BORRA el campo. Sólo
             # `limpiar_slots` autoriza ese borrado.
             if value in (None, ""):
+                converted = None
+            # Un 0 que solo dice «la BD no tiene las lineas» tampoco se manda:
+            # es el mismo hueco, disfrazado de 0 en vez de None. Va por la
+            # misma puerta, asi que solo `limpiar_slots` autoriza borrarlo.
+            elif es_cero_sin_respaldo(attr, value):
                 converted = None
             else:
                 end_value = getattr(job_obj, config["end_attr"], None) if config.get(
