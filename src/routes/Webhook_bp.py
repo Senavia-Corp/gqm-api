@@ -1074,15 +1074,60 @@ def auto_marcar_irrecuperables() -> int:
         with get_session() as session:
             abiertas = session.exec(select(PodioFailedSync).where(
                 PodioFailedSync.resolved == False)).all()  # noqa: E712
+
+            # Los veredictos se calculan ANTES de marcar nada: marcar
+            # reescribe `error_message`, y un mensaje ya marcado dejaria de
+            # reconocerse como prueba para las demas filas del mismo fichero.
+            veredicto = {}
             for fs in abiertas:
                 msg = fs.error_message or ""
                 if _MARCA_IRRECUPERABLE in msg:
+                    veredicto[fs.id] = None      # probada, pero ya etiquetada
                     continue
                 for firma, motivo in _ERRORES_PERMANENTES:
                     if firma in msg:
-                        if _marcar_irrecuperable(session, fs, motivo):
-                            marcadas += 1
+                        veredicto[fs.id] = motivo
                         break
+
+            # Que ficheros estan PROBADOS irrecuperables, y por que fila.
+            #
+            # Un mismo file_id puede tener varias filas con mensajes distintos:
+            # el 6-sep-2026, `2486162289` tenia la 15 con el error viejo de la
+            # carrera y la 22 y la 23 con el 410 de Podio. La 15 se quedaba
+            # abierta pidiendo un Resync que solo servia para redescubrir lo que
+            # la 22 ya habia probado.
+            #
+            # Esto NO es deducir permanencia de una fila vecina cualquiera: es
+            # propagar un hecho medido sobre EL MISMO FICHERO. Por eso la clave
+            # es el file_id, y no el job ni la clase de error.
+            probado = {}
+            for fs in abiertas:
+                if fs.id not in veredicto:
+                    continue
+                motivo = veredicto[fs.id] or "el fichero ya se probo irrecuperable"
+                for fid in _file_ids_del_payload(fs.payload) or []:
+                    probado.setdefault(fid, (motivo, fs.id))
+
+            for fs in abiertas:
+                if _MARCA_IRRECUPERABLE in (fs.error_message or ""):
+                    continue
+
+                motivo = veredicto.get(fs.id)
+                if not motivo:
+                    # Solo si TODOS sus ficheros estan probados: con uno sin
+                    # probar el reintento aun puede recuperar algo, y quitarle
+                    # el boton seria darlo por perdido sin motivo.
+                    ficheros = _file_ids_del_payload(fs.payload) or []
+                    if not ficheros or not all(f in probado for f in ficheros):
+                        continue
+                    causa, origen = probado[ficheros[0]]
+                    if origen == fs.id:
+                        continue
+                    motivo = f"{causa} (probado en la falla {origen})"
+
+                if _marcar_irrecuperable(session, fs, motivo):
+                    marcadas += 1
+
             if marcadas:
                 session.commit()
                 logger.info("🏷️ %s fallas marcadas como irrecuperables", marcadas)
