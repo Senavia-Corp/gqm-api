@@ -1,6 +1,30 @@
+from datetime import datetime, timezone
+
+from sqlmodel import select
+
 from src.models.PodioFailedSyncModel import PodioFailedSync
 from src.utils.error_sanitizer import sanitize_error
 from src.utils.middleware.logs.logs import logger
+
+
+def _identidad_de_fichero(payload):
+    """Que fichero(s) describe este payload, como clave comparable.
+
+    Devuelve None si el payload no habla de ficheros: esas filas no se
+    deduplican, porque sin fichero no hay forma barata de saber si dos fallos
+    son "el mismo" o dos intentos distintos que merecen quedar los dos.
+
+    Unas filas traen `file_ids` (lista separada por comas) y otras `file_id`
+    (singular): hay que mirar las dos, y ordenar para que el mismo conjunto en
+    otro orden no cuente como distinto.
+    """
+    if not isinstance(payload, dict):
+        return None
+    crudo = payload.get("file_ids") or payload.get("file_id")
+    if not crudo:
+        return None
+    trozos = [t.strip() for t in str(crudo).split(",") if t.strip()]
+    return tuple(sorted(trozos)) or None
 
 
 def record_failed_sync(session, *, item_id, hook_type, payload, error) -> None:
@@ -13,12 +37,51 @@ def record_failed_sync(session, *, item_id, hook_type, payload, error) -> None:
     """
     try:
         session.rollback()
-        session.add(PodioFailedSync(
-            item_id=str(item_id) if item_id else None,
-            hook_type=hook_type,
-            payload=payload,
-            error_message=sanitize_error(error),
-        ))
+
+        # Si ya hay una fila ABIERTA para exactamente el mismo fallo, se
+        # ACTUALIZA en vez de insertar otra.
+        #
+        # Sin esto, cada pulsacion de Resync sobre una fila que no puede
+        # recuperarse escribia una fila NUEVA: el reintento fallaba, el
+        # `except` llamaba aqui, y la lista crecia. Medido en produccion el
+        # 6-sep-2026: dos Resync sobre las filas 15 y 17 dejaron las 21, 22, 23
+        # y 24 — cuatro duplicados de dos fallos. El panel pasaba de 5 errores a
+        # 6, o sea que reintentar EMPEORABA el sintoma y enterraba la fila
+        # original entre copias.
+        #
+        # La identidad es (hook_type, item_id, fichero), no solo el item: las
+        # filas 7-11 de agosto eran cinco ficheros distintos del mismo item y
+        # tienen que seguir siendo cinco filas.
+        clave = _identidad_de_fichero(payload)
+        existente = None
+        if clave is not None:
+            candidatas = session.exec(
+                select(PodioFailedSync).where(
+                    PodioFailedSync.hook_type == hook_type,
+                    PodioFailedSync.item_id == (
+                        str(item_id) if item_id else None),
+                    PodioFailedSync.resolved == False,  # noqa: E712
+                )).all()
+            for c in candidatas:
+                if _identidad_de_fichero(c.payload) == clave:
+                    existente = c
+                    break
+
+        if existente is not None:
+            existente.error_message = sanitize_error(error)
+            existente.payload = payload
+            existente.updated_at = datetime.now(timezone.utc)
+            session.add(existente)
+            logger.info(
+                "fallo repetido de %s (item=%s): se actualiza la fila %s en vez "
+                "de duplicarla", hook_type, item_id, existente.id)
+        else:
+            session.add(PodioFailedSync(
+                item_id=str(item_id) if item_id else None,
+                hook_type=hook_type,
+                payload=payload,
+                error_message=sanitize_error(error),
+            ))
         session.commit()
     except Exception:
         logger.exception("No se pudo registrar PodioFailedSync (%s)", hook_type)
