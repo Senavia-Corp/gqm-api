@@ -1,0 +1,310 @@
+sujeto,endpoint,objeto,real,esperado,conforme,nota
+anonimo,GET /technician/<id>,ajeno,401,401,SÍ,
+anonimo,GET /technician/<id>,inexistente,401,401,SÍ,
+full_admin,GET /technician/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /technician/<id>,inexistente,404,200|404,SÍ,
+gqm_member,GET /technician/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /technician/<id>,inexistente,404,200|404,SÍ,
+subcontractor,GET /technician/<id>,propio,200,200,SÍ,
+subcontractor,GET /technician/<id>,ajeno,200,404,NO,FUGA: tareas=['TSK60003'] · jobs=['PTL-I60001'] · POLÍTICAS IAM=['PERM60004']
+subcontractor,GET /technician/<id>,inexistente,404,404,SÍ,
+sub_B,GET /technician/<id>,propio,200,200,SÍ,
+sub_B,GET /technician/<id>,ajeno,200,404,NO,"FUGA: tareas=['TSK60001', 'TSK60018'] · jobs=['QID-I60001'] · POLÍTICAS IAM=['PERM60004']"
+sub_B,GET /technician/<id>,inexistente,404,404,SÍ,
+technical,GET /technician/<id>,propio,200,200,SÍ,
+technical,GET /technician/<id>,ajeno,200,404,NO,FUGA: tareas=['TSK60003'] · jobs=['PTL-I60001'] · POLÍTICAS IAM=['PERM60004']
+technical,GET /technician/<id>,inexistente,404,404,SÍ,
+tech_de_sub_B,GET /technician/<id>,propio,200,200,SÍ,
+tech_de_sub_B,GET /technician/<id>,ajeno,200,404,NO,"FUGA: tareas=['TSK60001', 'TSK60018'] · jobs=['QID-I60001'] · POLÍTICAS IAM=['PERM60004']"
+tech_de_sub_B,GET /technician/<id>,inexistente,404,404,SÍ,
+tech_independiente,GET /technician/<id>,ajeno,200,404,NO,"FUGA: tareas=['TSK60001', 'TSK60018'] · jobs=['QID-I60001'] · POLÍTICAS IAM=['PERM60004']"
+tech_independiente,GET /technician/<id>,inexistente,404,404,SÍ,
+anonimo,GET /subcontractors/<id>,ajeno,401,401,SÍ,
+anonimo,GET /subcontractors/<id>,inexistente,401,401,SÍ,
+full_admin,GET /subcontractors/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /subcontractors/<id>,inexistente,404,200|404,SÍ,
+gqm_member,GET /subcontractors/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /subcontractors/<id>,inexistente,404,200|404,SÍ,
+subcontractor,GET /subcontractors/<id>,propio,200,200,SÍ,
+subcontractor,GET /subcontractors/<id>,ajeno,200,404,NO,FUGA: tareas=['TSK60003'] · jobs=['PTL-I60001'] · órdenes=['ORD60002']
+subcontractor,GET /subcontractors/<id>,inexistente,404,404,SÍ,
+sub_B,GET /subcontractors/<id>,propio,200,200,SÍ,
+sub_B,GET /subcontractors/<id>,ajeno,200,404,NO,"FUGA: tareas=['TSK60001', 'TSK60002', 'TSK60018'] · jobs=['QID-I60001'] · órdenes=['ORD60001']"
+sub_B,GET /subcontractors/<id>,inexistente,404,404,SÍ,
+technical,GET /subcontractors/<id>,propio,403,403,SÍ,
+technical,GET /subcontractors/<id>,ajeno,403,403,SÍ,
+technical,GET /subcontractors/<id>,inexistente,403,403,SÍ,
+tech_de_sub_B,GET /subcontractors/<id>,propio,403,403,SÍ,
+tech_de_sub_B,GET /subcontractors/<id>,ajeno,403,403,SÍ,
+tech_de_sub_B,GET /subcontractors/<id>,inexistente,403,403,SÍ,
+tech_independiente,GET /subcontractors/<id>,ajeno,403,403,SÍ,
+tech_independiente,GET /subcontractors/<id>,inexistente,403,403,SÍ,
+anonimo,GET /certificate/sub/<id>,ajeno,401,401,SÍ,
+anonimo,GET /certificate/sub/<id>,inexistente,401,401,SÍ,
+full_admin,GET /certificate/sub/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /certificate/sub/<id>,inexistente,200,200|404,SÍ,
+gqm_member,GET /certificate/sub/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /certificate/sub/<id>,inexistente,200,200|404,SÍ,
+subcontractor,GET /certificate/sub/<id>,propio,200,200,SÍ,
+subcontractor,GET /certificate/sub/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['CERT60002', 'SUBC60002']"
+subcontractor,GET /certificate/sub/<id>,inexistente,200,200|404,SÍ,
+sub_B,GET /certificate/sub/<id>,propio,200,200,SÍ,
+sub_B,GET /certificate/sub/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['CERT60001', 'SUBC60001']"
+sub_B,GET /certificate/sub/<id>,inexistente,200,200|404,SÍ,
+technical,GET /certificate/sub/<id>,propio,403,403,SÍ,
+technical,GET /certificate/sub/<id>,ajeno,403,403,SÍ,
+technical,GET /certificate/sub/<id>,inexistente,403,403,SÍ,
+tech_de_sub_B,GET /certificate/sub/<id>,propio,403,403,SÍ,
+tech_de_sub_B,GET /certificate/sub/<id>,ajeno,403,403,SÍ,
+tech_de_sub_B,GET /certificate/sub/<id>,inexistente,403,403,SÍ,
+tech_independiente,GET /certificate/sub/<id>,ajeno,403,403,SÍ,
+tech_independiente,GET /certificate/sub/<id>,inexistente,403,403,SÍ,
+anonimo,GET /attachments/<id>,ajeno,401,401,SÍ,
+anonimo,GET /attachments/<id>,inexistente,401,401,SÍ,
+full_admin,GET /attachments/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /attachments/<id>,inexistente,404,200|404,SÍ,
+gqm_member,GET /attachments/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /attachments/<id>,inexistente,404,200|404,SÍ,
+subcontractor,GET /attachments/<id>,propio,200,200,SÍ,
+subcontractor,GET /attachments/<id>,ajeno,200,404,NO,FUGA: jobs=['PTL-I60001']
+subcontractor,GET /attachments/<id>,inexistente,404,404,SÍ,
+sub_B,GET /attachments/<id>,propio,200,200,SÍ,
+sub_B,GET /attachments/<id>,ajeno,200,404,NO,FUGA: jobs=['QID-I60001']
+sub_B,GET /attachments/<id>,inexistente,404,404,SÍ,
+technical,GET /attachments/<id>,propio,200,200,SÍ,
+technical,GET /attachments/<id>,ajeno,200,404,NO,FUGA: jobs=['PTL-I60001']
+technical,GET /attachments/<id>,inexistente,404,404,SÍ,
+tech_de_sub_B,GET /attachments/<id>,propio,200,200,SÍ,
+tech_de_sub_B,GET /attachments/<id>,ajeno,200,404,NO,FUGA: jobs=['QID-I60001']
+tech_de_sub_B,GET /attachments/<id>,inexistente,404,404,SÍ,
+tech_independiente,GET /attachments/<id>,ajeno,200,404,NO,FUGA: jobs=['QID-I60001']
+tech_independiente,GET /attachments/<id>,inexistente,404,404,SÍ,
+anonimo,GET /tlactivity/job/<id>,ajeno,401,401,SÍ,
+anonimo,GET /tlactivity/job/<id>,inexistente,401,401,SÍ,
+full_admin,GET /tlactivity/job/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /tlactivity/job/<id>,inexistente,200,200|404,SÍ,
+gqm_member,GET /tlactivity/job/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /tlactivity/job/<id>,inexistente,200,200|404,SÍ,
+subcontractor,GET /tlactivity/job/<id>,propio,200,200,SÍ,
+subcontractor,GET /tlactivity/job/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['PTL-I60001', 'SUBC60002']"
+subcontractor,GET /tlactivity/job/<id>,inexistente,200,200|404,SÍ,
+sub_B,GET /tlactivity/job/<id>,propio,200,200,SÍ,
+sub_B,GET /tlactivity/job/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['QID-I60001', 'SUBC60001']"
+sub_B,GET /tlactivity/job/<id>,inexistente,200,200|404,SÍ,
+technical,GET /tlactivity/job/<id>,propio,200,200,SÍ,
+technical,GET /tlactivity/job/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['PTL-I60001', 'SUBC60002']"
+technical,GET /tlactivity/job/<id>,inexistente,200,200|404,SÍ,
+tech_de_sub_B,GET /tlactivity/job/<id>,propio,200,200,SÍ,
+tech_de_sub_B,GET /tlactivity/job/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['QID-I60001', 'SUBC60001']"
+tech_de_sub_B,GET /tlactivity/job/<id>,inexistente,200,200|404,SÍ,
+tech_independiente,GET /tlactivity/job/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['QID-I60001', 'SUBC60001']"
+tech_independiente,GET /tlactivity/job/<id>,inexistente,200,200|404,SÍ,
+anonimo,GET /tlactivity/sub/<id>,ajeno,401,401,SÍ,
+anonimo,GET /tlactivity/sub/<id>,inexistente,401,401,SÍ,
+full_admin,GET /tlactivity/sub/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /tlactivity/sub/<id>,inexistente,200,200|404,SÍ,
+gqm_member,GET /tlactivity/sub/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /tlactivity/sub/<id>,inexistente,200,200|404,SÍ,
+subcontractor,GET /tlactivity/sub/<id>,propio,200,200,SÍ,
+subcontractor,GET /tlactivity/sub/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['PTL-I60001', 'SUBC60002']"
+subcontractor,GET /tlactivity/sub/<id>,inexistente,200,200|404,SÍ,
+sub_B,GET /tlactivity/sub/<id>,propio,200,200,SÍ,
+sub_B,GET /tlactivity/sub/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['QID-I60001', 'SUBC60001']"
+sub_B,GET /tlactivity/sub/<id>,inexistente,200,200|404,SÍ,
+technical,GET /tlactivity/sub/<id>,propio,200,200,SÍ,
+technical,GET /tlactivity/sub/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['PTL-I60001', 'SUBC60002']"
+technical,GET /tlactivity/sub/<id>,inexistente,200,200|404,SÍ,
+tech_de_sub_B,GET /tlactivity/sub/<id>,propio,200,200,SÍ,
+tech_de_sub_B,GET /tlactivity/sub/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['QID-I60001', 'SUBC60001']"
+tech_de_sub_B,GET /tlactivity/sub/<id>,inexistente,200,200|404,SÍ,
+tech_independiente,GET /tlactivity/sub/<id>,ajeno,200,200 vacío,NO,"FUGA: la lista trae datos ajenos ['QID-I60001', 'SUBC60001']"
+tech_independiente,GET /tlactivity/sub/<id>,inexistente,200,200|404,SÍ,
+anonimo,GET /tlactivity/client/<id>,ajeno,401,401,SÍ,
+anonimo,GET /tlactivity/client/<id>,inexistente,401,401,SÍ,
+full_admin,GET /tlactivity/client/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /tlactivity/client/<id>,inexistente,200,200|404,SÍ,
+gqm_member,GET /tlactivity/client/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /tlactivity/client/<id>,inexistente,200,200|404,SÍ,
+subcontractor,GET /tlactivity/client/<id>,propio,200,200,SÍ,
+subcontractor,GET /tlactivity/client/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+subcontractor,GET /tlactivity/client/<id>,inexistente,200,200|404,SÍ,
+sub_B,GET /tlactivity/client/<id>,propio,200,200,SÍ,
+sub_B,GET /tlactivity/client/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+sub_B,GET /tlactivity/client/<id>,inexistente,200,200|404,SÍ,
+technical,GET /tlactivity/client/<id>,propio,200,200,SÍ,
+technical,GET /tlactivity/client/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+technical,GET /tlactivity/client/<id>,inexistente,200,200|404,SÍ,
+tech_de_sub_B,GET /tlactivity/client/<id>,propio,200,200,SÍ,
+tech_de_sub_B,GET /tlactivity/client/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+tech_de_sub_B,GET /tlactivity/client/<id>,inexistente,200,200|404,SÍ,
+tech_independiente,GET /tlactivity/client/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+tech_independiente,GET /tlactivity/client/<id>,inexistente,200,200|404,SÍ,
+anonimo,GET /tlactivity/pmc/<id>,ajeno,401,401,SÍ,
+anonimo,GET /tlactivity/pmc/<id>,inexistente,401,401,SÍ,
+full_admin,GET /tlactivity/pmc/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /tlactivity/pmc/<id>,inexistente,200,200|404,SÍ,
+gqm_member,GET /tlactivity/pmc/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /tlactivity/pmc/<id>,inexistente,200,200|404,SÍ,
+subcontractor,GET /tlactivity/pmc/<id>,propio,200,200,SÍ,
+subcontractor,GET /tlactivity/pmc/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+subcontractor,GET /tlactivity/pmc/<id>,inexistente,200,200|404,SÍ,
+sub_B,GET /tlactivity/pmc/<id>,propio,200,200,SÍ,
+sub_B,GET /tlactivity/pmc/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+sub_B,GET /tlactivity/pmc/<id>,inexistente,200,200|404,SÍ,
+technical,GET /tlactivity/pmc/<id>,propio,200,200,SÍ,
+technical,GET /tlactivity/pmc/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+technical,GET /tlactivity/pmc/<id>,inexistente,200,200|404,SÍ,
+tech_de_sub_B,GET /tlactivity/pmc/<id>,propio,200,200,SÍ,
+tech_de_sub_B,GET /tlactivity/pmc/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+tech_de_sub_B,GET /tlactivity/pmc/<id>,inexistente,200,200|404,SÍ,
+tech_independiente,GET /tlactivity/pmc/<id>,ajeno,200,200 vacío,NO,FUGA: la lista trae datos ajenos (no vacía)
+tech_independiente,GET /tlactivity/pmc/<id>,inexistente,200,200|404,SÍ,
+anonimo,GET /jobs/<id>,ajeno,401,401,SÍ,
+anonimo,GET /jobs/<id>,inexistente,401,401,SÍ,
+full_admin,GET /jobs/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /jobs/<id>,inexistente,404,200|404,SÍ,
+gqm_member,GET /jobs/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /jobs/<id>,inexistente,404,200|404,SÍ,
+subcontractor,GET /jobs/<id>,propio,200,200,SÍ,
+subcontractor,GET /jobs/<id>,ajeno,404,404,SÍ,
+subcontractor,GET /jobs/<id>,inexistente,404,404,SÍ,
+sub_B,GET /jobs/<id>,propio,200,200,SÍ,
+sub_B,GET /jobs/<id>,ajeno,404,404,SÍ,
+sub_B,GET /jobs/<id>,inexistente,404,404,SÍ,
+technical,GET /jobs/<id>,propio,200,200,SÍ,
+technical,GET /jobs/<id>,ajeno,404,404,SÍ,
+technical,GET /jobs/<id>,inexistente,404,404,SÍ,
+tech_de_sub_B,GET /jobs/<id>,propio,200,200,SÍ,
+tech_de_sub_B,GET /jobs/<id>,ajeno,404,404,SÍ,
+tech_de_sub_B,GET /jobs/<id>,inexistente,404,404,SÍ,
+tech_independiente,GET /jobs/<id>,ajeno,404,404,SÍ,
+tech_independiente,GET /jobs/<id>,inexistente,404,404,SÍ,
+anonimo,GET /tasks/<id>,ajeno,401,401,SÍ,
+anonimo,GET /tasks/<id>,inexistente,401,401,SÍ,
+full_admin,GET /tasks/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /tasks/<id>,inexistente,404,200|404,SÍ,
+gqm_member,GET /tasks/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /tasks/<id>,inexistente,404,200|404,SÍ,
+subcontractor,GET /tasks/<id>,propio,200,200,SÍ,
+subcontractor,GET /tasks/<id>,ajeno,404,404,SÍ,
+subcontractor,GET /tasks/<id>,inexistente,404,404,SÍ,
+sub_B,GET /tasks/<id>,propio,200,200,SÍ,
+sub_B,GET /tasks/<id>,ajeno,404,404,SÍ,
+sub_B,GET /tasks/<id>,inexistente,404,404,SÍ,
+technical,GET /tasks/<id>,propio,200,200,SÍ,
+technical,GET /tasks/<id>,ajeno,404,404,SÍ,
+technical,GET /tasks/<id>,inexistente,404,404,SÍ,
+tech_de_sub_B,GET /tasks/<id>,propio,200,200,SÍ,
+tech_de_sub_B,GET /tasks/<id>,ajeno,404,404,SÍ,
+tech_de_sub_B,GET /tasks/<id>,inexistente,404,404,SÍ,
+tech_independiente,GET /tasks/<id>,ajeno,404,404,SÍ,
+tech_independiente,GET /tasks/<id>,inexistente,404,404,SÍ,
+anonimo,GET /chat/job/<id>,ajeno,401,401,SÍ,
+anonimo,GET /chat/job/<id>,inexistente,401,401,SÍ,
+full_admin,GET /chat/job/<id>,ajeno,200,200|404,SÍ,
+full_admin,GET /chat/job/<id>,inexistente,200,200|404,SÍ,
+gqm_member,GET /chat/job/<id>,ajeno,200,200|404,SÍ,
+gqm_member,GET /chat/job/<id>,inexistente,200,200|404,SÍ,
+subcontractor,GET /chat/job/<id>,propio,200,200,SÍ,
+subcontractor,GET /chat/job/<id>,ajeno,404,404,SÍ,
+subcontractor,GET /chat/job/<id>,inexistente,404,404,SÍ,
+sub_B,GET /chat/job/<id>,propio,200,200,SÍ,
+sub_B,GET /chat/job/<id>,ajeno,404,404,SÍ,
+sub_B,GET /chat/job/<id>,inexistente,404,404,SÍ,
+technical,GET /chat/job/<id>,propio,403,403,SÍ,
+technical,GET /chat/job/<id>,ajeno,403,403,SÍ,
+technical,GET /chat/job/<id>,inexistente,403,403,SÍ,
+tech_de_sub_B,GET /chat/job/<id>,propio,403,403,SÍ,
+tech_de_sub_B,GET /chat/job/<id>,ajeno,403,403,SÍ,
+tech_de_sub_B,GET /chat/job/<id>,inexistente,403,403,SÍ,
+tech_independiente,GET /chat/job/<id>,ajeno,403,403,SÍ,
+tech_independiente,GET /chat/job/<id>,inexistente,403,403,SÍ,
+anonimo,GET /jobs/subcontractor/<id>,ajeno,401,401,SÍ,
+anonimo,GET /jobs/subcontractor/<id>,inexistente,401,401,SÍ,
+full_admin,GET /jobs/subcontractor/<id>,ajeno,200,200|403|404,SÍ,
+full_admin,GET /jobs/subcontractor/<id>,inexistente,200,200|403|404,SÍ,
+gqm_member,GET /jobs/subcontractor/<id>,ajeno,200,200|403|404,SÍ,
+gqm_member,GET /jobs/subcontractor/<id>,inexistente,200,200|403|404,SÍ,
+subcontractor,GET /jobs/subcontractor/<id>,propio,200,200,SÍ,
+subcontractor,GET /jobs/subcontractor/<id>,ajeno,403,403,SÍ,
+subcontractor,GET /jobs/subcontractor/<id>,inexistente,403,403,SÍ,
+sub_B,GET /jobs/subcontractor/<id>,propio,200,200,SÍ,
+sub_B,GET /jobs/subcontractor/<id>,ajeno,403,403,SÍ,
+sub_B,GET /jobs/subcontractor/<id>,inexistente,403,403,SÍ,
+technical,GET /jobs/subcontractor/<id>,propio,403,403,SÍ,
+technical,GET /jobs/subcontractor/<id>,ajeno,403,403,SÍ,
+technical,GET /jobs/subcontractor/<id>,inexistente,403,403,SÍ,
+tech_de_sub_B,GET /jobs/subcontractor/<id>,propio,403,403,SÍ,
+tech_de_sub_B,GET /jobs/subcontractor/<id>,ajeno,403,403,SÍ,
+tech_de_sub_B,GET /jobs/subcontractor/<id>,inexistente,403,403,SÍ,
+tech_independiente,GET /jobs/subcontractor/<id>,ajeno,403,403,SÍ,
+tech_independiente,GET /jobs/subcontractor/<id>,inexistente,403,403,SÍ,
+anonimo,GET /commission/member/<id>,n/a,401,401,SÍ,
+full_admin,GET /commission/member/<id>,n/a,200,200|403|404,SÍ,
+gqm_member,GET /commission/member/<id>,n/a,403,200|403|404,SÍ,
+subcontractor,GET /commission/member/<id>,n/a,403,403,SÍ,
+sub_B,GET /commission/member/<id>,n/a,403,403,SÍ,
+technical,GET /commission/member/<id>,n/a,403,403,SÍ,
+tech_de_sub_B,GET /commission/member/<id>,n/a,403,403,SÍ,
+tech_independiente,GET /commission/member/<id>,n/a,403,403,SÍ,
+anonimo,GET /member/<id>,n/a,401,401,SÍ,
+full_admin,GET /member/<id>,n/a,200,200|403|404,SÍ,
+gqm_member,GET /member/<id>,n/a,403,200|403|404,SÍ,
+subcontractor,GET /member/<id>,n/a,403,403,SÍ,
+sub_B,GET /member/<id>,n/a,403,403,SÍ,
+technical,GET /member/<id>,n/a,403,403,SÍ,
+tech_de_sub_B,GET /member/<id>,n/a,403,403,SÍ,
+tech_independiente,GET /member/<id>,n/a,403,403,SÍ,
+anonimo,GET /podio/items/<app_type>,n/a,401,n/d,n/d,NO AUDITABLE en este entorno: exige credenciales de Podio
+full_admin,GET /podio/items/<app_type>,n/a,500,n/d,n/d,NO AUDITABLE en este entorno: exige credenciales de Podio
+gqm_member,GET /podio/items/<app_type>,n/a,500,n/d,n/d,NO AUDITABLE en este entorno: exige credenciales de Podio
+subcontractor,GET /podio/items/<app_type>,n/a,500,n/d,n/d,NO AUDITABLE en este entorno: exige credenciales de Podio
+sub_B,GET /podio/items/<app_type>,n/a,500,n/d,n/d,NO AUDITABLE en este entorno: exige credenciales de Podio
+technical,GET /podio/items/<app_type>,n/a,500,n/d,n/d,NO AUDITABLE en este entorno: exige credenciales de Podio
+tech_de_sub_B,GET /podio/items/<app_type>,n/a,500,n/d,n/d,NO AUDITABLE en este entorno: exige credenciales de Podio
+tech_independiente,GET /podio/items/<app_type>,n/a,500,n/d,n/d,NO AUDITABLE en este entorno: exige credenciales de Podio
+subcontractor,GET /tasks/,enumeración,200,200|404,SÍ,"devuelve ['TSK60001', 'TSK60002', 'TSK60018']"
+sub_B,GET /tasks/,enumeración,200,200|404,SÍ,devuelve ['TSK60003']
+technical,GET /tasks/,enumeración,200,200|404,SÍ,"devuelve ['TSK60001', 'TSK60018']"
+tech_de_sub_B,GET /tasks/,enumeración,200,200|404,SÍ,devuelve ['TSK60003']
+tech_independiente,GET /tasks/,enumeración,200,200|404,SÍ,devuelve ['TSK60005']
+subcontractor,GET /jobs/,enumeración,200,200|404,SÍ,devuelve ['QID-I60001']
+sub_B,GET /jobs/,enumeración,200,200|404,SÍ,devuelve ['PTL-I60001']
+technical,GET /jobs/,enumeración,200,200|404,SÍ,devuelve ['QID-I60001']
+tech_de_sub_B,GET /jobs/,enumeración,200,200|404,SÍ,devuelve ['PTL-I60001']
+tech_independiente,GET /jobs/,enumeración,200,200|404,SÍ,devuelve ['PAR-I60001']
+subcontractor,GET /technician/,enumeración,200,200|404,NO,"devuelve ['TEC60001', 'TEC60002', 'TEC60003'] — INTRUSOS del otro sub: ['TEC60002']"
+sub_B,GET /technician/,enumeración,200,200|404,NO,"devuelve ['TEC60001', 'TEC60002', 'TEC60003'] — INTRUSOS del otro sub: ['TEC60001']"
+technical,GET /technician/,enumeración,200,200|404,NO,"devuelve ['TEC60001', 'TEC60002', 'TEC60003'] — INTRUSOS del otro sub: ['TEC60002']"
+tech_de_sub_B,GET /technician/,enumeración,200,200|404,NO,"devuelve ['TEC60001', 'TEC60002', 'TEC60003'] — INTRUSOS del otro sub: ['TEC60001']"
+tech_independiente,GET /technician/,enumeración,200,200|404,NO,"devuelve ['TEC60001', 'TEC60002', 'TEC60003'] — INTRUSOS del otro sub: ['TEC60001']"
+subcontractor,GET /attachments/,enumeración,200,200|404,NO,"devuelve ['ATT60001', 'ATT60002', 'ATT60003', 'ATT60004'] — INTRUSOS del otro sub: ['ATT60003']"
+sub_B,GET /attachments/,enumeración,200,200|404,NO,"devuelve ['ATT60001', 'ATT60002', 'ATT60003', 'ATT60004'] — INTRUSOS del otro sub: ['ATT60001']"
+technical,GET /attachments/,enumeración,200,200|404,NO,"devuelve ['ATT60001', 'ATT60002', 'ATT60003', 'ATT60004'] — INTRUSOS del otro sub: ['ATT60003']"
+tech_de_sub_B,GET /attachments/,enumeración,200,200|404,NO,"devuelve ['ATT60001', 'ATT60002', 'ATT60003', 'ATT60004'] — INTRUSOS del otro sub: ['ATT60001']"
+tech_independiente,GET /attachments/,enumeración,200,200|404,NO,"devuelve ['ATT60001', 'ATT60002', 'ATT60003', 'ATT60004'] — INTRUSOS del otro sub: ['ATT60001']"
+subcontractor,GET /subcontractors/,enumeración,200,200|404,NO,"devuelve ['SUBC60001', 'SUBC60002'] — INTRUSOS del otro sub: ['SUBC60002']"
+sub_B,GET /subcontractors/,enumeración,200,200|404,NO,"devuelve ['SUBC60001', 'SUBC60002'] — INTRUSOS del otro sub: ['SUBC60001']"
+technical,GET /subcontractors/,enumeración,403,200|404,SÍ,devuelve []
+tech_de_sub_B,GET /subcontractors/,enumeración,403,200|404,SÍ,devuelve []
+tech_independiente,GET /subcontractors/,enumeración,403,200|404,SÍ,devuelve []
+subcontractor,GET /certificate/,enumeración,200,200|404,NO,"devuelve ['CERT60001', 'CERT60002'] — INTRUSOS del otro sub: ['CERT60002']"
+sub_B,GET /certificate/,enumeración,200,200|404,NO,"devuelve ['CERT60001', 'CERT60002'] — INTRUSOS del otro sub: ['CERT60001']"
+technical,GET /certificate/,enumeración,403,200|404,SÍ,devuelve []
+tech_de_sub_B,GET /certificate/,enumeración,403,200|404,SÍ,devuelve []
+tech_independiente,GET /certificate/,enumeración,403,200|404,SÍ,devuelve []
+technical,POST /tasks/ (R4),propio,403,403,SÍ,BD: fila creada=False
+tech_de_sub_B,POST /tasks/ (R4),propio,403,403,SÍ,BD: fila creada=False
+tech_independiente,POST /tasks/ (R4),propio,403,403,SÍ,BD: fila creada=False
+subcontractor,DELETE /tasks/<propia> (R5),propio,403,403,SÍ,BD: la fila sigue existiendo=True
+subcontractor,DELETE /jobs/<propio> (R5),propio,403,403,SÍ,
+sub_B,DELETE /tasks/<propia> (R5),propio,403,403,SÍ,BD: la fila sigue existiendo=True
+sub_B,DELETE /jobs/<propio> (R5),propio,403,403,SÍ,
+technical,DELETE /tasks/<propia> (R5),propio,403,403,SÍ,BD: la fila sigue existiendo=True
+technical,DELETE /jobs/<propio> (R5),propio,403,403,SÍ,
+tech_de_sub_B,DELETE /tasks/<propia> (R5),propio,403,403,SÍ,BD: la fila sigue existiendo=True
+tech_de_sub_B,DELETE /jobs/<propio> (R5),propio,403,403,SÍ,
+tech_independiente,DELETE /tasks/<propia> (R5),propio,403,403,SÍ,BD: la fila sigue existiendo=True
+tech_independiente,DELETE /jobs/<propio> (R5),propio,403,403,SÍ,
+subcontractor,POST /tasks/ técnico de OTRO sub (R3),ajeno,201,403,NO,"BD: creada=True, ID_Technician=TEC60002"
+subcontractor,PATCH /subcontractors/<propio> compliance,propio,200,403,NO,BD tras releer: Gqm_compliance='AUDIT-AUTOAPROBADO' Score=99.0 ← ESCRIBIÓ
