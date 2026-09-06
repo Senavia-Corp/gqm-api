@@ -16,6 +16,10 @@
     {
       "path": "/qbo/refresh_tokens_cron",
       "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/webhook/podio/dead_letter_cron",
+      "schedule": "0 8 * * *"
     }
   ]
 }
