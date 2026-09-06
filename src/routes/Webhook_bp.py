@@ -246,6 +246,14 @@ def _esperar_entidad_del_adjunto(session, Model, item_id):
 
     Si se agota el presupuesto se devuelve None y el llamante registra la falla
     igual que antes. Esto ACOTA la perdida, no la sustituye por silencio.
+
+    LO QUE CUESTA: una entrega cuyo dueño no aparezca nunca —un adjunto de una
+    entidad que jamas se sincronizo— ocupa ahora 7,75 s de worker en vez de
+    responder al instante. Con el volumen actual da igual (20 filas en tres
+    semanas), y queda muy por debajo del timeout de la funcion. Si algun dia
+    llega una rafaga de adjuntos huerfanos, el camino es sacar la espera del
+    request —cola, o drenar `podio_failed_syncs` desde el cron— no subir el
+    presupuesto.
     """
     entidad = session.exec(
         select(Model).where(Model.podio_item_id == str(item_id))).first()
