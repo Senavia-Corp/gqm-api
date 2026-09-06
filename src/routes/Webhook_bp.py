@@ -1300,12 +1300,25 @@ def dead_letter_cron():
     expediente no es recuperar un fichero, y la recuperacion sigue exigiendo un
     Resync con su verificacion y su 502 si no converge.
 
-    Sin token, como los otros crons de este proyecto (`reconciliar_cron`), pero
-    con `TOPE_DEAD_LETTER_CRON`: por encima de ese numero de hallazgos se planta
+    Autenticacion igual que `reconciliar_cron` y `refresh_tokens_cron`: Vercel
+    Cron llega con `Authorization: Bearer $CRON_SECRET`, que no es un JWT, asi
+    que la ruta va en `public_prefixes` y valida su propio secreto. **Falla
+    CERRADO**: sin `CRON_SECRET` responde 503 y no escribe nada. El token del
+    hook de Podio fallo ABIERTO en su dia y dejo 45 hooks entregando sin
+    autenticar; aqui no se repite.
+
+    Y `TOPE_DEAD_LETTER_CRON`: por encima de ese numero de hallazgos se planta
     sin registrar, para que un fallo del detector llegue como un aviso y no como
     doscientas filas nuevas.
     """
     from sqlalchemy import text
+
+    secreto = os.getenv("CRON_SECRET")
+    if not secreto:
+        return jsonify({"detail": "CRON_SECRET no configurada; el cron no corre "
+                                  "sin autenticación."}), 503
+    if request.headers.get("Authorization") != f"Bearer {secreto}":
+        return jsonify({"detail": "no autorizado"}), 401
 
     resumen = {"marcadas_irrecuperables": 0, "perdidos_detectados": 0,
                "perdidos_registrados": 0, "plantado": False}
