@@ -1,3 +1,4 @@
+import os
 import time
 import traceback
 from flask import Blueprint, jsonify, request
@@ -1278,6 +1279,78 @@ SELECT DISTINCT ev.id_jobs, ev.file_id, min(ev.ts) AS visto,
  GROUP BY ev.id_jobs, ev.file_id, j.podio_item_id, j.podio_app_year
  ORDER BY visto
 """
+
+
+# Tope de seguridad: un escritor sin supervision no puede crear filas sin
+# limite. Si un dia el detector se equivoca, que se note en 20 y no en 2000.
+TOPE_DEAD_LETTER_CRON = int(os.getenv("DEAD_LETTER_CRON_TOPE", "20"))
+
+
+@webhook_bp.get("/webhook/podio/dead_letter_cron")
+def dead_letter_cron():
+    """Mantiene la dead-letter sin que nadie abra el panel. La invoca Vercel Cron.
+
+    Los dos barridos vivian colgados de `GET /failed_syncs`, o sea que una falla
+    no se etiquetaba hasta que un humano miraba — y justo lo que se queria era
+    dejar de mirar. Peor con los adjuntos perdidos en silencio: esos NO salen en
+    el panel por definicion, asi que nadie los iba a descubrir abriendo nada.
+
+    Solo escribe en `podio_failed_syncs`, que es un inventario, no un dato del
+    negocio. No toca Podio, ni Cloudinary, ni `attachments`: registrar un
+    expediente no es recuperar un fichero, y la recuperacion sigue exigiendo un
+    Resync con su verificacion y su 502 si no converge.
+
+    Sin token, como los otros crons de este proyecto (`reconciliar_cron`), pero
+    con `TOPE_DEAD_LETTER_CRON`: por encima de ese numero de hallazgos se planta
+    sin registrar, para que un fallo del detector llegue como un aviso y no como
+    doscientas filas nuevas.
+    """
+    from sqlalchemy import text
+
+    resumen = {"marcadas_irrecuperables": 0, "perdidos_detectados": 0,
+               "perdidos_registrados": 0, "plantado": False}
+    try:
+        resumen["marcadas_irrecuperables"] = auto_marcar_irrecuperables()
+    except Exception:
+        logger.exception("el cron no pudo marcar las irrecuperables")
+
+    try:
+        with get_session() as session:
+            filas = session.exec(
+                text(_SQL_ADJUNTOS_PERDIDOS).bindparams(dias="7")).all()
+        resumen["perdidos_detectados"] = len(filas)
+
+        if len(filas) > TOPE_DEAD_LETTER_CRON:
+            resumen["plantado"] = True
+            logger.error(
+                "🚨 %s adjuntos perdidos en 7 dias supera el tope de %s: el cron "
+                "NO registra nada. Revisalo a mano con GET /webhook/podio/"
+                "adjuntos_perdidos antes de dar por bueno el detector.",
+                len(filas), TOPE_DEAD_LETTER_CRON)
+            return jsonify(resumen), 200
+
+        from src.utils.failed_sync import record_failed_attachment
+        for f in filas:
+            try:
+                record_failed_attachment(
+                    item_id=f[3], file_id=f[1], app_type=(f[0] or "")[:3],
+                    action_type="file_created", fk_field="ID_Jobs",
+                    fk_value=f[0],
+                    error=Exception(
+                        "adjunto entregado por Podio que nunca llego a la BD y "
+                        "no dejo fila de fallo; detectado por el cron al "
+                        "reconciliar tlactivity contra attachments"))
+                resumen["perdidos_registrados"] += 1
+            except Exception:
+                logger.exception("el cron no pudo registrar el adjunto %s", f[1])
+
+        if resumen["perdidos_registrados"]:
+            logger.info("🧾 el cron registro %s adjuntos perdidos",
+                        resumen["perdidos_registrados"])
+    except Exception:
+        logger.exception("el cron no pudo reconciliar los adjuntos perdidos")
+
+    return jsonify(resumen), 200
 
 
 @webhook_bp.route("/webhook/podio/adjuntos_perdidos", methods=["GET", "POST"])
