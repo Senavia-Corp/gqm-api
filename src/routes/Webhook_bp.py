@@ -1219,6 +1219,145 @@ def _adjuntos_pendientes(payload) -> list:
     return [i for i in ids if i not in presentes]      # deberian estar
 
 
+# Adjuntos que Podio entrego, la BD no tiene, y NADIE registro como fallo.
+#
+# `tlactivity` deja una linea "File added from Podio" con los file_ids en la
+# descripcion ANTES de que el adjunto se persista. Si el guardado se cae por un
+# camino que devuelve 200 sin dead-letter —de esos habia 22 cuando se levanto la
+# auditoria del 5-sep-2026— queda la linea de actividad y no queda el fichero:
+# una perdida que no aparece en ningun contador.
+#
+# Se midieron 5 asi entre el 17 y el 20 de agosto (QID61310, QID61285, QID61225,
+# QID61300, QID61334) y no habia forma de recuperarlos sin escribir SQL a mano,
+# porque el boton Resync solo sabe operar sobre filas de `podio_failed_syncs`.
+#
+# Esto cierra el circulo: compara las dos tablas y, si se pide, mete lo que
+# falta en la dead-letter para que la maquinaria de recuperacion que YA existe
+# se encargue. No baja nada de Podio por su cuenta.
+_SQL_ADJUNTOS_PERDIDOS = """
+WITH ev AS (
+  SELECT t."ID_Jobs" AS id_jobs,
+         t."Action_datetime" AS ts,
+         trim(x) AS file_id
+    FROM tlactivity t,
+         unnest(string_to_array(
+           split_part(split_part(t."Description", 'file_ids: ', 2), ' | ', 1),
+           ',')) AS x
+   WHERE t."Action" IN ('File added from Podio', 'File replaced from Podio')
+     AND t."Description" LIKE '%%file_ids:%%'
+     AND t."Action_datetime" >= now() - (:dias || ' days')::interval
+     AND trim(x) <> ''
+),
+-- Un fichero borrado o reemplazado despues NO es una perdida: es una baja.
+bajas AS (
+  SELECT trim(x) AS file_id
+    FROM tlactivity t,
+         unnest(string_to_array(
+           split_part(split_part(t."Description", 'file_ids: ', 2), ' | ', 1),
+           ',')) AS x
+   WHERE t."Action" IN ('File deleted from Podio', 'File replaced from Podio')
+     AND trim(x) <> ''
+),
+-- Ni lo que ya tiene fila de fallo: eso ya se ve en el panel.
+ya_registrados AS (
+  SELECT trim(x) AS file_id
+    FROM podio_failed_syncs f,
+         unnest(string_to_array(
+           COALESCE(f.payload->>'file_ids', f.payload->>'file_id'), ',')) AS x
+   WHERE trim(x) <> ''
+)
+SELECT DISTINCT ev.id_jobs, ev.file_id, min(ev.ts) AS visto,
+       j.podio_item_id, j.podio_app_year
+  FROM ev
+  LEFT JOIN attachments a ON a.podio_file_id = ev.file_id
+  LEFT JOIN jobs j ON j."ID_Jobs" = ev.id_jobs
+ WHERE a."ID_Attachment" IS NULL
+   AND ev.file_id NOT IN (SELECT file_id FROM bajas)
+   AND ev.file_id NOT IN (SELECT file_id FROM ya_registrados)
+   AND j."ID_Jobs" IS NOT NULL
+ GROUP BY ev.id_jobs, ev.file_id, j.podio_item_id, j.podio_app_year
+ ORDER BY visto
+"""
+
+
+@webhook_bp.route("/webhook/podio/adjuntos_perdidos", methods=["GET", "POST"])
+@require_permission("admin:sync")
+def adjuntos_perdidos():
+    """Adjuntos entregados por Podio que no estan en la BD ni en la dead-letter.
+
+    GET  solo mide y devuelve la lista.
+    POST los registra como fallas para que el Resync del panel los recupere.
+
+    El POST no descarga nada de Podio: solo abre el expediente. La recuperacion
+    sigue pasando por el mismo camino auditado de siempre, con su verificacion
+    y su 502 si no converge.
+    """
+    from sqlalchemy import text
+
+    try:
+        dias = max(1, min(int(request.args.get("dias", 30)), 365))
+    except (TypeError, ValueError):
+        dias = 30
+
+    try:
+        with get_session() as session:
+            filas = session.exec(
+                text(_SQL_ADJUNTOS_PERDIDOS).bindparams(dias=str(dias))).all()
+
+        perdidos = [{
+            "id_jobs": f[0], "file_id": f[1],
+            "visto": f[2].isoformat() if f[2] else None,
+            "podio_item_id": f[3], "year": f[4],
+        } for f in filas]
+
+        if request.method == "GET":
+            return jsonify({
+                "dias": dias,
+                "perdidos": len(perdidos),
+                "detalle": perdidos,
+                "nota": ("Ninguno tiene fila de fallo: se perdieron en silencio. "
+                         "POST a esta misma ruta los registra para poder "
+                         "recuperarlos desde el panel."),
+            }), 200
+
+        from src.utils.failed_sync import record_failed_attachment
+
+        registrados, fallidos = [], []
+        for p in perdidos:
+            try:
+                record_failed_attachment(
+                    item_id=p["podio_item_id"],
+                    file_id=p["file_id"],
+                    app_type=(p["id_jobs"] or "")[:3],
+                    action_type="file_created",
+                    fk_field="ID_Jobs",
+                    fk_value=p["id_jobs"],
+                    error=Exception(
+                        "adjunto entregado por Podio que nunca llego a la BD "
+                        "y no dejo fila de fallo; detectado al reconciliar "
+                        "tlactivity contra attachments"),
+                )
+                registrados.append(p["file_id"])
+            except Exception as e:
+                logger.exception("no se pudo registrar el adjunto perdido %s",
+                                 p["file_id"])
+                fallidos.append({"file_id": p["file_id"], "error": str(e)})
+
+        logger.info("🧾 %s adjuntos perdidos registrados para recuperacion",
+                    len(registrados))
+        return jsonify({
+            "registrados": len(registrados),
+            "file_ids": registrados,
+            "fallidos": fallidos,
+            "siguiente_paso": ("Pulsa Resync en el panel sobre las fallas "
+                               "nuevas, o comprueba si el fichero sigue en "
+                               "Podio: un 410 lo marcara irrecuperable solo."),
+        }), 200
+    except Exception as e:
+        logger.exception("fallo al reconciliar adjuntos perdidos")
+        return jsonify({"error": str(e)}), 500
+
+
 @webhook_bp.route("/webhook/podio/failed_syncs", methods=["GET"])
 @require_permission("admin:sync")
 def get_failed_syncs():
