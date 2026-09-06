@@ -3,14 +3,11 @@
 Los tests de integración escriben en Neon develop (desechable). Las guardas
 de abajo abortan la sesión completa de pytest si el .env no es el de dev.
 """
-import sys
-
 from decouple import config
 
-if "ep-sparkling-sound" not in config("DATABASE_URL", default=""):
-    sys.exit("⛔ DATABASE_URL no apunta a Neon develop — tests abortados")
-if config("APP_ENV", default="") != "test":
-    sys.exit("⛔ APP_ENV != test — tests abortados")
+from src.utils.db_guard import require_dev_database
+
+require_dev_database(config, contexto="tests")
 
 import pytest  # noqa: E402
 

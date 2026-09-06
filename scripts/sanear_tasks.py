@@ -25,9 +25,12 @@ from src.models.TasksModel import Tasks  # noqa: E402
 APLICAR = "--aplicar" in sys.argv
 PROD_OK = "--permitir-produccion" in sys.argv
 
+from src.utils.db_guard import classify_database_url  # noqa: E402
+
 DB = config("DATABASE_URL", default="")
-if "ep-sparkling-sound" not in DB and not PROD_OK:
-    sys.exit("⛔ La BD no es Neon develop. Usa --permitir-produccion si es intencional.")
+if classify_database_url(DB) == "rechazado" and not PROD_OK:
+    sys.exit("⛔ La BD no es Neon develop ni loopback. "
+             "Usa --permitir-produccion si es intencional.")
 if PROD_OK and APLICAR:
     print("⚠️  MODO PRODUCCIÓN CON ESCRITURA. Ctrl-C en 5 s para abortar.")
     import time

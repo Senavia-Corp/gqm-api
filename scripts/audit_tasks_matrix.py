@@ -33,9 +33,11 @@ from src.models.link_models.JobSubcontractor import JobSubcontractorLink  # noqa
 from src.models.link_models.JobTechnician import JobTechnicianLink  # noqa: E402
 
 # ── Guardas de entorno (nunca contra producción) ──────────────────────────────
+# `assert` desaparece con `python -O`; require_dev_database usa sys.exit y no.
+from src.utils.db_guard import require_dev_database  # noqa: E402
+
 DB = config("DATABASE_URL", default="")
-assert "ep-sparkling-sound" in DB, "⛔ DATABASE_URL no es Neon develop — abortado"
-assert config("APP_ENV", default="") == "test", "⛔ APP_ENV != test — abortado"
+require_dev_database(config, contexto="audit_tasks_matrix")
 
 API = os.environ.get("E2E_API", "http://127.0.0.1:8000").rstrip("/")
 PW = config("SEED_DEV_PASSWORD")
