@@ -85,7 +85,23 @@ def parse_and_validate_webhook(app_type: str, year: Optional[int] = None):
     item_id = data.get("item_id")
 
     # ---- Anti-loop: ignorar si el evento es reciente
-    if item_id and is_recent_event(item_id):
+    #
+    # SOLO para los eventos que el propio API puede provocar de rebote. El
+    # anti-bucle existe porque una escritura nuestra a Podio vuelve como
+    # `item.update`, y `register_event` la marca para no reprocesarla.
+    #
+    # `file.change` NO es eco de eso: escribir un campo del job en Podio no
+    # genera un evento de fichero. Suprimirlo durante los 15 s de la ventana era
+    # PERDIDA PURA — un adjunto subido en ese hueco se descartaba con un 200, sin
+    # fila en la dead-letter y sin reintento de Podio, que es exactamente el
+    # fallo que este frente vino a cerrar. Y si alguna vez llegara un
+    # `file.change` de rebote, no pasa nada: `process_file_change_event` es
+    # idempotente y se salta los file_id que ya estan.
+    #
+    # (`recent_events` es ademas un dict EN MEMORIA, y en Vercel cada entrega
+    # concurrente cae en otra lambda: el filtro nunca fue fiable del todo.)
+    if (item_id and data.get("type") != "file.change"
+            and is_recent_event(item_id)):
         return app_type, None, jsonify({"status": "ignored"}), 200
 
     return app_type, data, None, None
