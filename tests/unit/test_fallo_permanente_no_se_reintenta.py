@@ -112,3 +112,73 @@ def test_el_mensaje_marcado_no_desborda_la_columna():
     _marcar_irrecuperable(_SesionFalsa(), fila, "el fichero supera el tope de Cloudinary")
 
     assert len(fila.error_message) <= 2000
+
+
+# ---------------------------------------------------------------------------
+# Propagacion por fichero: el veredicto ya probado vale para el mismo file_id
+# ---------------------------------------------------------------------------
+
+class _FilaCompleta:
+    """Doble con lo que mira `auto_marcar_irrecuperables`."""
+
+    def __init__(self, id, error_message, file_ids, resolved=False):
+        self.id = id
+        self.error_message = error_message
+        self.resolved = resolved
+        self.payload = {"file_ids": file_ids, "action_type": "file_created"}
+
+
+def _barrer(monkeypatch, filas):
+    """Corre auto_marcar_irrecuperables contra una tabla falsa."""
+    from contextlib import contextmanager
+    import src.routes.Webhook_bp as wb
+
+    class _Sesion:
+        def __init__(self): self.commits = 0
+        def exec(self, _stmt): return self
+        def all(self): return filas
+        def add(self, _o): pass
+        def commit(self): self.commits += 1
+
+    @contextmanager
+    def _get_session():
+        yield _Sesion()
+
+    monkeypatch.setattr(wb, "get_session", _get_session)
+    return wb.auto_marcar_irrecuperables()
+
+
+def test_el_veredicto_se_propaga_al_mismo_fichero(monkeypatch):
+    """El caso de produccion: la fila 15 llevaba el error VIEJO de la carrera,
+    pero su fichero 2486162289 ya estaba probado muerto por la 22 (410 de
+    Podio). Pedirle un Resync solo servia para redescubrirlo."""
+    quince = _FilaCompleta(15, "Error: Job con podio_item_id=3356670474 no existe "
+                               "en la BD; el adjunto no tiene donde colgar",
+                           "2486162289")
+    veintidos = _FilaCompleta(22, _410, "2486162289")
+
+    assert _barrer(monkeypatch, [quince, veintidos]) == 2
+
+    assert _MARCA_IRRECUPERABLE in quince.error_message
+    assert "probado en la falla 22" in quince.error_message
+    assert "no tiene donde colgar" in quince.error_message, "el error viejo sobrevive"
+
+
+def test_no_se_propaga_a_un_fichero_distinto(monkeypatch):
+    """La clave es el file_id. Otro fichero es otro caso, aunque el job coincida."""
+    otra = _FilaCompleta(30, "Error: Job con podio_item_id=1 no existe en la BD",
+                         "9999999")
+    probada = _FilaCompleta(22, _410, "2486162289")
+
+    assert _barrer(monkeypatch, [otra, probada]) == 1
+    assert _MARCA_IRRECUPERABLE not in otra.error_message
+
+
+def test_una_fila_con_un_fichero_sin_probar_conserva_su_resync(monkeypatch):
+    """Con un solo fichero recuperable, el reintento aun puede salvar algo."""
+    mixta = _FilaCompleta(31, "Error: Job con podio_item_id=1 no existe en la BD",
+                          "2486162289,7777777")
+    probada = _FilaCompleta(22, _410, "2486162289")
+
+    assert _barrer(monkeypatch, [mixta, probada]) == 1
+    assert _MARCA_IRRECUPERABLE not in mixta.error_message
