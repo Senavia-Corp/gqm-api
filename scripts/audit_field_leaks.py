@@ -57,6 +57,26 @@ PROHIBIDOS = {
     "Password": "hash de contraseña",
     "podio_item_id": "id interno de Podio",
     "podio_profile_id": "id de perfil de Podio",
+}
+
+# ── Campos que solo son fuga SI EL REGISTRO ES DE OTRO ───────────────────────
+#
+# `Score`, `Gqm_compliance` y `Notes` estaban en la lista dura de arriba cuando
+# se escribio este escaner, y era correcto ENTONCES: antes del arreglo del
+# scoping, un rol de portal alcanzaba la ficha de cualquiera, asi que toda
+# aparicion era de otro por definicion.
+#
+# Cerrados P-01, P-02 y P-05, un rol de portal solo alcanza su PROPIO registro,
+# y su propio `Score` o su propio `Gqm_compliance` no son una fuga: el panel los
+# pinta en su ficha («Compliance: —», «No score»). Mantenerlos en la lista dura
+# convertiria el detector en un generador de falsos positivos, y un detector que
+# grita siempre deja de leerse.
+#
+# Quien decide aqui es el detector de CENTINELAS, que prueba la propiedad por
+# construccion: si un valor con el prefijo del otro mundo aparece en una
+# respuesta, es de otro, se llame el campo como se llame. Esa es la senal
+# fuerte; esta lista solo documenta que se movio y por que.
+SOLO_FUGA_SI_ES_AJENO = {
     "Score": "puntuación interna del subcontratista",
     "Gqm_compliance": "estado de cumplimiento",
     "Notes": "notas internas",
@@ -114,6 +134,10 @@ def main():
         ("GET /attachments/",              "/attachments/?limit=100",          "todos"),
         ("GET /tlactivity/job/<ajeno>",    "/tlactivity/job/{job}",            "ajeno"),
         ("GET /auth/me",                   "/auth/me",                         "propio"),
+        # El job COMPARTIDO entre sub A y sub B: aqui la fuga no es por id sino
+        # por la COLECCION ANIDADA — `subcontractors[]` traia al otro sub con
+        # sus ordenes dentro. Es el caso que los mundos disjuntos no pueden ver.
+        ("GET /jobs/<compartido>",         "/jobs/QID-I60029",                 "compartido"),
     ]
     for suj in ("subcontractor", "technical", "sub_B", "tech_de_sub_B", "tech_independiente"):
         propio = MUNDO[suj]

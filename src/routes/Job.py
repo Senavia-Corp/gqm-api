@@ -49,6 +49,7 @@ from src.models.ComDetailModel import CommissionDetail
 from src.models.ComGroupModel import CommissionGroup
 from src.models.CommissionModel import Commission
 from flask import g
+from src.utils.portal_redaction import acotar_job_para_portal
 # Para exportar el excel
 from src.services.excel_report.export_schema import JobExportRequest
 from src.services.excel_report.export_service import generate_jobs_excel
@@ -60,6 +61,12 @@ def serialize_job(job_dict, policies):
             job_dict = job_dict.model_dump()
         else:
             return job_dict
+    # Poda de colecciones anidadas para roles de portal. Va ANTES de la
+    # proyeccion por politica porque el sub tiene `job:read` y saldria por la
+    # primera rama con el diccionario intacto — que es justo lo que dejaba ver
+    # al OTRO subcontratista de un job compartido, con sus ordenes dentro.
+    job_dict = acotar_job_para_portal(job_dict)
+
     if PolicyEvaluator.evaluate(policies, "job:read"):
         return job_dict
     elif PolicyEvaluator.evaluate(policies, "job:read_basics"):

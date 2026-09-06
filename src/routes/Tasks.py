@@ -17,6 +17,7 @@ from ..utils.middleware.exceptions_handler import handle_exceptions, AppExceptio
 from ..utils.middleware.auth.routes_protection import (
     require_permission,
     job_belongs_to_portal_user,
+    portal_owns_technician,
     scope_tasks_statement,
     task_belongs_to_portal_user,
 )
@@ -210,6 +211,18 @@ def create_tasks():
         if not task_belongs_to_portal_user(session, obj):
             raise AppException(
                 "Forbidden: la tarea no pertenece a tus jobs.", "forbidden", 403)
+        # P-07: la guarda de arriba valida el JOB, no el TÉCNICO DESTINO. Medido:
+        # un sub creaba una tarea en SU job y se la asignaba a TEC60002, técnico
+        # de OTRO sub → 201 y la fila quedaba escrita. Ambigüedad 2 ratificada:
+        # el sub asigna, pero SOLO a los suyos (portal_owns_technician cubre
+        # también al técnico, que solo puede asignarse a sí mismo; el staff pasa).
+        # Aquí 403 y no 404 porque el id lo aporta el propio llamante: no se le
+        # revela nada que no supiera ya (mismo criterio que Job.py:832-833).
+        if obj.ID_Technician and not portal_owns_technician(
+                session, obj.ID_Technician):
+            raise AppException(
+                "Forbidden: no puedes asignar la tarea a un técnico ajeno.",
+                "forbidden", 403)
         # T-09: la tarea automática de certificado (sin job, con subcontratista)
         # se dedupe SOLO en localStorage, que es por navegador y dispositivo:
         # dos admins, dos equipos o un incógnito creaban duplicados, y el
@@ -264,6 +277,17 @@ def update_tasks(task_id):
                 session, obj.ID_Jobs):
             raise AppException(
                 "Forbidden: no puedes reasignar la tarea fuera de tus jobs.",
+                "forbidden", 403)
+        # P-07 por la puerta del PATCH: las tres guardas anteriores miran el JOB,
+        # y para un sub el job SIGUE SIENDO SUYO al reasignar el técnico — así
+        # que podía pasar su tarea a un técnico de otro sub sin tocar el job.
+        # Misma decisión que en el POST: solo a los suyos. Para el técnico el
+        # caso ya lo cortaba el re-chequeo post-mutación (ID_Technician == él),
+        # pero se deja explícito para que no dependa de ese orden.
+        if update_data.get("ID_Technician") and not portal_owns_technician(
+                session, obj.ID_Technician):
+            raise AppException(
+                "Forbidden: no puedes asignar la tarea a un técnico ajeno.",
                 "forbidden", 403)
         save_with_retry(session, obj)
         logger.info("🔄 Task actualizada | task_id=%s", task_id)

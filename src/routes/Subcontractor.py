@@ -13,7 +13,7 @@ from ..utils.id_generator import generate_custom_id
 from ..utils.pagination import paginate
 from ..utils.relationships import add_relationships
 from sqlalchemy.orm import joinedload, load_only
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, false
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..podio.services.subcontractor_services import podio_subc_router
@@ -22,13 +22,41 @@ from ..utils.mappers.to_podio.subcontractor_mapper import map_subc_to_podio
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.audit import audit
-from src.utils.middleware.auth.routes_protection import require_permission, self_profile_guard
+from src.utils.middleware.auth.routes_protection import require_permission, self_profile_guard, portal_scope, portal_owns_subcontractor
 from src.utils.middleware.auth.password_hashing import hash_password
+from src.utils.password_policy import validar_password, PasswordDebil
 
 
 # Blueprint de Subcontractor
 subcontractor_bp = Blueprint(
     "subcontractor_blueprint", __name__, url_prefix="/subcontractors")
+
+
+def _acotar_a_portal(statement):
+    """P-05: acota un listado de subcontratistas a lo que el llamante puede ver.
+
+    Los cinco listados de este fichero (`/`, `/subcontractors_table`,
+    `/status/<s>`, `/compliance/<c>` y `/bts/<b>`) devolvían el censo completo
+    de subcontratistas a cualquiera con `subcontractor:read`, y la política
+    `subcontractor-portal` lo concede. Decisión ratificada del cliente
+    (ambigüedad 5): un sub no ve NADA de otro sub, así que solo se ve a sí mismo.
+
+    El filtro va en el statement y no sobre la lista ya construida porque
+    @paginate calcula `total` con lo que devolvemos y `/subcontractors_table`
+    hace su COUNT sobre este mismo statement: acotando antes, el total no
+    delata cuántos subcontratistas hay.
+
+    El staff (full_admin, gqm_member) sale por `rol is None` y no cambia.
+    """
+    rol, uid = portal_scope()
+    if rol == "subcontractor":
+        return statement.where(Subcontractor.ID_Subcontractor == uid)
+    if rol == "technician":
+        # Hoy inalcanzable —`subcontractor:read` no está en `technical-portal`,
+        # así que @require_permission corta antes con 403— pero si algún día se
+        # le concediera, un técnico tampoco debe enumerar subcontratistas.
+        return statement.where(false())
+    return statement
 
 
 # -------------------RUTAS CRUD-------------------#
@@ -56,6 +84,11 @@ def list_subcontractors():
                 joinedload(Subcontractor.opportunities),
             )
         )
+
+        # P-05: sin esto el listado entregaba a un sub la ficha de todos los
+        # demás, con sus `technicians` y las tareas de éstos. Ver _acotar_a_portal.
+        statement = _acotar_a_portal(statement)
+
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -101,6 +134,10 @@ def list_subcontractors_table():
                 joinedload(Subcontractor.skills).load_only(Skills.ID_Skill)
             )
         )
+
+        # P-05: recorte de portal antes que cualquier otro filtro, para que el
+        # COUNT de más abajo cuente solo lo propio. Ver _acotar_a_portal.
+        stmt = _acotar_a_portal(stmt)
 
         # ── Filtro por Status ──────────────────────────────────────────────
         if status:
@@ -197,15 +234,33 @@ def get_subcontractor(id_subcontractor):
 
         obj = session.exec(statement).unique().first()
 
-        if not obj:
+        # P-05: esta ruta no comprobaba pertenencia, así que un sub leía la ficha
+        # completa de otro —sus `orders`, sus `technicians` y las tareas de
+        # éstos— y el panel la montaba entera por URL directa (U-03).
+        # 404 y no 403: para un rol de portal un 403 confirmaría que el id
+        # existe y dejaría la ruta enumerable. Es la convención de esta base de
+        # código (Job.py:506-507) y el modismo de Tasks.py:170.
+        if not obj or not portal_owns_subcontractor(id_subcontractor):
             raise AppException("Subcontractor no encontrado.",
                                "subc_not_found", 404)
 
-        subcontr_data = add_relationships(
-            obj, ["technicians.tasks", "tasks",
-                  "orders.change_orders", "orders.financial_docs", "orders.estimate_costs",
-                  "jobs", "attachments",
-                  "role", "tlactivity", "skills", "opportunities", "certificates"])
+        relaciones = ["technicians.tasks", "tasks",
+                      "orders.change_orders", "orders.financial_docs", "orders.estimate_costs",
+                      "jobs", "attachments",
+                      "role", "tlactivity", "skills", "opportunities", "certificates"]
+
+        # P-05 (segunda mitad): `orders` y lo que cuelga de ellas no salen a
+        # portal NI SOBRE LA FICHA PROPIA. El PR #116 le retiró `finance:read`
+        # al sub porque «las finanzas no tienen scoping de portal»; entregarle
+        # las órdenes, sus documentos financieros y sus costes estimados
+        # embebidos en su propia ficha contradiría esa decisión y sería la
+        # puerta de atrás al mismo dato. El staff recibe la expansión completa.
+        # El resto de la ficha se mantiene: es la landing del sub en el panel.
+        rol_portal, _ = portal_scope()
+        if rol_portal:
+            relaciones = [r for r in relaciones if not r.startswith("orders")]
+
+        subcontr_data = add_relationships(obj, relaciones)
 
         return subcontr_data, 200
 
@@ -229,6 +284,11 @@ def list_subcontractor_by_state(status):
             )
             .where(Subcontractor.Status == status)
         )
+
+        # P-05: el filtro por estado no eximía del scoping — un sub podía barrer
+        # el censo entero estado a estado. Ver _acotar_a_portal.
+        statement = _acotar_a_portal(statement)
+
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -262,6 +322,11 @@ def list_subc_by_gqm_compliance(compliance):
             )
             .where(Subcontractor.Gqm_compliance == compliance)
         )
+
+        # P-05: idem — y aquí el barrido devolvía además el `Gqm_compliance`
+        # ajeno, que es F-04. Ver _acotar_a_portal.
+        statement = _acotar_a_portal(statement)
+
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -295,6 +360,10 @@ def list_subcontractor_by_gqm_bts(bts):
             )
             .where(Subcontractor.Gqm_best_service_training == bts)
         )
+
+        # P-05: idem. Ver _acotar_a_portal.
+        statement = _acotar_a_portal(statement)
+
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -323,6 +392,15 @@ def create_subcontractor():
         **create_subcontractor.model_dump(exclude_unset=False, exclude_none=False))
         
     if obj.Password:
+        # O-01: hasta aquí "1", "abc" y "password" devolvían 201. Se valida en
+        # SERVIDOR porque el alta la teclea un administrador y esa contraseña es
+        # la definitiva: una comprobación solo en el panel no protege de un curl
+        # ni del alta masiva de los 432 subcontratistas. El hasheo no cambia.
+        try:
+            validar_password(obj.Password)
+        except PasswordDebil as debil:
+            raise AppException(str(debil), "weak_password", 400)
+
         obj.Password = hash_password(obj.Password)
 
     # 🔘 Función de sincronización
@@ -402,6 +480,14 @@ def update_subcontractor(subc_id):
             "subcontractor", subc_id, update_data_dict)
 
         if "Password" in update_data_dict and update_data_dict["Password"]:
+            # O-01: misma política que en el alta. El PATCH era la otra puerta
+            # sin validar, incluida la del propio sub vía `profile:update_own`
+            # (self_profile_guard deja pasar `Password`: no es campo privilegiado).
+            try:
+                validar_password(update_data_dict["Password"])
+            except PasswordDebil as debil:
+                raise AppException(str(debil), "weak_password", 400)
+
             update_data_dict["Password"] = hash_password(update_data_dict["Password"])
 
         # ----------- 🔄 ACTUALIZAR EN DB

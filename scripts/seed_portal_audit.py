@@ -404,6 +404,19 @@ def main() -> None:
         _orden(session, f"{MARCA}-B-orden", sub_b)
         _tlactivity_cliente(session, f"{MARCA}-B-evento-cliente", cli_b)
 
+        # ── Mundo D — job COMPARTIDO entre sub A y sub B ──────────────────────
+        # Sin este fixture, el caso «dos subcontratistas en la misma obra» es
+        # invisible para el arnés: con A y B en mundos disjuntos, la matriz solo
+        # puede ver el IDOR por id, no la fuga POR LA COLECCIÓN ANIDADA. Y ahí
+        # estaba: `GET /jobs/<compartido>` le entregaba a sub A la ficha de
+        # sub_B y su orden ORD60002 dentro de `subcontractors[].orders[]`.
+        cli_d = _cliente(session, "D")
+        job_d = _job(session, "D", cli_d, f"{MARCA}-D-job-compartido-A-y-B")
+        _enlazar(session, job_d, sub=sub_a, tech=tech_a)
+        _enlazar(session, job_d, sub=sub_b, tech=tech_b)
+        _tarea(session, f"{MARCA}-D-tarea-de-A", job_d, tech=tech_a, sub=sub_a)
+        _tarea(session, f"{MARCA}-D-tarea-de-B", job_d, tech=tech_b, sub=sub_b)
+
         # ── Mundo C — job sin asignar y técnico independiente ─────────────────
         cli_c = _cliente(session, "C")
         job_c = _job(session, "C", cli_c, f"{MARCA}-C-job-sin-asignar", tipo="PAR")
@@ -425,6 +438,7 @@ def main() -> None:
             ("job propio de A", "—", job_a.ID_Jobs, f"sub={sub_a.ID_Subcontractor} tech={tech_a.ID_Technician}"),
             ("job propio de B", "—", job_b.ID_Jobs, f"sub={sub_b.ID_Subcontractor} tech={tech_b.ID_Technician}"),
             ("job sin asignar", "—", job_c.ID_Jobs, f"solo tech independiente {tech_i.ID_Technician}"),
+            ("job COMPARTIDO A+B", "—", job_d.ID_Jobs, "misma obra, dos subcontratistas"),
             ("tarea de tech A", "—", t_a1.ID_Tasks, "propia de A"),
             ("tarea sin asignar de A", "—", t_a2.ID_Tasks, "job A, sin técnico"),
             ("tarea de tech B", "—", t_b1.ID_Tasks, "propia de B — «ajena» para A"),

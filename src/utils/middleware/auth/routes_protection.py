@@ -286,7 +286,19 @@ def require_permission(actions: list | str, resource: str = "*"):
 
 
 # Campos que el autoservicio de perfil NUNCA puede tocar (escalada REG-006).
-PROFILE_PRIVILEGED_FIELDS = {"ID_Role", "Active", "ID_Subcontractor"}
+#
+# P-08 (auditoria de portal): esta lista filtraba `Active`, y `Subcontractor` NO
+# TIENE columna `Active` — tiene `Status`. El resultado medido: un subcontratista
+# se ponia a si mismo `Gqm_compliance='APROBADO-POR-MI-MISMO'` y `Score=99.0` via
+# `profile:update_own`, y la fila quedaba escrita. Se autoaprobaba el
+# cumplimiento con el que GQM decide a quien asigna trabajo.
+#
+# Se anaden los cuatro campos que gobiernan esa evaluacion. `Active` se conserva
+# porque `Member` y `Technician` si la tienen.
+PROFILE_PRIVILEGED_FIELDS = {
+    "ID_Role", "Active", "ID_Subcontractor",
+    "Status", "Score", "Gqm_compliance", "Gqm_best_service_training",
+}
 
 
 def self_profile_guard(target_type: str, target_id: str, update_data: dict) -> dict:
@@ -306,6 +318,43 @@ def self_profile_guard(target_type: str, target_id: str, update_data: dict) -> d
             "Forbidden: solo puedes editar tu propio perfil.", "forbidden", 403)
     return {k: v for k, v in update_data.items()
             if k not in PROFILE_PRIVILEGED_FIELDS}
+
+
+def portal_owns_technician(session, id_technician: str) -> bool:
+    """Pertenencia de un tecnico respecto del llamante.
+
+    Bloque A de la auditoria de portal. Reglas ratificadas por el cliente
+    (ambiguedad 1): un subcontratista solo alcanza a SUS tecnicos; un tecnico,
+    solo a si mismo. El staff pasa siempre.
+
+    Un id inexistente devuelve False, para que el llamador responda 404 y no
+    distinga «no existe» de «no es tuyo»: es la convencion de esta base de
+    codigo (Job.py:506-507) y evita que la ruta sea enumerable.
+    """
+    from src.models.TechnicianModel import Technician
+
+    rol, uid = portal_scope()
+    if rol is None:
+        return True
+    if rol == "technician":
+        return id_technician == uid
+    tecnico = session.get(Technician, id_technician)
+    return tecnico is not None and tecnico.ID_Subcontractor == uid
+
+
+def portal_owns_subcontractor(id_subcontractor: str) -> bool:
+    """Pertenencia de un subcontratista respecto del llamante.
+
+    Ambiguedad 5 ratificada: un sub no ve NADA de otro sub. Un tecnico no
+    alcanza fichas de subcontratista (su politica no trae `subcontractor:read`,
+    asi que el decorador ya corta antes; esto es la segunda linea).
+    """
+    rol, uid = portal_scope()
+    if rol is None:
+        return True
+    if rol == "subcontractor":
+        return id_subcontractor == uid
+    return False
 
 
 def scope_tasks_statement(statement):

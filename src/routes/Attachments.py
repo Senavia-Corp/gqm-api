@@ -12,7 +12,8 @@ from ..utils.middleware.retries.db_route_retries.add_session import save_with_re
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
-from ..utils.middleware.auth.routes_protection import require_permission
+from ..utils.middleware.auth.routes_protection import (
+    require_permission, portal_scope, scope_jobs_statement)
 from ..utils.policy_evaluator import PolicyEvaluator
 from flask import g
 from src.podio.podio_auth import get_podio_headers
@@ -25,6 +26,72 @@ attachments_bp = Blueprint("attachments_blueprint",
                            __name__, url_prefix="/attachments")
 
 # -------------------RUTAS CRUD-------------------#
+
+
+def _alcance_portal(statement):
+    """P-03: acota un `select(Attachments)` a lo que el llamante de portal posee.
+
+    El staff no pasa por aqui: `portal_scope()` le devuelve (None, None) y el
+    statement sale intacto.
+
+    Decision ratificada (ambiguedad 9) — visibilidad mutua dentro del equipo:
+    el subcontratista alcanza los adjuntos de SUS jobs, los suyos propios y los
+    de SUS tecnicos; el tecnico, los de los jobs que tiene asignados y los
+    suyos. Nada de otro sub.
+
+    El alcance de jobs se delega en `scope_jobs_statement` — la misma primitiva
+    sobre la que se apoya `job_belongs_to_portal_user` — para no reescribir aqui
+    la logica de las tablas puente y que el listado y la lectura por id no se
+    desincronicen.
+    """
+    rol, uid = portal_scope()
+    if rol is None:
+        return statement
+
+    from sqlalchemy import or_ as sa_or
+
+    from ..models.JobModel import Job
+    from ..models.TechnicianModel import Technician
+
+    # Subconsulta de ids: el filtro va EN EL STATEMENT, antes de materializar y
+    # de paginar. Filtrar la lista ya traida dejaria la fuga en la primera
+    # pagina y el coste de leer el corpus entero en cada peticion.
+    jobs_propios = scope_jobs_statement(select(Job.ID_Jobs))
+    condiciones = [Attachments.ID_Jobs.in_(jobs_propios)]
+
+    if rol == "technician":
+        condiciones.append(Attachments.ID_Technician == uid)
+    else:
+        condiciones.append(Attachments.ID_Subcontractor == uid)
+        condiciones.append(Attachments.ID_Technician.in_(
+            select(Technician.ID_Technician).where(
+                Technician.ID_Subcontractor == uid)))
+
+    return statement.where(sa_or(*condiciones))
+
+
+def _portal_ve_carpeta(user_policies, access_level) -> bool:
+    """P-03: gate de carpeta para roles de portal, sin el atajo global.
+
+    `attachment:read` global cortocircuitaba el filtro por carpeta, y AMBAS
+    politicas de portal lo conceden (seed_rbac.py:90 y :103) — por eso el
+    bloque de filtrado no se ejecutaba nunca y el sub A recibia
+    ATT60001..ATT60004, los adjuntos del job de sub_B incluidos.
+
+    Solo `members` y `technicians` tienen permiso de carpeta propio: son las
+    dos unicas que existen en el vocabulario de politica y las dos unicas que
+    la subida reconoce (`upload_attachment`). Para cualquier otro valor no hay
+    permiso que evaluar, asi que decide la pertenencia de `_alcance_portal`.
+    Mapear esos valores a `attachment:read_<lo_que_sea>` — lo que hacia la ruta
+    por id con `or "members"` — inventa un permiso que no tiene NADIE y negaria
+    al sub sus PROPIOS documentos de job (los sembrados por la auditoria son
+    `access_level="internal"`).
+    """
+    carpeta = (access_level or "").strip().lower()
+    if carpeta in ("members", "technicians"):
+        return PolicyEvaluator.evaluate(
+            user_policies, f"attachment:read_{carpeta}")
+    return True
 
 
 # --------------------RUTAS GET-------------------#
@@ -50,13 +117,20 @@ def list_attachments():
             statement = statement.where(
                 Attachments.access_level == access_level)
 
+        # P-03 (S1): pertenencia en el statement, antes de materializar. Para el
+        # staff es un no-op.
+        statement = _alcance_portal(statement)
+
         results = session.exec(statement).unique().all()
 
         # Filter by folder-level read permission when the user lacks global read
         user_policies = getattr(g, "user_policies", [])
-        has_global_read = PolicyEvaluator.evaluate(
-            user_policies, "attachment:read")
-        if not has_global_read:
+        rol_portal, _ = portal_scope()
+        if rol_portal is not None:
+            # P-03: el atajo por `attachment:read` global NO aplica al portal.
+            results = [att for att in results
+                       if _portal_ve_carpeta(user_policies, att.access_level)]
+        elif not PolicyEvaluator.evaluate(user_policies, "attachment:read"):
             can_read_members = PolicyEvaluator.evaluate(
                 user_policies, "attachment:read_members")
             can_read_technicians = PolicyEvaluator.evaluate(
@@ -68,6 +142,15 @@ def list_attachments():
             ]
 
         if not results:
+            # Esta ruta responde 404 con cuerpo de TEXTO cuando la lista sale
+            # vacia. Para el staff es una rareza (solo con la tabla vacia); para
+            # un rol de portal, con la pertenencia ya aplicada, pasa a ser el
+            # estado NORMAL de un sub recien dado de alta y sin jobs — y un 404
+            # ahi se lee como permiso roto, no como «no tienes ninguno».
+            # Se devuelve la coleccion vacia con 200 solo para el portal: el
+            # staff conserva el 404 historico que el panel ya consume.
+            if rol_portal is not None:
+                return [], 200
             return jsonify("No se han encontrado archivos adjuntos."), 404
 
         attachments_data = [
@@ -94,6 +177,15 @@ def get_attachment_by_id(id_attachment):
             )
             .where(Attachments.ID_Attachment == id_attachment)
         )
+        # P-03 (S1): la pertenencia se aplica EN EL STATEMENT, no despues. Asi
+        # un adjunto ajeno queda indistinguible de uno inexistente y las dos
+        # ramas caen en el mismo 404, que es la convencion de esta base de
+        # codigo para roles de portal (Job.py:506-507, modismo de Tasks.py:170):
+        # un 403 confirmaria la existencia y haria la ruta enumerable.
+        # De paso cierra el oraculo que tenia esta ruta — 404 si no existe, 403
+        # si existe y es ajeno — que juntos distinguian «no hay» de «hay y no es
+        # tuyo». El staff pasa sin filtro.
+        statement = _alcance_portal(statement)
         obj = session.exec(statement).unique().first()
 
         if not obj:
@@ -102,7 +194,14 @@ def get_attachment_by_id(id_attachment):
 
         # Check folder-specific read permission
         user_policies = getattr(g, "user_policies", [])
-        if not PolicyEvaluator.evaluate(user_policies, "attachment:read"):
+        rol_portal, _ = portal_scope()
+        if rol_portal is not None:
+            # P-03: el atajo por `attachment:read` global NO aplica al portal.
+            # Aqui el 403 ya no es enumerable: solo se alcanza sobre un adjunto
+            # que YA se ha comprobado que es suyo.
+            if not _portal_ve_carpeta(user_policies, obj.access_level):
+                return jsonify({"error": "Forbidden: You do not have permission to read this attachment"}), 403
+        elif not PolicyEvaluator.evaluate(user_policies, "attachment:read"):
             folder = obj.access_level or "members"
             folder_action = f"attachment:read_{folder}"
             if not PolicyEvaluator.evaluate(user_policies, folder_action):

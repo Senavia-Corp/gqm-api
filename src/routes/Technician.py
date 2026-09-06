@@ -14,7 +14,8 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.auth.password_hashing import hash_password
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
-from ..utils.middleware.auth.routes_protection import require_permission, self_profile_guard
+from ..utils.middleware.auth.routes_protection import require_permission, self_profile_guard, portal_scope, portal_owns_technician
+from ..utils.password_policy import validar_password, PasswordDebil
 from ..utils.audit import audit
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 
@@ -44,6 +45,22 @@ def list_technicians():
                 joinedload(Technician.permissions),
             )
         )
+
+        # P-02: este listado devolvía TODOS los técnicos del sistema — la deuda
+        # que el PR #116 marcó «sin scoping, Fase B». Decisión ratificada por el
+        # cliente: un subcontratista ve SOLO los suyos y un técnico solo se ve a
+        # sí mismo. El staff (full_admin, gqm_member) sigue sin filtro.
+        # El filtro va en el statement y no sobre la lista ya construida porque
+        # @paginate calcula `total` con lo que devolvemos: acotando antes, el
+        # `total` cuenta solo los propios y no delata cuántos técnicos hay.
+        rol_portal, uid_portal = portal_scope()
+        if rol_portal == "subcontractor":
+            statement = statement.where(
+                Technician.ID_Subcontractor == uid_portal)
+        elif rol_portal == "technician":
+            statement = statement.where(
+                Technician.ID_Technician == uid_portal)
+
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -72,19 +89,28 @@ def get_tech_by_id(id_technician):
                     Subcontractor.jobs),
                 joinedload(Technician.tasks),
                 joinedload(Technician.attachments),
-                joinedload(Technician.permissions),
             )
             .where(Technician.ID_Technician == id_technician)
         )
 
         obj = session.exec(statement).unique().first()
 
-        if not obj:
+        # P-01: esta ruta no comprobaba pertenencia, así que un subcontratista
+        # leía la ficha de CUALQUIER técnico con sus tareas dentro — y con eso
+        # rodeaba el scoping de /tasks/: sobre la MISMA tarea, GET /tasks/<id>
+        # daba 404 y GET /technician/<id> la devolvía en 200.
+        # 404 y no 403 a propósito (convención de esta base, Job.py:506-507):
+        # un 403 confirmaría que el técnico existe y haría la ruta enumerable.
+        # Mismo modismo que Tasks.py:170.
+        if not obj or not portal_owns_technician(session, id_technician):
             raise AppException("Technician not found", "not_found", 404)
 
         # Construir JSON limpio con la info del cliente
+        # F-01: `permissions` sale de la expansión. El documento de política IAM
+        # es el mapa de lo que un usuario puede hacer; nadie de portal necesita
+        # el de otro y en esta ruta tampoco le aporta nada al staff.
         technician_data = add_relationships(
-            obj, ["subcontractor", "subcontractor.jobs", "tasks", "attachments", "permissions"])
+            obj, ["subcontractor", "subcontractor.jobs", "tasks", "attachments"])
 
         return jsonify(technician_data), 200
 
@@ -101,6 +127,15 @@ def create_techician():
     obj = Technician.model_validate(create_techician)
 
     with get_session() as session:
+
+        # O-01: hasta ahora "1", "abc", "password" y "12345678" devolvían 201.
+        # Se valida en SERVIDOR porque el alta la teclea un administrador: una
+        # comprobación solo en el panel no protege de un curl ni del alta masiva
+        # de los 432 subcontratistas. El hasheo no cambia.
+        try:
+            validar_password(obj.Password)
+        except PasswordDebil as debil:
+            raise AppException(str(debil), "weak_password", 400)
 
         obj.Password = hash_password(obj.Password)  # Hash al password
 
@@ -146,6 +181,13 @@ def update_technician(id_technician):
 
         # Hash al passsword si se actualiza
         if "Password" in update_data_dict:
+            # O-01: misma política que en el alta. El cambio de contraseña por
+            # PATCH era la otra puerta sin validar (incluida la del propio
+            # técnico vía profile:update_own).
+            try:
+                validar_password(update_data_dict["Password"])
+            except PasswordDebil as debil:
+                raise AppException(str(debil), "weak_password", 400)
             update_data_dict["Password"] = hash_password(
                 update_data_dict["Password"]
             )

@@ -122,13 +122,28 @@ def login():
     if not email or not password:
         return jsonify({"error": "Email_Address and Password are required"}), 400
 
+    from sqlalchemy import func as sa_func
+
     if _rate_limited(_client_key(email)):
         return jsonify({"error": "Too many attempts, try again in a minute"}), 429
 
     with get_session() as session:
 
+        # O-04 (auditoria de portal): la busqueda del correo era INCONSISTENTE
+        # entre los tres tipos de principal. El subcontratista se buscaba con
+        # lower() (REG-036/REG-050) y Member y Technician con igualdad exacta,
+        # asi que un sub entraba escribiendo SUB-DEV@... y un tecnico con
+        # TECH-DEV@... recibia 401 — indistinguible de una contrasena mal
+        # escrita. Con 432 altas importadas de Podio, donde la capitalizacion
+        # del correo no la controla nadie, eso es un fallo de acceso silencioso.
+        # Se normaliza igual en los tres. Mismo criterio que ya afirmaba
+        # tests/integration/test_sub_login_exact_match.py: igualdad exacta,
+        # insensible a mayusculas, jamas substring.
+        correo_normalizado = (email or "").strip().lower()
+
         # Buscar en Member
-        stmt = select(Member).where(Member.Email_Address == email)
+        stmt = select(Member).where(
+            sa_func.lower(Member.Email_Address) == correo_normalizado)
         member = session.exec(stmt).first()
 
         if member and verify_password(password, member.Password):
@@ -159,7 +174,8 @@ def login():
 
         else:
             # Buscar en Technician
-            stmt = select(Technician).where(Technician.Email_Address == email)
+            stmt = select(Technician).where(
+                sa_func.lower(Technician.Email_Address) == correo_normalizado)
             technician = session.exec(stmt).first()
 
             if technician and verify_password(password, technician.Password):
@@ -181,12 +197,11 @@ def login():
                 # REG-036/REG-050: igualdad exacta (case-insensitive), jamás
                 # substring — .contains hacía LIKE y podía resolver a OTRO
                 # subcontratista cuyo email contuviera el buscado.
-                from sqlalchemy import func as sa_func
                 stmt = select(Subcontractor).options(
                     joinedload(Subcontractor.role).joinedload(Role.permissions),
                     joinedload(Subcontractor.permissions)
                 ).where(sa_func.lower(Subcontractor.Email_Address)
-                        == (email or "").strip().lower())
+                        == correo_normalizado)
                 subcontractor = session.exec(stmt).unique().first()
                 
                 if subcontractor and subcontractor.Password and verify_password(password, subcontractor.Password):
@@ -371,6 +386,17 @@ def me():
                 return jsonify({"error": "User no longer exists"}), 404
 
             user_data.pop("Password", None)
+
+            # F-06: /me arma `user_data` con model_dump() directo, asi que NO
+            # pasa por add_relationships y la redaccion central de
+            # src/utils/portal_redaction.py no lo alcanza. Los identificadores
+            # internos de la integracion con Podio no le sirven de nada a un rol
+            # de portal y no deben salir; se quitan aqui para que /me diga lo
+            # mismo que el resto de rutas y no haya una puerta de atras.
+            if user_type in ("subcontractor", "technician"):
+                for interno in ("podio_item_id", "podio_profile_id"):
+                    user_data.pop(interno, None)
+
             user_data["role_detail"] = role_detail
             user_data["policies"] = policies
 
