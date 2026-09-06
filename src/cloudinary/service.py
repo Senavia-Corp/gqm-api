@@ -92,6 +92,34 @@ def sanitizar_para_public_id(nombre: str) -> str:
     return "".join(c if c.isprintable() else "_" for c in limpio)
 
 
+def sanitizar_carpeta(folder: str) -> str:
+    """Sanea cada TRAMO de la carpeta, conservando las barras.
+
+    `sanitizar_para_public_id` convierte `/` en `_`, asi que no sirve de una
+    pieza para una ruta. Y la carpeta no es terreno seguro: `routes/Attachments.py`
+    concatena ahi el `access_level` que llega del FORMULARIO, o sea texto de
+    usuario. Una almohadilla por esa puerta reproduce la misma falla 13
+    ("public_id ... is invalid") que se cerro para el nombre del fichero el
+    24-ago-2026 — y el nombre saneado no protege de nada si la carpeta no lo esta.
+    """
+    if not folder:
+        return folder
+    tramos = [sanitizar_para_public_id(t) for t in str(folder).split("/") if t]
+    return "/".join(tramos)
+
+
+# Tope de la subida DIRECTA de Cloudinary: 10.485.760 B. Por encima devuelve
+# "BadRequest: File size too large. Got N. Maximum is 10485760" y el fichero NO
+# se sube. Es la falla 17 de produccion: un PDF de 18.887.334 B en QID61298
+# (28-ago-2026), abierta desde entonces porque nada en el camino miraba el
+# tamano — ni aqui ni en el receptor del webhook.
+#
+# `upload_large` trocea y esquiva ese tope, pero solo se usaba para VIDEO, asi
+# que cualquier PDF grande moria. El umbral va holgadamente por debajo del tope
+# real para no rozarlo nunca, y coincide con el `chunk_size` ya en uso.
+_TOPE_SUBIDA_DIRECTA = 6_000_000
+
+
 def upload_to_cloudinary(
     file_bytes: bytes,
     filename: str,
@@ -116,7 +144,7 @@ def upload_to_cloudinary(
 
     upload_params = {
         "resource_type":   resource_type,
-        "folder":          folder,
+        "folder":          sanitizar_carpeta(folder),
         # ← con extensión
         "public_id":       f"{unique_name}.{extension}" if extension else unique_name,
         "unique_filename": True,
@@ -124,7 +152,10 @@ def upload_to_cloudinary(
     if tags:
         upload_params["tags"] = tags
 
-    if resource_type == "video":
+    # El video va troceado siempre (REG-115). Lo demas, solo si no cabe en una
+    # subida directa: cambiar el camino de los ~2.500 ficheros pequenos que hoy
+    # suben bien no aporta nada y si arriesga.
+    if resource_type == "video" or len(file_bytes) > _TOPE_SUBIDA_DIRECTA:
         # REG-115: upload_large espera un path/stream, no bytes crudos
         import io as _io
         result = cloudinary.uploader.upload_large(

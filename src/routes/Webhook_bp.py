@@ -170,6 +170,82 @@ def _registrar_adjunto_sin_entidad(item_id, hook_type, data, detalle) -> None:
     except Exception:
         logger.exception("no se pudo registrar el adjunto sin entidad (%s)", item_id)
 
+
+# Presupuesto de espera para la carrera "el adjunto llega antes que su job".
+#
+# Medido en produccion el 5-sep-2026 sobre las fallas 14, 15, 16, 19 y 20: la
+# ventana observada va de 327 ms a 4,9 s. Y NO escala con el numero de ficheros
+# —la entrega de 6 ficheros tardo 1,17 s y la de 5 tardo 4,9 s—, asi que la
+# varianza es de arranque en frio y concurrencia, no de carga.
+#
+# Estos numeros NO acotan la ventana por arriba, y por eso el techo no sale de
+# ellos: en los 194 jobs con adjunto desde el 1-jun no hay NI UNA entrega con
+# exito por debajo de 7,13 s, o sea que no hay muestra de lo que pasa en la
+# banda alta. El techo lo pone Podio: el margen por entrega es de ~15 s
+# (middleware/retries/db_route_retries/add_session.py:11-16). Estas cinco
+# esperas suman 7,75 s — mas del doble del maximo observado, y con ~7 s de
+# holgura antes de que Podio de la entrega por fallida.
+_ESPERAS_ADJUNTO_SIN_ENTIDAD = (0.25, 0.5, 1.0, 2.0, 4.0)
+
+
+def _esperar_entidad_del_adjunto(session, Model, item_id):
+    """Busca la entidad de un `file.change` esperando a que su alta commitee.
+
+    `item.create` y `file.change` son hooks de Podio DISTINTOS apuntando a la
+    misma URL (`podio/webhook/func_hooks.py:323-325`): dos entregas HTTP
+    independientes, sin orden garantizado, y en Vercel cada una cae en otra
+    lambda. Ademas el alta de jobs mete la fila en un SAVEPOINT
+    (`podio/webhook/jobs_hook_sync.py:96-110`) y no commitea hasta el final del
+    handler, despues de llamar a la API de Podio, de `process_jobs_podio`, del
+    recalculo y de las comisiones. Esa es la ventana entera.
+
+    El `select` unico que habia aqui se rendia al primer intento: mandaba el
+    adjunto a la dead-letter y respondia 200 — y Podio NO reintenta los 2xx, asi
+    que el fichero se quedaba ahi hasta que un humano pulsara Resync en el
+    panel. Paso 5 veces entre el 25-ago y el 3-sep-2026: el 5,8 % de las altas.
+
+    Se sondea en SESION NUEVA por intento. La sesion de la peticion arrastra su
+    propia transaccion y no es la que garantiza ver el commit de la otra
+    entrega; es la misma razon por la que `_webhook_state_converged` abre la
+    suya (ver su docstring y el caso del failed_sync #47).
+
+    Si se agota el presupuesto se devuelve None y el llamante registra la falla
+    igual que antes. Esto ACOTA la perdida, no la sustituye por silencio.
+    """
+    entidad = session.exec(
+        select(Model).where(Model.podio_item_id == str(item_id))).first()
+    if entidad is not None or not item_id:
+        return entidad
+
+    esperado = 0.0
+    for espera in _ESPERAS_ADJUNTO_SIN_ENTIDAD:
+        time.sleep(espera)
+        esperado += espera
+
+        # La sonda va en sesion nueva; el objeto que se devuelve tiene que
+        # salir de la sesion del request para que `process_file_change_event`
+        # lo use atado a su transaccion.
+        with get_session() as sonda:
+            visible = sonda.exec(select(Model).where(
+                Model.podio_item_id == str(item_id))).first() is not None
+        if not visible:
+            continue
+
+        entidad = session.exec(
+            select(Model).where(Model.podio_item_id == str(item_id))).first()
+        if entidad is not None:
+            logger.info(
+                "adjunto de item=%s: su %s aparecio tras %.2f s de espera "
+                "(carrera item.create/file.change)",
+                item_id, Model.__name__, esperado)
+            return entidad
+
+    logger.warning(
+        "adjunto de item=%s: su %s no aparecio en %.2f s; va a la dead-letter",
+        item_id, Model.__name__, esperado)
+    return None
+
+
 def _fallo_receptor_others(app_type, data, event_type, error):
     """Cierre de los receptores /others: registra y elige el código de estado.
 
@@ -270,9 +346,8 @@ def podio_general_webhook(app_type, token=None):
                 action = f"{entity_type} deleted from Podio"
 
             elif event_type == "file.change":
-                updated_entity = session.exec(
-                    select(Model).where(Model.podio_item_id == str(item_id))
-                ).first()
+                updated_entity = _esperar_entidad_del_adjunto(
+                    session, Model, item_id)
                 if updated_entity:
                     process_file_change_event(
                         session=session,
@@ -357,9 +432,8 @@ def podio_relations_webhook(app_type, token=None):
                              app_type=app_type)
 
             elif event_type == "file.change":
-                updated_entity = session.exec(
-                    select(Model).where(Model.podio_item_id == str(item_id))
-                ).first()
+                updated_entity = _esperar_entidad_del_adjunto(
+                    session, Model, item_id)
                 if updated_entity:
                     process_file_change_event(
                         session=session,
@@ -703,9 +777,8 @@ def podio_jobs_webhook(app_type, year, token=None):
 
             # ── FILE CHANGE ───────────────────────────────────────────────
             elif event_type == "file.change":
-                updated_job = session.exec(
-                    select(Job).where(Job.podio_item_id == str(item_id))
-                ).first()
+                updated_job = _esperar_entidad_del_adjunto(
+                    session, Job, item_id)
 
                 if not updated_job:
                     # Mismo agujero que en los otros dos receptores: era un
