@@ -22,7 +22,11 @@ def map_subc_to_podio(subc_obj, session=None):
     # Campos simples
     for attr, config in SUBC_FIELD_MAP.items():
         value = getattr(subc_obj, attr, None)
-        if value is not None:
+        # `""` cuenta como ausencia, igual que None: en un campo `category`/`tag`
+        # salia como `[]`, y `[]` en Podio BORRA el campo sin error. Expuestos
+        # aqui: Organization (tag), Status, Gqm_compliance,
+        # Gqm_best_service_training y Coverage_Area. Misma regla que `1f6d503`.
+        if value not in (None, ""):
             payload[config["podio_field"]] = convert_value_for_podio(
                 value, config["type"])
 

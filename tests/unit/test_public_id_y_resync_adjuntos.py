@@ -183,3 +183,76 @@ def test_la_rama_no_marca_resuelto_por_su_cuenta():
             destino = ast.unparse(nodo.targets[0])
             assert "resolved" not in destino, (
                 f"la rama toca `{destino}`; eso lo decide el final del endpoint")
+
+
+# --------------------------------------------------------------------------
+# 3. El tamano y la carpeta (falla 17 de produccion, abierta desde el 28-ago)
+# --------------------------------------------------------------------------
+def _service_con_espia():
+    """Carga el service y sustituye los dos caminos de subida por espias."""
+    mod = _cargar_service()
+    llamadas = []
+
+    def _resultado(nombre):
+        def _fake(*a, **k):
+            llamadas.append((nombre, k))
+            return {"secure_url": "https://x/y", "public_id": "y",
+                    "resource_type": k.get("resource_type", "raw"), "format": "pdf"}
+        return _fake
+
+    mod.cloudinary.uploader.upload = _resultado("upload")
+    mod.cloudinary.uploader.upload_large = _resultado("upload_large")
+    return mod, llamadas
+
+
+def test_un_pdf_de_19mb_va_troceado_y_no_muere_en_el_tope_de_10mb():
+    """La falla 17: 18.887.334 B contra un tope de 10.485.760 B.
+
+    `upload_large` trocea y esquiva el tope, pero solo se usaba para video: un
+    PDF grande iba a `upload` y Cloudinary lo rechazaba con 400. Con el codigo
+    anterior este test ve "upload" y falla.
+    """
+    mod, llamadas = _service_con_espia()
+
+    mod.upload_to_cloudinary(
+        file_bytes=b"x" * 18_887_334,
+        filename="Report ArtSquare Hallandale Beach 082726.pdf",
+        mimetype="application/pdf",
+        folder="Jobs/QID/QID61298")
+
+    assert [n for n, _ in llamadas] == ["upload_large"], (
+        f"se subio por {llamadas[0][0]}: un fichero de 18,9 MB no cabe en la "
+        "subida directa de Cloudinary y muere con 400."
+    )
+
+
+def test_un_pdf_pequeno_sigue_yendo_por_la_subida_directa():
+    """No cambiar el camino de los ~2.500 ficheros que hoy suben bien."""
+    mod, llamadas = _service_con_espia()
+
+    mod.upload_to_cloudinary(
+        file_bytes=b"x" * 50_000, filename="ok.pdf",
+        mimetype="application/pdf", folder="Jobs/QID/QID61298")
+
+    assert [n for n, _ in llamadas] == ["upload"]
+
+
+def test_la_carpeta_tambien_se_sanea():
+    """`Attachments.py` mete el `access_level` del FORMULARIO en la carpeta.
+
+    Sanear solo el nombre del fichero no sirve de nada si la almohadilla entra
+    por la carpeta: el public_id final la lleva igual y Cloudinary responde el
+    mismo "public_id (...) is invalid" de la falla 13.
+    """
+    mod, llamadas = _service_con_espia()
+
+    mod.upload_to_cloudinary(
+        file_bytes=b"x", filename="ok.pdf", mimetype="application/pdf",
+        folder="Jobs/QID/QID61298/nivel #3")
+
+    carpeta = llamadas[0][1]["folder"]
+    assert "#" not in carpeta, f"la almohadilla sobrevivio en la carpeta: {carpeta}"
+    assert carpeta.count("/") == 3, (
+        f"las barras de la ruta se perdieron: {carpeta}. Sanear la carpeta de "
+        "una pieza convierte cada `/` en `_` y aplana el arbol de Cloudinary."
+    )

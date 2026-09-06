@@ -26,7 +26,15 @@ def map_client_to_podio(client_obj, session=None):
     # Campos simples
     for attr, config in CLIENT_FIELD_MAP.items():
         value = getattr(client_obj, attr, None)
-        if value is not None:
+        # `""` cuenta como ausencia, igual que None. Con `is not None` a secas,
+        # un texto vacio en un campo `category`/`tag` llegaba a
+        # `convert_value_for_podio` y salia como `[]` — y `[]` en Podio BORRA el
+        # campo, en silencio y sin error. Expuestos aqui: Compliance_Partner,
+        # Risk_Value, Client_Status y Services_interested_in.
+        # Es la misma regla que `1f6d503` fijo para los jobs: que la app no
+        # conozca un valor no autoriza a borrarlo en Podio. Vaciar es un acto
+        # explicito y va por `limpieza_slots`.
+        if value not in (None, ""):
             payload[config["podio_field"]] = convert_value_for_podio(
                 value, config["type"])
 
