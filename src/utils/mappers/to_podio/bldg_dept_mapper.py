@@ -18,7 +18,10 @@ def map_bldg_dept_to_podio(bldg_obj, session=None):
     # Campos simples
     for attr, config in BLDG_FIELD_MAP.items():
         value = getattr(bldg_obj, attr, None)
-        if value is not None:
+        # `""` cuenta como ausencia, igual que None: en un campo `category`/`tag`
+        # salia como `[]`, y `[]` en Podio BORRA el campo sin error. Misma regla
+        # que `1f6d503` fijo para los jobs.
+        if value not in (None, ""):
             payload[config["podio_field"]] = convert_value_for_podio(
                 value, config["type"])
 

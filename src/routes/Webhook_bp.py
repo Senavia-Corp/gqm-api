@@ -171,6 +171,41 @@ def _registrar_adjunto_sin_entidad(item_id, hook_type, data, detalle) -> None:
         logger.exception("no se pudo registrar el adjunto sin entidad (%s)", item_id)
 
 
+# app_type de /others -> (Modelo, columna con su id propio). Duplica solo la
+# parte que el RESYNC necesita de los `APP_ROUTER_MAP` locales de los dos
+# receptores: para reconstruir de que entidad cuelga un adjunto no hacen falta
+# ni el router ni el mapper.
+_ENTIDADES_OTHERS = {
+    "PMC":  (ParentMgmtCo, "ID_Community_Tracking"),
+    "BDEP": (BuildingDept, "ID_BldgDept"),
+    "CLI":  (Client, "ID_Client"),
+    "SUBC": (Subcontractor, "ID_Subcontractor"),
+}
+
+
+def _registrar_alta_sin_job(item_id, hook_type, data, detalle) -> None:
+    """Deja rastro de un item.create/update que NO dejo job en la BD.
+
+    Sesion propia por lo mismo que `_registrar_adjunto_sin_entidad`:
+    `record_failed_sync` hace `session.rollback()` como primera instruccion.
+
+    Se registra pero se responde 200, no 5xx: `process_jobs_podio` devuelve None
+    cuando el item no trae `podio_item_id` o `tracking_id`
+    (jobs_hook_sync.py:48-50), y eso es DETERMINISTA — el reintento de Podio
+    fallaria igual, solo gastaria entregas y arriesgaria el hook. Mismo criterio
+    que `_fallo_receptor_others` con un IntegrityError. La fila queda en la
+    dead-letter, que es donde el resync sabe reintentar `item.create`.
+    """
+    from src.utils.failed_sync import record_failed_sync
+
+    try:
+        with get_session() as s:
+            record_failed_sync(s, item_id=item_id, hook_type=hook_type,
+                               payload=data or {}, error=detalle)
+    except Exception:
+        logger.exception("no se pudo registrar el alta sin job (%s)", item_id)
+
+
 # Presupuesto de espera para la carrera "el adjunto llega antes que su job".
 #
 # Medido en produccion el 5-sep-2026 sobre las fallas 14, 15, 16, 19 y 20: la
@@ -751,6 +786,24 @@ def podio_jobs_webhook(app_type, year, token=None):
                         description="  |  ".join(desc_parts),
                         source=SOURCE_PODIO,
                     )
+                else:
+                    # Este `if` NO tenia `else`: si `process_jobs_podio` no
+                    # dejaba job, se saltaban el recalculo, las comisiones y la
+                    # auditoria, se commiteaba una transaccion vacia y se
+                    # respondia 200. El alta entera se perdia sin dejar NADA:
+                    # ni fila en la dead-letter, ni linea en tlactivity, ni un
+                    # reintento de Podio.
+                    #
+                    # Es el candidato numero uno a las 5 pérdidas silenciosas de
+                    # agosto (QID61310, QID61285, QID61225, QID61300, QID61334):
+                    # ficheros que tlactivity registra como añadidos y que no
+                    # estan en `attachments` ni en `podio_failed_syncs`. Un job
+                    # que no llega a existir se lleva por delante sus adjuntos.
+                    _registrar_alta_sin_job(
+                        item_id, f"podio.jobs.{app_type}.{year}.{event_type}",
+                        data,
+                        f"{event_type} de item={item_id} no dejo job en la BD; "
+                        f"el alta se pierde con todo lo que cuelgue de ella")
 
             # ── DELETE ────────────────────────────────────────────────────
             elif event_type == "item.delete":
@@ -1243,6 +1296,24 @@ def resync_failed_sync(id):
                 app_type_o = partes_o[2] if len(partes_o) > 2 else None
                 payload_o = failed_sync.payload or {}
                 entity_id_o = payload_o.get("fk_value")
+
+                # `_registrar_adjunto_sin_entidad` guarda el cuerpo CRUDO de
+                # Podio, que NO trae `fk_value` — y esta rama lo exigia. O sea
+                # que las filas que produce la dead-letter de /others (la
+                # entidad no estaba) devolvian 422 PERMANENTE: quedaba el
+                # rastro, pero el boton no podia recuperarlas jamas. Era justo
+                # el caso mayoritario de esas filas.
+                #
+                # Se resuelve igual que en la rama de jobs (:1066-1068):
+                # preguntando por el `item_id`, que si esta siempre. Si la
+                # entidad ya aparecio, el adjunto tiene donde colgar.
+                if not entity_id_o and app_type_o in _ENTIDADES_OTHERS:
+                    Modelo_o, campo_o = _ENTIDADES_OTHERS[app_type_o]
+                    entidad_o = session.exec(select(Modelo_o).where(
+                        Modelo_o.podio_item_id == str(failed_sync.item_id))
+                    ).first()
+                    if entidad_o is not None:
+                        entity_id_o = getattr(entidad_o, campo_o, None)
 
                 if not (app_type_o and entity_id_o and failed_sync.item_id):
                     return jsonify({
