@@ -30,10 +30,14 @@ RESYNC = wb.resync_failed_sync.__wrapped__
 class _Falla:
     """Doble de PodioFailedSync."""
 
-    def __init__(self, action_type="file_deleted", **extra):
+    def __init__(self, action_type="file_deleted", error_message="", **extra):
         self.id = 1
         self.resolved = False
         self.item_id = "3304340068"
+        # El modelo real SIEMPRE lo trae, y el resync lo lee antes que nada
+        # para no reintentar un fallo permanente. Por defecto vacio: estos
+        # tests hablan de fallos que si se pueden reintentar.
+        self.error_message = error_message
         self.hook_type = f"podio.attachment.{action_type}"
         self.payload = {
             "file_id": "999",
@@ -231,3 +235,41 @@ def test_las_altas_siguen_usando_el_sincronizador(escenario, accion):
     assert escenario.llamadas["sync_job_attachments_by_id"] == 1, (
         f"{accion} dejo de reintentarse por el camino de alta")
     assert escenario.llamadas["destroy"] == [], f"{accion} borro algo"
+
+
+# ---------------------------------------------------------------------------
+# Un fallo permanente no llega ni a intentarlo
+# ---------------------------------------------------------------------------
+
+_410_REAL = ("HTTPError: 410 Client Error: Gone for url: "
+             "https://api.podio.com/file/2486162289")
+_GRANDE_REAL = ("BadRequest: File size too large. "
+                "Got 18887334. Maximum is 10485760.")
+
+
+@pytest.mark.parametrize("mensaje, motivo", [
+    (_410_REAL, "el fichero ya no existe en Podio"),
+    (_GRANDE_REAL, "el fichero supera el tope de Cloudinary"),
+])
+def test_el_resync_se_niega_a_reintentar_lo_irrecuperable(escenario, mensaje, motivo):
+    """Medido en produccion el 6-sep-2026: las dos fallas que sobrevivieron a
+    todo el frente de adjuntos. Cada pulsacion de Resync volvia a bajar 18,9 MB
+    de Podio, o a preguntar por un fichero borrado. Ninguna podia salir bien."""
+    falla = _Falla("file_created", error_message=mensaje)
+    cuerpo, codigo, _ = escenario(falla)
+
+    assert codigo == 422, "un fallo permanente no es un 200 ni un 502"
+    assert cuerpo.get("irrecuperable") is True
+    assert cuerpo.get("motivo") == motivo
+    # Y sobre todo: no se ha tocado Podio ni Cloudinary.
+    assert falla.resolved is False, "no se resolvio nada; el fichero sigue sin estar"
+    assert wb._MARCA_IRRECUPERABLE in falla.error_message
+    assert mensaje in falla.error_message, "el error original tiene que sobrevivir"
+
+
+def test_un_fallo_normal_sigue_reintentandose(escenario):
+    """La contrapartida: el guard no puede tragarse los reintentos legitimos."""
+    falla = _Falla("file_deleted", error_message="ConnectionError: Connection aborted")
+    _, codigo, _ = escenario(falla, fila=None)
+
+    assert codigo == 200

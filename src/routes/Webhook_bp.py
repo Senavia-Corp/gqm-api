@@ -1011,6 +1011,85 @@ _ERRORES_DE_CARRERA = (
     "StaleDataError", "expected to update 1 row",
 )
 
+# Fallos que NO se arreglan reintentando, nunca. Medidos en produccion el
+# 6-sep-2026: seis filas abiertas que eran dos ficheros, y cada pulsacion de
+# Resync volvia a bajar 18,9 MB de Podio o a chocar contra el mismo 410.
+#
+# La lista es CORTA a proposito. Marcar de mas es peor que marcar de menos: un
+# fallo transitorio dado por permanente se queda sin reintento y el fichero se
+# pierde de verdad. Solo entran firmas que describen un hecho del mundo, no un
+# hipo de la infraestructura.
+_ERRORES_PERMANENTES = (
+    # El fichero se borro en Podio. No hay nada que bajar, ni ahora ni luego.
+    ("410 Client Error", "el fichero ya no existe en Podio"),
+    ("410 Gone", "el fichero ya no existe en Podio"),
+    # Tope POR FICHERO del plan de Cloudinary. Trocear NO lo esquiva:
+    # `upload_large` reparte la TRANSFERENCIA, no el tamano del fichero. Se
+    # desplego creyendo lo contrario el 6-sep-2026 y no arreglo nada.
+    ("File size too large", "el fichero supera el tope de Cloudinary"),
+)
+
+_MARCA_IRRECUPERABLE = "[irrecuperable]"
+
+
+def _motivo_irrecuperable(error_message):
+    """Por que este fallo no se arregla reintentando, o None si si puede."""
+    msg = error_message or ""
+    if _MARCA_IRRECUPERABLE in msg:
+        return "ya marcado"
+    for firma, motivo in _ERRORES_PERMANENTES:
+        if firma in msg:
+            return motivo
+    return None
+
+
+def _marcar_irrecuperable(session, fs, motivo) -> bool:
+    """Deja el motivo en la fila SIN darla por resuelta y SIN borrarla.
+
+    Mismo canal que `auto_resolver_convergidos`: un prefijo en el mensaje. No
+    hay columna nueva porque no hace falta una migracion para decir esto, y
+    sobre todo porque la fila tiene que seguir VISIBLE: mientras el fichero no
+    este, esa fila es el unico inventario de que existio. `resolved` seguiria
+    siendo mentira —no se resolvio nada— y `DELETE` destruiria la evidencia.
+    """
+    if _MARCA_IRRECUPERABLE in (fs.error_message or ""):
+        return False
+    fs.error_message = (
+        f"{_MARCA_IRRECUPERABLE} {motivo}: {fs.error_message or ''}")[:2000]
+    session.add(fs)
+    return True
+
+
+def auto_marcar_irrecuperables() -> int:
+    """Marca las fallas abiertas que ya no se pueden recuperar.
+
+    Corre junto a `auto_resolver_convergidos` al leer el panel, para que las
+    filas anteriores a este codigo se etiqueten solas: si no, solo se marcarian
+    al pulsar Resync, que es justo lo que hay que dejar de pulsar.
+    """
+    from src.models.PodioFailedSyncModel import PodioFailedSync
+
+    marcadas = 0
+    try:
+        with get_session() as session:
+            abiertas = session.exec(select(PodioFailedSync).where(
+                PodioFailedSync.resolved == False)).all()  # noqa: E712
+            for fs in abiertas:
+                msg = fs.error_message or ""
+                if _MARCA_IRRECUPERABLE in msg:
+                    continue
+                for firma, motivo in _ERRORES_PERMANENTES:
+                    if firma in msg:
+                        if _marcar_irrecuperable(session, fs, motivo):
+                            marcadas += 1
+                        break
+            if marcadas:
+                session.commit()
+                logger.info("🏷️ %s fallas marcadas como irrecuperables", marcadas)
+    except Exception as e:  # nunca romper la lectura del panel por esto
+        logger.warning("no se pudieron marcar las irrecuperables: %s", e)
+    return marcadas
+
 
 def auto_resolver_convergidos() -> int:
     """Cierra las fallas cuyo estado deseado YA se cumple.
@@ -1101,12 +1180,17 @@ def get_failed_syncs():
     try:
         from src.models.PodioFailedSyncModel import PodioFailedSync
         auto_resolver_convergidos()
+        auto_marcar_irrecuperables()
         with get_session() as session:
             failed_syncs = session.exec(select(PodioFailedSync).order_by(PodioFailedSync.created_at.desc())).all()
 
             filas = []
             for f in failed_syncs:
                 fila = f.model_dump()
+                # Un fallo permanente no es una tarea pendiente: es un hecho.
+                # El panel lo necesita separado para no ofrecer un Resync que
+                # no puede funcionar.
+                fila["irrecuperable"] = _MARCA_IRRECUPERABLE in (f.error_message or "")
                 # El panel no tenia forma de distinguir un resuelto real de uno
                 # de mentira: los pintaba identicos. Con esto puede avisar de
                 # que la fila figura resuelta y el fichero sigue sin estar.
@@ -1133,9 +1217,21 @@ def count_failed_syncs():
         from src.models.PodioFailedSyncModel import PodioFailedSync
         from sqlalchemy import func
         auto_resolver_convergidos()
+        auto_marcar_irrecuperables()
         with get_session() as session:
-            count = session.exec(select(func.count(PodioFailedSync.id)).where(PodioFailedSync.resolved == False)).one()
-            return jsonify({"count": count}), 200
+            abiertas = session.exec(select(PodioFailedSync).where(
+                PodioFailedSync.resolved == False)).all()  # noqa: E712
+            # `count` es lo ACCIONABLE: lo que alguien puede arreglar pulsando
+            # Resync. Las irrecuperables se devuelven aparte en vez de sumarse
+            # o de esconderse — reintentarlas para siempre es ruido, y ocultar
+            # que faltan seria mentir.
+            irrecuperables = [f for f in abiertas
+                              if _MARCA_IRRECUPERABLE in (f.error_message or "")]
+            return jsonify({
+                "count": len(abiertas) - len(irrecuperables),
+                "irrecuperables": len(irrecuperables),
+                "total_abiertas": len(abiertas),
+            }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1148,7 +1244,24 @@ def resync_failed_sync(id):
             failed_sync = session.get(PodioFailedSync, id)
             if not failed_sync:
                 return jsonify({"error": "Failed sync not found"}), 404
-            
+
+            # UN FALLO PERMANENTE NO SE REINTENTA.
+            #
+            # Antes de esto, cada pulsacion sobre la falla del fichero de
+            # 18,9 MB volvia a descargarlo entero de Podio para chocar contra
+            # el mismo tope de Cloudinary, y la del 410 volvia a preguntar por
+            # un fichero borrado. Ninguna podia salir bien: el boton solo
+            # gastaba trafico y ensuciaba la tabla.
+            motivo = _motivo_irrecuperable(failed_sync.error_message)
+            if motivo:
+                if _marcar_irrecuperable(session, failed_sync, motivo):
+                    session.commit()
+                return jsonify({
+                    "error": f"Irrecuperable: {motivo}. Reintentar no lo arregla.",
+                    "irrecuperable": True,
+                    "motivo": motivo,
+                }), 422
+
             # UNA FILA "RESUELTA" CUYO FICHERO NO ESTA SI SE PUEDE REINTENTAR.
             #
             # Esto devolvia "Already resolved" a secas, y el panel ademas solo
