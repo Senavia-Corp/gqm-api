@@ -16,6 +16,13 @@ import pytest
 import src.routes.Webhook_bp as wb
 
 CRON = wb.dead_letter_cron
+_AUTH = {"Authorization": "Bearer secreto-de-prueba"}
+
+
+@pytest.fixture(autouse=True)
+def _cron_autenticado(monkeypatch):
+    """Los tests de logica dan el secreto por bueno; la auth se prueba aparte."""
+    monkeypatch.setenv("CRON_SECRET", "secreto-de-prueba")
 
 
 @pytest.fixture
@@ -52,7 +59,7 @@ def test_registra_lo_encontrado_por_debajo_del_tope(app, monkeypatch, sin_barrid
     _montar(monkeypatch, [_fila("QID61310", "2484212803"),
                           _fila("QID61285", "2484243251")], registrados)
 
-    with app.test_request_context():
+    with app.test_request_context(headers=_AUTH):
         cuerpo, codigo = CRON()
 
     datos = cuerpo.get_json()
@@ -72,7 +79,7 @@ def test_por_encima_del_tope_se_planta_SIN_registrar(app, monkeypatch, sin_barri
     _montar(monkeypatch, [_fila("QID6100%d" % i, str(i)) for i in range(5)],
             registrados)
 
-    with app.test_request_context():
+    with app.test_request_context(headers=_AUTH):
         cuerpo, codigo = CRON()
 
     datos = cuerpo.get_json()
@@ -95,7 +102,7 @@ def test_el_marcado_corre_aunque_falle_la_reconciliacion(app, monkeypatch):
 
     monkeypatch.setattr(wb, "get_session", _revienta)
 
-    with app.test_request_context():
+    with app.test_request_context(headers=_AUTH):
         cuerpo, codigo = CRON()
 
     assert codigo == 200
@@ -110,7 +117,7 @@ def test_la_reconciliacion_corre_aunque_falle_el_marcado(app, monkeypatch):
     registrados = []
     _montar(monkeypatch, [_fila("QID61310", "2484212803")], registrados)
 
-    with app.test_request_context():
+    with app.test_request_context(headers=_AUTH):
         cuerpo, codigo = CRON()
 
     assert codigo == 200
@@ -123,3 +130,44 @@ def test_el_cron_esta_en_vercel_json():
     crons = json.load(open("vercel.json"))["crons"]
     rutas = [c["path"] for c in crons]
     assert "/webhook/podio/dead_letter_cron" in rutas
+
+
+# ---------------------------------------------------------------------------
+# Autenticacion: falla CERRADO, como los otros crons
+# ---------------------------------------------------------------------------
+
+def test_sin_CRON_SECRET_no_corre_y_no_escribe(app, monkeypatch):
+    """El token del hook de Podio fallo ABIERTO y dejo 45 hooks entregando sin
+    autenticar. Un cron que escribe en la BD no puede repetirlo."""
+    monkeypatch.delenv("CRON_SECRET", raising=False)
+    llamado = []
+    monkeypatch.setattr(wb, "auto_marcar_irrecuperables",
+                        lambda: llamado.append(1) or 0)
+
+    with app.test_request_context():
+        cuerpo, codigo = CRON()
+
+    assert codigo == 503
+    assert llamado == [], "se planto pero ya habia tocado la BD"
+
+
+def test_con_secreto_equivocado_devuelve_401(app, monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "el-bueno")
+    llamado = []
+    monkeypatch.setattr(wb, "auto_marcar_irrecuperables",
+                        lambda: llamado.append(1) or 0)
+
+    with app.test_request_context(headers={"Authorization": "Bearer el-malo"}):
+        _, codigo = CRON()
+
+    assert codigo == 401
+    assert llamado == []
+
+
+def test_la_ruta_esta_en_las_publicas_del_middleware():
+    """Sin esto el middleware de JWT la rechaza antes de llegar al handler, y el
+    cron nunca corre: se descubrio porque en produccion devolvia 401."""
+    import re
+    fuente = open("main.py").read()
+    publicas = re.search(r"public_prefixes\s*=\s*\[(.*?)\n\s*\]", fuente, re.S).group(1)
+    assert "/webhook/podio/dead_letter_cron" in publicas

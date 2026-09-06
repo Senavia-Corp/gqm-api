@@ -150,6 +150,12 @@ def create_app():
             # es un JWT. Valida su propio secreto y falla CERRADO (503 sin
             # CRON_SECRET). El POST /qbo/refresh_tokens sigue exigiendo JWT.
             "/qbo/refresh_tokens_cron",
+            # Idem: GET de Vercel Cron con Bearer $CRON_SECRET. Mantiene la
+            # dead-letter (marca irrecuperables, registra adjuntos perdidos)
+            # sin depender de que alguien abra el panel. Valida su propio
+            # secreto y falla CERRADO. Prefijo exacto: el resto de
+            # `/webhook/podio/...` que no sean los receptores sigue con JWT.
+            "/webhook/podio/dead_letter_cron",
         ]
 
         # Permitir root
