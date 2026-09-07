@@ -75,6 +75,42 @@ de producción está hablando con el API endurecido o con el otro.
 
 ---
 
+## 0 bis. El criterio de «arreglado», ahora completo
+
+`scripts/verificar_portal.sh` decía ser «un solo comando, un solo veredicto»
+para los 24 hallazgos y **no ejecutaba ni una prueba del panel** —donde vive la
+mitad de ellos— ni `test_espejo_password.py`, que es la única que ve el
+sabotaje de la lista de contraseñas prohibidas. Ahora son seis bloques:
+
+```
+══ 1 · Compuerta de aislamiento ══        21 casos del contrato
+══ 2 · Matriz de permisos ══              filas=337  conformes=337  NO CONFORMES=0
+══ 3 · Fuga de datos a nivel de campo ══  37 sondas · 21 saltadas · 0 fugas
+══ 4 · Tests RBAC ══                      228 passed
+══ 5 · Flujo end-to-end ══                8 pasos y 3 pruebas negativas
+══ 6 · Suite RBAC del panel ══            67 passed
+✅ VERDE — los 6 bloques pasan
+```
+
+Dos cosas de este bloque 6 que conviene saber antes de fiarse de él:
+
+- **No poder ejecutarlo cuenta como ROJO.** Saltarse un bloque porque no
+  encuentra el panel no es aprobarlo.
+- **Necesita `scripts/entorno-rbac.sh` del panel**, que no existía: las
+  credenciales de los siete roles no estaban en ningún fichero de ninguno de
+  los dos repositorios, así que este bloque no habría podido correr aunque
+  estuviera escrito. No contiene contraseñas — deriva de `SEED_DEV_PASSWORD`—
+  y comprueba, enumerando, que exporta todas las `RBAC_*` que la suite lee.
+
+Su primera corrida real salió en rojo con el mensaje vacío: `corepack pnpm` sin
+versión se baja la última, reinstala las 263 dependencias y muere antes de
+ejecutar una sola prueba. Es el mismo defecto que el bloque venía a corregir,
+una vuelta más arriba —un veredicto que no distingue lo que falló de lo que no
+llegó a ejecutarse—, y por eso ahora imprime el final del log cuando no hay
+línea de fallo de Playwright.
+
+---
+
 ## 1. Orden de despliegue
 
 Cada paso tiene su verificación y su vuelta atrás. **No avanzar con un paso en rojo.**
