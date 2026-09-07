@@ -35,11 +35,10 @@ PRODUCCION = "--produccion" in sys.argv
 if PRODUCCION and not ROLES_ONLY:
     sys.exit("⛔ --produccion exige --roles-only (en producción no se siembran usuarios)")
 if not PRODUCCION:
-    if "ep-sparkling-sound" not in config("DATABASE_URL", default=""):
-        sys.exit("⛔ DATABASE_URL no apunta a Neon develop — abortado "
-                 "(contra producción hace falta --roles-only --produccion)")
-    if config("APP_ENV", default="") != "test":
-        sys.exit("⛔ APP_ENV != test — abortado")
+    from src.utils.db_guard import require_dev_database  # noqa: E402
+
+    require_dev_database(
+        config, contexto="contra producción hace falta --roles-only --produccion")
 
 from sqlmodel import select  # noqa: E402
 from src.database.db_sqlmodel import get_session  # noqa: E402

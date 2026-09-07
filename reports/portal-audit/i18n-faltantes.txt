@@ -1,0 +1,112 @@
+Claves de traducción que no existen en messages/{en,es}.json
+Generado por el barrido de la auditoría de portal. Total: 96 en 6 áreas.
+Ninguna es del portal: su espacio (`subcontractors`, `dashboard`) está completo.
+
+## jobEstimate (58)
+  jobEstimate.general.modals.breakdownTitle   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.btnCreateOrder   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.btnDeleteAll   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.btnDiscard   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.btnImport   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.btnNewCost   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.btnSave   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.btnSaving   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.costItems   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.costItemsPlural   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.modals.deleteAllConfirm   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.modals.deleteAllDesc   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.modals.deleteAllTitle   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.saveFirst   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.savingMsg   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.bdfAppr   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.bdfApprSub   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.bdfEst   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.bdfEstSub   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.matTotal   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.ptlTotal   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.rentAppr   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.rentApprSub   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.rentEst   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.rentEstSub   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subInOrders   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subInOrdersSub   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subInOrdersSubPlural   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subNoOrders   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subNoOrdersSub   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subNoOrdersSubPlural   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subTotal   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subTotalSub   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.stats.subTotalSubPlural   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.actionBdfManager   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.actionDelete   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.actionEdit   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.actionRentManager   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.actionView   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.badgeApproved   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.badgeEstimated   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.badgeInOrder   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.badgePodio   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.badgeUnsaved   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.colActions   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.colBuilderCost   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.colClientPrice   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.colCostCode   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.colQty   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.colTitle   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.colType   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.colUnitCost   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.emptySub   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.emptyTitle   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.table.searchPlaceholder   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.general.modals.unsavedWarning   <-  components/organisms/EstimateBreakdownTable.tsx
+  jobEstimate.rentManager.errInvalidAmount   <-  components/organisms/RentManager.tsx
+  jobEstimate.rentManager.errRequired   <-  components/organisms/RentManager.tsx
+
+## jobPurchasesTab (15)
+  jobPurchasesTab.sections.btnCancelDelete   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.btnConfirmDelete   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.btnNewPurchase   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.btnRefresh   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.extra   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.items   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.noDescription   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.orders   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.spending   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.subtitle   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.subtitleNone   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.subtitlePlural   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.title   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.tooltipExpand   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+  jobPurchasesTab.sections.tooltipOpen   <-  components/organisms/job-detail/tabs/JobPurchasesTab.tsx
+
+## jobTimelineTab (13)
+  jobTimelineTab.pdf.empty.desc   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.empty.title   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.error.retry   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.header.events   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.header.eventsPlural   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.header.loading   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.header.noEvents   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.header.pdfTooltip   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.header.refreshTooltip   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.header.title   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.loadMore.allLoaded   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.loadMore.allLoadedPlural   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+  jobTimelineTab.pdf.loadMore.btn   <-  components/organisms/job-detail/tabs/JobTimelineTab.tsx
+
+## roles_permissions (6)
+  roles_permissions.common.error   <-  app/roles-permissions/roles/[roleId]/page.tsx
+  roles_permissions.common.loading   <-  app/roles-permissions/roles/[roleId]/page.tsx
+  roles_permissions.common.optional   <-  app/roles-permissions/create-roles/page.tsx
+  roles_permissions.common.save   <-  app/roles-permissions/roles/[roleId]/page.tsx
+  roles_permissions.det_btnDelete   <-  components/organisms/roles-permissions/PermissionsTable.tsx
+  roles_permissions.det_btnEdit   <-  components/organisms/roles-permissions/PermissionsTable.tsx
+
+## clients (3)
+  clients.colNotes   <-  app/communities/create/page.tsx
+  clients.colWebsite   <-  app/communities/create/page.tsx
+  clients.deleting   <-  app/clients/page.tsx
+
+## commissions (1)
+  commissions.detail.labelPeriod   <-  app/commissions/[id]/page.tsx
+

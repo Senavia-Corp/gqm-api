@@ -11,7 +11,8 @@ from sqlalchemy.orm import joinedload
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
-from ..utils.middleware.auth.routes_protection import require_permission
+from ..utils.middleware.auth.routes_protection import (
+    require_permission, portal_scope, portal_owns_subcontractor)
 from ..utils.audit import audit
 from ..utils.middleware.logs.logs import logger
 
@@ -37,6 +38,21 @@ def list_certificates():
                 joinedload(Certificate.attachments)
             )
         )
+
+        # P-06 (S2): el listado entregaba los certificados de cumplimiento de
+        # TODOS los subcontratistas. Para un rol de portal se acota al propio
+        # id. Es una «lista por relacion»: el sub sigue viendo LOS SUYOS y, si
+        # no tiene ninguno, la respuesta correcta es 200 con [] (no un 404).
+        # El staff (full_admin, gqm_member) no se ve afectado: portal_scope()
+        # devuelve (None, None) y el statement queda tal cual.
+        rol, uid = portal_scope()
+        if rol == "subcontractor":
+            statement = statement.where(Certificate.ID_Subcontractor == uid)
+        elif rol is not None:
+            # Tecnico: su politica no trae `certificate:read`, asi que el
+            # decorador ya corta antes; esto es la segunda linea de defensa.
+            return [], 200
+
         results = session.exec(statement).unique().all()
 
         if not results:
@@ -68,7 +84,13 @@ def get_certificate(id_certificate):
         )
         obj = session.exec(statement).unique().first()
 
-        if not obj:
+        # P-06 (S2): la lectura por id no comprobaba pertenencia, asi que un
+        # sub leia el certificado de cumplimiento de otro con solo saber el id.
+        # Modismo de Tasks.py:170 («if not obj or not pertenece: 404»): para un
+        # rol de portal el recurso ajeno responde 404 y no 403, porque un 403
+        # confirma que existe y deja la ruta enumerable (Job.py:506-507).
+        # Un certificado sin ID_Subcontractor tampoco es de nadie del portal.
+        if not obj or not portal_owns_subcontractor(obj.ID_Subcontractor):
             raise AppException("Certificate not found.",
                                "certificate_not_found", 404)
 
@@ -84,6 +106,18 @@ def get_certificate(id_certificate):
 @handle_exceptions()
 @paginate()
 def list_cert_by_subcontractor(subc):
+
+    # P-06 (S2): el <subc> del path se usaba CRUDO en la consulta de abajo, sin
+    # compararlo nunca con el id del llamante: el sub A leia los certificados
+    # de cumplimiento del sub B. Se comprueba pertenencia ANTES de consultar y
+    # un id ajeno responde 404, no 403 (Job.py:506-507: el 403 confirma la
+    # existencia y hace la ruta enumerable). Sigue siendo una «lista por
+    # relacion»: para el propio sub sin certificados la respuesta es 200 con []
+    # (abajo, sin tocar). El staff pasa: portal_owns_subcontractor() devuelve
+    # True cuando el llamante no es de portal.
+    if not portal_owns_subcontractor(subc):
+        raise AppException("Certificate not found.",
+                           "certificate_not_found", 404)
 
     with get_session() as session:
         statement = (

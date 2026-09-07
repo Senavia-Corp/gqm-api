@@ -15,6 +15,8 @@ from src.utils.middleware.auth.routes_protection import get_user_context
 from src.utils.policy_evaluator import PolicyEvaluator
 from sqlalchemy.orm import joinedload
 
+from ..utils.password_policy import validar_password, PasswordDebil  # noqa: E402
+
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
@@ -92,9 +94,43 @@ def _rate_limited(key: str) -> bool:
         return _rate_limited_memoria(key)
 
 
-def _client_key(email: str) -> str:
+# Los espacios que quita `str.strip()` de Python. Se nombran porque `btrim()`
+# de Postgres, SIN segundo argumento, quita SOLO el espacio: medido en este
+# mismo Postgres, `btrim(E'ana@x.com\t')` devuelve `'ana@x.com\t'`. Sin esto la
+# aplicacion y el indice unico de la migracion e9c1correo normalizan DISTINTO, y
+# un correo con un tabulador final es el mismo usuario para una y otra clave
+# para el otro: el duplicado se cuela. Es la clase de fallo de O-04 otra vez.
+ESPACIOS = " \t\n\r\v\f"
+
+
+def correo_normalizado(valor) -> str:
+    """El correo tal y como se compara en TODAS partes."""
+    return (valor or "").strip(ESPACIOS).lower()
+
+
+def columna_correo_normalizada(columna):
+    """La misma normalizacion, en SQL. Igual que el indice de e9c1correo."""
+    from sqlalchemy import func as sa_func
+    return sa_func.lower(sa_func.btrim(columna, ESPACIOS))
+
+
+def _client_key(email: str, *, ambito: str = "") -> str:
+    """Clave del limitador. `ambito` va DESPUES de normalizar, nunca antes.
+
+    O-05 bis: la llamada de forgot-password era `_client_key(f"forgot|{email}")`,
+    asi que el `.strip()` de aqui recortaba los extremos de
+    `"forgot| ana@x.com"` —que no tiene ninguno— y el espacio interior
+    sobrevivia. Medido:
+
+        _client_key("forgot|ana@x.com")  -> 1.2.3.4|forgot|ana@x.com
+        _client_key("forgot| ana@x.com") -> 1.2.3.4|forgot| ana@x.com
+
+    Dos cupos distintos para el mismo usuario: bastaba anadir un espacio para
+    reiniciar el limitador. El login, que pasaba el correo suelto, si estaba
+    bien. Con el ambito como parametro el correo se normaliza SIEMPRE.
+    """
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
-    return f"{ip}|{(email or '').lower()}"
+    return f"{ip}|{ambito}{correo_normalizado(email)}"
 
 
 def _json_object():
@@ -122,13 +158,28 @@ def login():
     if not email or not password:
         return jsonify({"error": "Email_Address and Password are required"}), 400
 
+    from sqlalchemy import func as sa_func
+
     if _rate_limited(_client_key(email)):
         return jsonify({"error": "Too many attempts, try again in a minute"}), 429
 
     with get_session() as session:
 
+        # O-04 (auditoria de portal): la busqueda del correo era INCONSISTENTE
+        # entre los tres tipos de principal. El subcontratista se buscaba con
+        # lower() (REG-036/REG-050) y Member y Technician con igualdad exacta,
+        # asi que un sub entraba escribiendo SUB-DEV@... y un tecnico con
+        # TECH-DEV@... recibia 401 — indistinguible de una contrasena mal
+        # escrita. Con 432 altas importadas de Podio, donde la capitalizacion
+        # del correo no la controla nadie, eso es un fallo de acceso silencioso.
+        # Se normaliza igual en los tres. Mismo criterio que ya afirmaba
+        # tests/integration/test_sub_login_exact_match.py: igualdad exacta,
+        # insensible a mayusculas, jamas substring.
+        correo = correo_normalizado(email)
+
         # Buscar en Member
-        stmt = select(Member).where(Member.Email_Address == email)
+        stmt = select(Member).where(
+            columna_correo_normalizada(Member.Email_Address) == correo)
         member = session.exec(stmt).first()
 
         if member and verify_password(password, member.Password):
@@ -159,7 +210,8 @@ def login():
 
         else:
             # Buscar en Technician
-            stmt = select(Technician).where(Technician.Email_Address == email)
+            stmt = select(Technician).where(
+                columna_correo_normalizada(Technician.Email_Address) == correo)
             technician = session.exec(stmt).first()
 
             if technician and verify_password(password, technician.Password):
@@ -181,12 +233,11 @@ def login():
                 # REG-036/REG-050: igualdad exacta (case-insensitive), jamás
                 # substring — .contains hacía LIKE y podía resolver a OTRO
                 # subcontratista cuyo email contuviera el buscado.
-                from sqlalchemy import func as sa_func
                 stmt = select(Subcontractor).options(
                     joinedload(Subcontractor.role).joinedload(Role.permissions),
                     joinedload(Subcontractor.permissions)
-                ).where(sa_func.lower(Subcontractor.Email_Address)
-                        == (email or "").strip().lower())
+                ).where(columna_correo_normalizada(Subcontractor.Email_Address)
+                        == correo)
                 subcontractor = session.exec(stmt).unique().first()
                 
                 if subcontractor and subcontractor.Password and verify_password(password, subcontractor.Password):
@@ -371,6 +422,17 @@ def me():
                 return jsonify({"error": "User no longer exists"}), 404
 
             user_data.pop("Password", None)
+
+            # F-06: /me arma `user_data` con model_dump() directo, asi que NO
+            # pasa por add_relationships y la redaccion central de
+            # src/utils/portal_redaction.py no lo alcanza. Los identificadores
+            # internos de la integracion con Podio no le sirven de nada a un rol
+            # de portal y no deben salir; se quitan aqui para que /me diga lo
+            # mismo que el resto de rutas y no haya una puerta de atras.
+            if user_type in ("subcontractor", "technician"):
+                for interno in ("podio_item_id", "podio_profile_id"):
+                    user_data.pop(interno, None)
+
             user_data["role_detail"] = role_detail
             user_data["policies"] = policies
 
@@ -422,16 +484,43 @@ def _reset_serializer():
     return URLSafeTimedSerializer(env_config("SECRET_KEY"), salt="gqm-password-reset")
 
 
-def _find_user_by_email(session, email: str):
-    from sqlalchemy import func as sa_func
-    normalized = (email or "").strip().lower()
+def _find_users_by_email(session, email: str):
+    """TODOS los principales con ese correo, no el primero.
+
+    O-05 (auditoria de portal): esto devolvia el PRIMER acierto por orden de
+    tabla —member, technician, subcontractor— y con eso decidia a quien mandar
+    el enlace. Pero `/auth/login` NO funciona asi: prueba la contrasena en las
+    tres tablas y sigue buscando si no casa, de modo que un tecnico y un member
+    que comparten correo entran los dos. Medido: los dos logins dan 200 con su
+    user_type correcto, y forgot-password resolvia siempre al member.
+
+    Consecuencia: el tecnico no podia recuperar su contrasena JAMAS, y como la
+    respuesta es un 200 constante («if the email exists...») no habia forma de
+    notarlo ni desde fuera ni desde dentro.
+
+    El choque entre tablas es posible hoy: los indices unicos de la migracion
+    e9c1correo son por tabla, no entre tablas — y en produccion hay 432
+    subcontratistas importados de Podio junto a members y technicians, sin
+    nadie que garantice que un correo no aparece en dos sitios.
+
+    Se devuelven todos, en orden estable, para que la puerta de recuperacion
+    tenga el mismo alcance que la de entrada.
+    """
+    normalizado = correo_normalizado(email)
+    if not normalizado:
+        return []
+    encontrados = []
     for user_type, (Model, _pk) in _USER_TABLES.items():
-        user = session.exec(
-            select(Model).where(sa_func.lower(Model.Email_Address) == normalized)
-        ).first()
-        if user:
-            return user_type, user
-    return None, None
+        # Se normaliza la COLUMNA, no solo la entrada. Sin esto, una fila
+        # guardada como 'ana@x.com ' —que la propia migracion e9c1correo
+        # advierte que aparece en una importacion de 432 filas de Podio— es una
+        # cuenta muda: existe, tiene contrasena, y ni entra ni se recupera.
+        for user in session.exec(
+            select(Model).where(
+                columna_correo_normalizada(Model.Email_Address) == normalizado)
+        ).all():
+            encontrados.append((user_type, user))
+    return encontrados
 
 
 @auth_bp.post("/forgot-password")
@@ -443,22 +532,52 @@ def forgot_password():
     if not email:
         return jsonify({"error": "Email_Address is required"}), 400
 
-    if _rate_limited(_client_key(f"forgot|{email}")):
+    # `ambito` como parametro, no concatenado: ver `_client_key`. Concatenarlo
+    # antes dejaba " ana@x.com" en un cupo propio y el limitador se reiniciaba
+    # con solo anadir un espacio.
+    if _rate_limited(_client_key(email, ambito="forgot|")):
         return jsonify({"error": "Too many attempts, try again in a minute"}), 429
 
+    from decouple import config as env_config
+    panel = env_config("PANEL_BASE_URL", default="http://localhost:3100").rstrip("/")
+
+    destino = None
+    enlaces = []
     with get_session() as session:
-        user_type, user = _find_user_by_email(session, email)
-        if user and user.Password:
+        for user_type, user in _find_users_by_email(session, email):
+            if not user.Password:
+                continue
             _pk_field = _USER_TABLES[user_type][1]
             token = _reset_serializer().dumps({
                 "uid": getattr(user, _pk_field),
                 "ut": user_type,
                 "ph": user.Password[-12:],  # fragmento → un solo uso
             })
-            from decouple import config as env_config
-            panel = env_config("PANEL_BASE_URL", default="http://localhost:3100").rstrip("/")
+            destino = destino or user.Email_Address
+            enlaces.append((user_type, f"{panel}/reset-password?token={token}"))
+
+    # UN SOLO correo con todos los enlaces, y FUERA de la sesion de BD.
+    #
+    # Mandar uno por principal costaba hasta tres conexiones SMTP sincronas
+    # dentro del `with get_session()`, con 15 s de timeout cada una, en una
+    # funcion serverless sin `maxDuration`: si se cortaba a la mitad, el member
+    # recibia su enlace y el tecnico y la subcontrata no — los dos roles que
+    # esta auditoria va a encender.
+    #
+    # Y el tiempo de respuesta separaba sin solape 0, 1 y 3 principales
+    # (~30 ms y ~110 ms), asi que el «siempre 200» no ocultaba nada al reloj:
+    # el endpoint enumeraba quien esta dado de alta. Con un solo envio, el
+    # tiempo deja de escalar con el numero de cuentas.
+    if enlaces:
+        try:
             from src.services.email_service import send_password_reset
-            send_password_reset(user.Email_Address, f"{panel}/reset-password?token={token}")
+            send_password_reset(destino, enlaces)
+        except Exception:
+            # Nunca cambia la respuesta. Sin este try, un fallo de SMTP
+            # convertia el 200 constante en un 500 que solo aparecia cuando el
+            # correo EXISTE: enumeracion directa, sin cronometro y sin
+            # ambiguedad, justo lo contrario de lo que promete el 200 de abajo.
+            _logger.exception("forgot-password: fallo el envio del correo de reinicio")
 
     # Siempre 200: no filtrar si el email existe
     return jsonify({"message": "If the email exists, a reset link was sent"}), 200
@@ -475,15 +594,30 @@ def reset_password():
     new_password = data.get("Password")
     if not token or not new_password:
         return jsonify({"error": "token and Password are required"}), 400
-    if len(new_password) < 8:
-        return jsonify({"error": "Password must be at least 8 characters"}), 400
-
+    # PRIMERO se comprueba que el token es autentico, y solo despues se valida
+    # la contrasena. Al reves —que es como estaba— un token FALSIFICADO con una
+    # contrasena debil moria en la politica y nunca llegaba a la verificacion de
+    # firma, asi que `test_reset_rejects_garbage_token` daba su 400 por el
+    # motivo equivocado: con la comprobacion de firma saboteada
+    # (`except BadSignature: return 200`) el fichero entero seguia en verde.
+    # Autenticar antes de procesar la entrada es ademas el orden correcto: no
+    # se trabaja con el cuerpo de una peticion que aun no se ha probado que
+    # venga de un enlace emitido por nosotros.
     try:
         payload = _reset_serializer().loads(token, max_age=1800)
     except SignatureExpired:
         return jsonify({"error": "Reset link expired"}), 400
     except BadSignature:
         return jsonify({"error": "Invalid reset link"}), 400
+
+    # O-01: aqui solo se miraba `len < 8`, asi que "12345678" —que ESTA en la
+    # lista de prohibidas— entraba y se escribia tal cual. Era la tercera puerta
+    # para fijar una contrasena, y la unica que no exige estar autenticado: la
+    # mas facil de usar y la que menos se mira.
+    try:
+        validar_password(new_password)
+    except PasswordDebil as debil:
+        return jsonify({"error": str(debil)}), 400
 
     entry = _USER_TABLES.get(payload.get("ut"))
     if not entry:

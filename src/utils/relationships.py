@@ -4,7 +4,15 @@ from sqlalchemy.inspection import inspect
 
 
 def add_relationships(obj, relations: list[str]):
-    SENSITIVE_FIELDS = {"Password", "password", "hashed_password", "pass"}
+    # La contraseña se redacta siempre. Para un rol de portal se suman los
+    # campos vetados (bloque financiero del job, documentos de politica IAM,
+    # ids internos de Podio) — ver src/utils/portal_redaction.py. Se hace aqui,
+    # en el punto por el que pasa TODO volcado, y no ruta a ruta: arreglarlo
+    # ruta a ruta deja el agujero abierto para la siguiente que alguien escriba.
+    from src.utils.portal_redaction import campos_a_redactar
+
+    SENSITIVE_FIELDS = campos_a_redactar(
+        frozenset({"Password", "password", "hashed_password", "pass"}))
 
     base = obj.model_dump(mode="json")
     mapper = inspect(obj.__class__)

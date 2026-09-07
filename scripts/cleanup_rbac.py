@@ -29,12 +29,10 @@ from decouple import config  # noqa: E402
 PRODUCCION = "--produccion" in sys.argv
 
 if not PRODUCCION:
-    if "ep-sparkling-sound" not in config("DATABASE_URL", default=""):
-        sys.exit("⛔ DATABASE_URL no apunta a Neon develop — abortado "
-                 "(para el cutover: --produccion, tras leer RUNBOOK-CUTOVER.md)")
-    if config("APP_ENV", default="") != "test":
-        sys.exit("⛔ APP_ENV != test — abortado "
-                 "(para el cutover: --produccion, tras leer RUNBOOK-CUTOVER.md)")
+    from src.utils.db_guard import require_dev_database  # noqa: E402
+
+    require_dev_database(
+        config, contexto="para el cutover: --produccion, tras leer RUNBOOK-CUTOVER.md")
 
 from sqlmodel import select  # noqa: E402
 

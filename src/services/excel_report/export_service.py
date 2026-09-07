@@ -456,9 +456,25 @@ def _collect_all_data(
 def _build_column_schema(cols: JobExportColumns, metadata: Dict) -> List[Dict]:
     schema = []
 
+    # El Excel se arma columna a columna desde el modelo: NO pasa por
+    # `serialize_job` ni por `add_relationships`, asi que la redaccion central
+    # no lo alcanzaba. Medido: el fichero que se descarga un subcontratista
+    # llevaba los mismos valores financieros que el del Full Admin —los
+    # centinelas 4444 (Gqm_formula_pricing), 9999 (Gqm_final_sold_pricing) y
+    # 1414 (Acc_receivable) aparecian en los dos.
+    #
+    # Un export es la peor forma de filtrar el margen: sale de la aplicacion en
+    # un fichero que ya no controla nadie.
+    from src.utils.portal_redaction import (CAMPOS_FINANCIEROS_JOB,
+                                            CAMPOS_PODIO, llamante_es_portal)
+    vetados = ((CAMPOS_FINANCIEROS_JOB | CAMPOS_PODIO)
+               if llamante_es_portal() else frozenset())
+
     # ── Campos básicos ────────────────────────────────────────────────────────
     for field in cols.basic_fields:
         f = field.value
+        if f in vetados:
+            continue
         if f == "Job_type":
             def key_fn(r): return _fmt_job_type(
                 getattr(r["_job"], "Job_type", None))

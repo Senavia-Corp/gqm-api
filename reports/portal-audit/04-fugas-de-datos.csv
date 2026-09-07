@@ -1,0 +1,691 @@
+sujeto,endpoint,objeto,clave,veredicto,detalle
+subcontractor,GET /jobs/<propio>,propio,Acc_receivable,PROHIBIDO,cuentas por cobrar
+subcontractor,GET /jobs/<propio>,propio,Bldg_dept_fees,PROHIBIDO,tasas del building dept
+subcontractor,GET /jobs/<propio>,propio,Estimated_material,PROHIBIDO,material estimado
+subcontractor,GET /jobs/<propio>,propio,Estimated_rent,PROHIBIDO,renta estimada
+subcontractor,GET /jobs/<propio>,propio,Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+subcontractor,GET /jobs/<propio>,propio,Gqm_final_percentage,PROHIBIDO,porcentaje final
+subcontractor,GET /jobs/<propio>,propio,Gqm_final_prem_in_money,PROHIBIDO,prima final
+subcontractor,GET /jobs/<propio>,propio,Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+subcontractor,GET /jobs/<propio>,propio,Gqm_final_target_return,PROHIBIDO,retorno final
+subcontractor,GET /jobs/<propio>,propio,Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+subcontractor,GET /jobs/<propio>,propio,Gqm_paid_fees,PROHIBIDO,honorarios pagados
+subcontractor,GET /jobs/<propio>,propio,Gqm_premium_in_money,PROHIBIDO,prima de GQM
+subcontractor,GET /jobs/<propio>,propio,Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+subcontractor,GET /jobs/<propio>,propio,Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+subcontractor,GET /jobs/<propio>,propio,Gqm_total_change_orders,PROHIBIDO,total de change orders
+subcontractor,GET /jobs/<propio>,propio,Gqm_total_materials_fees,PROHIBIDO,total de materiales
+subcontractor,GET /jobs/<propio>,propio,Ptl_gc_fee,PROHIBIDO,fee del general contractor
+subcontractor,GET /jobs/<propio>,propio,Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+subcontractor,GET /jobs/<propio>,propio,client.podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /jobs/<propio>,propio,podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /jobs/<propio>,propio,subcontractors[].Gqm_compliance,PROHIBIDO,estado de cumplimiento
+subcontractor,GET /jobs/<propio>,propio,subcontractors[].Notes,PROHIBIDO,notas internas
+subcontractor,GET /jobs/<propio>,propio,subcontractors[].Score,PROHIBIDO,puntuación interna del subcontratista
+subcontractor,GET /jobs/<propio>,propio,subcontractors[].orders[].Notes,PROHIBIDO,notas internas
+subcontractor,GET /jobs/<propio>,propio,subcontractors[].podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /jobs/,propio,results[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+subcontractor,GET /jobs/,propio,results[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+subcontractor,GET /jobs/,propio,results[].Estimated_material,PROHIBIDO,material estimado
+subcontractor,GET /jobs/,propio,results[].Estimated_rent,PROHIBIDO,renta estimada
+subcontractor,GET /jobs/,propio,results[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+subcontractor,GET /jobs/,propio,results[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+subcontractor,GET /jobs/,propio,results[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+subcontractor,GET /jobs/,propio,results[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+subcontractor,GET /jobs/,propio,results[].Gqm_final_target_return,PROHIBIDO,retorno final
+subcontractor,GET /jobs/,propio,results[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+subcontractor,GET /jobs/,propio,results[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+subcontractor,GET /jobs/,propio,results[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+subcontractor,GET /jobs/,propio,results[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+subcontractor,GET /jobs/,propio,results[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+subcontractor,GET /jobs/,propio,results[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+subcontractor,GET /jobs/,propio,results[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+subcontractor,GET /jobs/,propio,results[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+subcontractor,GET /jobs/,propio,results[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+subcontractor,GET /jobs/,propio,results[].client.podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /jobs/,propio,results[].podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /jobs/,propio,results[].subcontractors[].Gqm_compliance,PROHIBIDO,estado de cumplimiento
+subcontractor,GET /jobs/,propio,results[].subcontractors[].Notes,PROHIBIDO,notas internas
+subcontractor,GET /jobs/,propio,results[].subcontractors[].Score,PROHIBIDO,puntuación interna del subcontratista
+subcontractor,GET /jobs/,propio,results[].subcontractors[].orders[].Notes,PROHIBIDO,notas internas
+subcontractor,GET /jobs/,propio,results[].subcontractors[].podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /tasks/<propia>,propio,job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+subcontractor,GET /tasks/<propia>,propio,job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+subcontractor,GET /tasks/<propia>,propio,job.Estimated_material,PROHIBIDO,material estimado
+subcontractor,GET /tasks/<propia>,propio,job.Estimated_rent,PROHIBIDO,renta estimada
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_final_target_return,PROHIBIDO,retorno final
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+subcontractor,GET /tasks/<propia>,propio,job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+subcontractor,GET /tasks/<propia>,propio,job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+subcontractor,GET /tasks/<propia>,propio,job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+subcontractor,GET /tasks/<propia>,propio,job.podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /technician/<ajeno>,ajeno,permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.Notes,PROHIBIDO,notas internas
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+subcontractor,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+subcontractor,GET /technician/,todos,results[].permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+subcontractor,GET /technician/,todos,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+subcontractor,GET /technician/,todos,results[].subcontractor.Notes,PROHIBIDO,notas internas
+subcontractor,GET /technician/,todos,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /technician/,todos,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+subcontractor,GET /technician/,todos,results[].subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+subcontractor,GET /subcontractors/<propio>,propio,Gqm_compliance,PROHIBIDO,estado de cumplimiento
+subcontractor,GET /subcontractors/<propio>,propio,Notes,PROHIBIDO,notas internas
+subcontractor,GET /subcontractors/<propio>,propio,Score,PROHIBIDO,puntuación interna del subcontratista
+subcontractor,GET /subcontractors/<propio>,propio,certificates[].Notes,PROHIBIDO,notas internas
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Estimated_material,PROHIBIDO,material estimado
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Estimated_rent,PROHIBIDO,renta estimada
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+subcontractor,GET /subcontractors/<propio>,propio,jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /subcontractors/<propio>,propio,orders[].Notes,PROHIBIDO,notas internas
+subcontractor,GET /subcontractors/<propio>,propio,podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /subcontractors/<ajeno>,ajeno,Gqm_compliance,PROHIBIDO,estado de cumplimiento
+subcontractor,GET /subcontractors/<ajeno>,ajeno,Notes,PROHIBIDO,notas internas
+subcontractor,GET /subcontractors/<ajeno>,ajeno,Score,PROHIBIDO,puntuación interna del subcontratista
+subcontractor,GET /subcontractors/<ajeno>,ajeno,certificates[].Notes,PROHIBIDO,notas internas
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Estimated_material,PROHIBIDO,material estimado
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Estimated_rent,PROHIBIDO,renta estimada
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /subcontractors/<ajeno>,ajeno,orders[].Notes,PROHIBIDO,notas internas
+subcontractor,GET /subcontractors/<ajeno>,ajeno,podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+subcontractor,GET /subcontractors/<ajeno>,ajeno,jobs[].Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+subcontractor,GET /attachments/,todos,[].job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+subcontractor,GET /attachments/,todos,[].job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+subcontractor,GET /attachments/,todos,[].job.Estimated_material,PROHIBIDO,material estimado
+subcontractor,GET /attachments/,todos,[].job.Estimated_rent,PROHIBIDO,renta estimada
+subcontractor,GET /attachments/,todos,[].job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+subcontractor,GET /attachments/,todos,[].job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+subcontractor,GET /attachments/,todos,[].job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+subcontractor,GET /attachments/,todos,[].job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+subcontractor,GET /attachments/,todos,[].job.Gqm_final_target_return,PROHIBIDO,retorno final
+subcontractor,GET /attachments/,todos,[].job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+subcontractor,GET /attachments/,todos,[].job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+subcontractor,GET /attachments/,todos,[].job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+subcontractor,GET /attachments/,todos,[].job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+subcontractor,GET /attachments/,todos,[].job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+subcontractor,GET /attachments/,todos,[].job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+subcontractor,GET /attachments/,todos,[].job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+subcontractor,GET /attachments/,todos,[].job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+subcontractor,GET /attachments/,todos,[].job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+subcontractor,GET /attachments/,todos,[].job.podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /attachments/,todos,[].job.Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+subcontractor,GET /attachments/,todos,[].job.Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+subcontractor,GET /attachments/,todos,[].job.Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+subcontractor,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+subcontractor,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Notes,PROHIBIDO,notas internas
+subcontractor,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+subcontractor,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+subcontractor,GET /auth/me,propio,user_data.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+subcontractor,GET /auth/me,propio,user_data.Notes,PROHIBIDO,notas internas
+subcontractor,GET /auth/me,propio,user_data.Score,PROHIBIDO,puntuación interna del subcontratista
+subcontractor,GET /auth/me,propio,user_data.podio_item_id,PROHIBIDO,id interno de Podio
+technical,GET /tasks/<propia>,propio,job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+technical,GET /tasks/<propia>,propio,job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+technical,GET /tasks/<propia>,propio,job.Estimated_material,PROHIBIDO,material estimado
+technical,GET /tasks/<propia>,propio,job.Estimated_rent,PROHIBIDO,renta estimada
+technical,GET /tasks/<propia>,propio,job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+technical,GET /tasks/<propia>,propio,job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+technical,GET /tasks/<propia>,propio,job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+technical,GET /tasks/<propia>,propio,job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+technical,GET /tasks/<propia>,propio,job.Gqm_final_target_return,PROHIBIDO,retorno final
+technical,GET /tasks/<propia>,propio,job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+technical,GET /tasks/<propia>,propio,job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+technical,GET /tasks/<propia>,propio,job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+technical,GET /tasks/<propia>,propio,job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+technical,GET /tasks/<propia>,propio,job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+technical,GET /tasks/<propia>,propio,job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+technical,GET /tasks/<propia>,propio,job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+technical,GET /tasks/<propia>,propio,job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+technical,GET /tasks/<propia>,propio,job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+technical,GET /tasks/<propia>,propio,job.podio_item_id,PROHIBIDO,id interno de Podio
+technical,GET /technician/<ajeno>,ajeno,permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+technical,GET /technician/<ajeno>,ajeno,subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+technical,GET /technician/<ajeno>,ajeno,subcontractor.Notes,PROHIBIDO,notas internas
+technical,GET /technician/<ajeno>,ajeno,subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+technical,GET /technician/<ajeno>,ajeno,subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+technical,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+technical,GET /technician/,todos,results[].permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+technical,GET /technician/,todos,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+technical,GET /technician/,todos,results[].subcontractor.Notes,PROHIBIDO,notas internas
+technical,GET /technician/,todos,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+technical,GET /technician/,todos,results[].subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+technical,GET /technician/,todos,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+technical,GET /technician/,todos,results[].subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+technical,GET /attachments/,todos,[].job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+technical,GET /attachments/,todos,[].job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+technical,GET /attachments/,todos,[].job.Estimated_material,PROHIBIDO,material estimado
+technical,GET /attachments/,todos,[].job.Estimated_rent,PROHIBIDO,renta estimada
+technical,GET /attachments/,todos,[].job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+technical,GET /attachments/,todos,[].job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+technical,GET /attachments/,todos,[].job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+technical,GET /attachments/,todos,[].job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+technical,GET /attachments/,todos,[].job.Gqm_final_target_return,PROHIBIDO,retorno final
+technical,GET /attachments/,todos,[].job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+technical,GET /attachments/,todos,[].job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+technical,GET /attachments/,todos,[].job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+technical,GET /attachments/,todos,[].job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+technical,GET /attachments/,todos,[].job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+technical,GET /attachments/,todos,[].job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+technical,GET /attachments/,todos,[].job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+technical,GET /attachments/,todos,[].job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+technical,GET /attachments/,todos,[].job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+technical,GET /attachments/,todos,[].job.podio_item_id,PROHIBIDO,id interno de Podio
+technical,GET /attachments/,todos,[].job.Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+technical,GET /attachments/,todos,[].job.Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+technical,GET /attachments/,todos,[].job.Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+technical,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+technical,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Notes,PROHIBIDO,notas internas
+technical,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+technical,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /jobs/<propio>,propio,Acc_receivable,PROHIBIDO,cuentas por cobrar
+sub_B,GET /jobs/<propio>,propio,Bldg_dept_fees,PROHIBIDO,tasas del building dept
+sub_B,GET /jobs/<propio>,propio,Estimated_material,PROHIBIDO,material estimado
+sub_B,GET /jobs/<propio>,propio,Estimated_rent,PROHIBIDO,renta estimada
+sub_B,GET /jobs/<propio>,propio,Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+sub_B,GET /jobs/<propio>,propio,Gqm_final_percentage,PROHIBIDO,porcentaje final
+sub_B,GET /jobs/<propio>,propio,Gqm_final_prem_in_money,PROHIBIDO,prima final
+sub_B,GET /jobs/<propio>,propio,Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+sub_B,GET /jobs/<propio>,propio,Gqm_final_target_return,PROHIBIDO,retorno final
+sub_B,GET /jobs/<propio>,propio,Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+sub_B,GET /jobs/<propio>,propio,Gqm_paid_fees,PROHIBIDO,honorarios pagados
+sub_B,GET /jobs/<propio>,propio,Gqm_premium_in_money,PROHIBIDO,prima de GQM
+sub_B,GET /jobs/<propio>,propio,Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+sub_B,GET /jobs/<propio>,propio,Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+sub_B,GET /jobs/<propio>,propio,Gqm_total_change_orders,PROHIBIDO,total de change orders
+sub_B,GET /jobs/<propio>,propio,Gqm_total_materials_fees,PROHIBIDO,total de materiales
+sub_B,GET /jobs/<propio>,propio,Ptl_gc_fee,PROHIBIDO,fee del general contractor
+sub_B,GET /jobs/<propio>,propio,Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+sub_B,GET /jobs/<propio>,propio,client.podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /jobs/<propio>,propio,podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /jobs/<propio>,propio,subcontractors[].Gqm_compliance,PROHIBIDO,estado de cumplimiento
+sub_B,GET /jobs/<propio>,propio,subcontractors[].Notes,PROHIBIDO,notas internas
+sub_B,GET /jobs/<propio>,propio,subcontractors[].Score,PROHIBIDO,puntuación interna del subcontratista
+sub_B,GET /jobs/<propio>,propio,subcontractors[].orders[].Notes,PROHIBIDO,notas internas
+sub_B,GET /jobs/<propio>,propio,subcontractors[].podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /jobs/,propio,results[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+sub_B,GET /jobs/,propio,results[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+sub_B,GET /jobs/,propio,results[].Estimated_material,PROHIBIDO,material estimado
+sub_B,GET /jobs/,propio,results[].Estimated_rent,PROHIBIDO,renta estimada
+sub_B,GET /jobs/,propio,results[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+sub_B,GET /jobs/,propio,results[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+sub_B,GET /jobs/,propio,results[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+sub_B,GET /jobs/,propio,results[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+sub_B,GET /jobs/,propio,results[].Gqm_final_target_return,PROHIBIDO,retorno final
+sub_B,GET /jobs/,propio,results[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+sub_B,GET /jobs/,propio,results[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+sub_B,GET /jobs/,propio,results[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+sub_B,GET /jobs/,propio,results[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+sub_B,GET /jobs/,propio,results[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+sub_B,GET /jobs/,propio,results[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+sub_B,GET /jobs/,propio,results[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+sub_B,GET /jobs/,propio,results[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+sub_B,GET /jobs/,propio,results[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+sub_B,GET /jobs/,propio,results[].client.podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /jobs/,propio,results[].podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /jobs/,propio,results[].subcontractors[].Gqm_compliance,PROHIBIDO,estado de cumplimiento
+sub_B,GET /jobs/,propio,results[].subcontractors[].Notes,PROHIBIDO,notas internas
+sub_B,GET /jobs/,propio,results[].subcontractors[].Score,PROHIBIDO,puntuación interna del subcontratista
+sub_B,GET /jobs/,propio,results[].subcontractors[].orders[].Notes,PROHIBIDO,notas internas
+sub_B,GET /jobs/,propio,results[].subcontractors[].podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /tasks/<propia>,propio,job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+sub_B,GET /tasks/<propia>,propio,job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+sub_B,GET /tasks/<propia>,propio,job.Estimated_material,PROHIBIDO,material estimado
+sub_B,GET /tasks/<propia>,propio,job.Estimated_rent,PROHIBIDO,renta estimada
+sub_B,GET /tasks/<propia>,propio,job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+sub_B,GET /tasks/<propia>,propio,job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+sub_B,GET /tasks/<propia>,propio,job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+sub_B,GET /tasks/<propia>,propio,job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+sub_B,GET /tasks/<propia>,propio,job.Gqm_final_target_return,PROHIBIDO,retorno final
+sub_B,GET /tasks/<propia>,propio,job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+sub_B,GET /tasks/<propia>,propio,job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+sub_B,GET /tasks/<propia>,propio,job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+sub_B,GET /tasks/<propia>,propio,job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+sub_B,GET /tasks/<propia>,propio,job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+sub_B,GET /tasks/<propia>,propio,job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+sub_B,GET /tasks/<propia>,propio,job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+sub_B,GET /tasks/<propia>,propio,job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+sub_B,GET /tasks/<propia>,propio,job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+sub_B,GET /tasks/<propia>,propio,job.podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /technician/<ajeno>,ajeno,permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.Notes,PROHIBIDO,notas internas
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo A: 'A-NOTA-INTERNA-GQM'
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo A: 'A-PO-0001'
+sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo A: 'A-DIRECCION-CALLE-FALSA-123'
+sub_B,GET /technician/,todos,results[].permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+sub_B,GET /technician/,todos,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+sub_B,GET /technician/,todos,results[].subcontractor.Notes,PROHIBIDO,notas internas
+sub_B,GET /technician/,todos,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /technician/,todos,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo A: 'A-NOTA-INTERNA-GQM'
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo A: 'A-PO-0001'
+sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo A: 'A-DIRECCION-CALLE-FALSA-123'
+sub_B,GET /subcontractors/<propio>,propio,Gqm_compliance,PROHIBIDO,estado de cumplimiento
+sub_B,GET /subcontractors/<propio>,propio,Notes,PROHIBIDO,notas internas
+sub_B,GET /subcontractors/<propio>,propio,Score,PROHIBIDO,puntuación interna del subcontratista
+sub_B,GET /subcontractors/<propio>,propio,certificates[].Notes,PROHIBIDO,notas internas
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Estimated_material,PROHIBIDO,material estimado
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Estimated_rent,PROHIBIDO,renta estimada
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+sub_B,GET /subcontractors/<propio>,propio,jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+sub_B,GET /subcontractors/<propio>,propio,jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /subcontractors/<propio>,propio,orders[].Notes,PROHIBIDO,notas internas
+sub_B,GET /subcontractors/<propio>,propio,podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /subcontractors/<ajeno>,ajeno,Gqm_compliance,PROHIBIDO,estado de cumplimiento
+sub_B,GET /subcontractors/<ajeno>,ajeno,Notes,PROHIBIDO,notas internas
+sub_B,GET /subcontractors/<ajeno>,ajeno,Score,PROHIBIDO,puntuación interna del subcontratista
+sub_B,GET /subcontractors/<ajeno>,ajeno,certificates[].Notes,PROHIBIDO,notas internas
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Estimated_material,PROHIBIDO,material estimado
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Estimated_rent,PROHIBIDO,renta estimada
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /subcontractors/<ajeno>,ajeno,orders[].Notes,PROHIBIDO,notas internas
+sub_B,GET /subcontractors/<ajeno>,ajeno,podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Additional_detail,CENTINELA AJENO,dato del mundo A: 'A-NOTA-INTERNA-GQM'
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo A: 'A-PO-0001'
+sub_B,GET /subcontractors/<ajeno>,ajeno,jobs[].Project_location,CENTINELA AJENO,dato del mundo A: 'A-DIRECCION-CALLE-FALSA-123'
+sub_B,GET /attachments/,todos,[].job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+sub_B,GET /attachments/,todos,[].job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+sub_B,GET /attachments/,todos,[].job.Estimated_material,PROHIBIDO,material estimado
+sub_B,GET /attachments/,todos,[].job.Estimated_rent,PROHIBIDO,renta estimada
+sub_B,GET /attachments/,todos,[].job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+sub_B,GET /attachments/,todos,[].job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+sub_B,GET /attachments/,todos,[].job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+sub_B,GET /attachments/,todos,[].job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+sub_B,GET /attachments/,todos,[].job.Gqm_final_target_return,PROHIBIDO,retorno final
+sub_B,GET /attachments/,todos,[].job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+sub_B,GET /attachments/,todos,[].job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+sub_B,GET /attachments/,todos,[].job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+sub_B,GET /attachments/,todos,[].job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+sub_B,GET /attachments/,todos,[].job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+sub_B,GET /attachments/,todos,[].job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+sub_B,GET /attachments/,todos,[].job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+sub_B,GET /attachments/,todos,[].job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+sub_B,GET /attachments/,todos,[].job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+sub_B,GET /attachments/,todos,[].job.podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /attachments/,todos,[].job.Additional_detail,CENTINELA AJENO,dato del mundo A: 'A-NOTA-INTERNA-GQM'
+sub_B,GET /attachments/,todos,[].job.Po_wtn_wo,CENTINELA AJENO,dato del mundo A: 'A-PO-0001'
+sub_B,GET /attachments/,todos,[].job.Project_location,CENTINELA AJENO,dato del mundo A: 'A-DIRECCION-CALLE-FALSA-123'
+sub_B,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+sub_B,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Notes,PROHIBIDO,notas internas
+sub_B,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+sub_B,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+sub_B,GET /auth/me,propio,user_data.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+sub_B,GET /auth/me,propio,user_data.Notes,PROHIBIDO,notas internas
+sub_B,GET /auth/me,propio,user_data.Score,PROHIBIDO,puntuación interna del subcontratista
+sub_B,GET /auth/me,propio,user_data.podio_item_id,PROHIBIDO,id interno de Podio
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Estimated_material,PROHIBIDO,material estimado
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Estimated_rent,PROHIBIDO,renta estimada
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_final_target_return,PROHIBIDO,retorno final
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+tech_de_sub_B,GET /tasks/<propia>,propio,job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+tech_de_sub_B,GET /tasks/<propia>,propio,job.podio_item_id,PROHIBIDO,id interno de Podio
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.Notes,PROHIBIDO,notas internas
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo A: 'A-NOTA-INTERNA-GQM'
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo A: 'A-PO-0001'
+tech_de_sub_B,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo A: 'A-DIRECCION-CALLE-FALSA-123'
+tech_de_sub_B,GET /technician/,todos,results[].permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.Notes,PROHIBIDO,notas internas
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo A: 'A-NOTA-INTERNA-GQM'
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo A: 'A-PO-0001'
+tech_de_sub_B,GET /technician/,todos,results[].subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo A: 'A-DIRECCION-CALLE-FALSA-123'
+tech_de_sub_B,GET /attachments/,todos,[].job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+tech_de_sub_B,GET /attachments/,todos,[].job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+tech_de_sub_B,GET /attachments/,todos,[].job.Estimated_material,PROHIBIDO,material estimado
+tech_de_sub_B,GET /attachments/,todos,[].job.Estimated_rent,PROHIBIDO,renta estimada
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_final_target_return,PROHIBIDO,retorno final
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+tech_de_sub_B,GET /attachments/,todos,[].job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+tech_de_sub_B,GET /attachments/,todos,[].job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+tech_de_sub_B,GET /attachments/,todos,[].job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+tech_de_sub_B,GET /attachments/,todos,[].job.podio_item_id,PROHIBIDO,id interno de Podio
+tech_de_sub_B,GET /attachments/,todos,[].job.Additional_detail,CENTINELA AJENO,dato del mundo A: 'A-NOTA-INTERNA-GQM'
+tech_de_sub_B,GET /attachments/,todos,[].job.Po_wtn_wo,CENTINELA AJENO,dato del mundo A: 'A-PO-0001'
+tech_de_sub_B,GET /attachments/,todos,[].job.Project_location,CENTINELA AJENO,dato del mundo A: 'A-DIRECCION-CALLE-FALSA-123'
+tech_de_sub_B,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+tech_de_sub_B,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Notes,PROHIBIDO,notas internas
+tech_de_sub_B,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+tech_de_sub_B,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+tech_independiente,GET /technician/<ajeno>,ajeno,permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.Notes,PROHIBIDO,notas internas
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+tech_independiente,GET /technician/<ajeno>,ajeno,subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+tech_independiente,GET /technician/,todos,results[].permissions[].Document,PROHIBIDO,DOCUMENTO DE POLÍTICA IAM
+tech_independiente,GET /technician/,todos,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+tech_independiente,GET /technician/,todos,results[].subcontractor.Notes,PROHIBIDO,notas internas
+tech_independiente,GET /technician/,todos,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Acc_receivable,PROHIBIDO,cuentas por cobrar
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Bldg_dept_fees,PROHIBIDO,tasas del building dept
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_material,PROHIBIDO,material estimado
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Estimated_rent,PROHIBIDO,renta estimada
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_percentage,PROHIBIDO,porcentaje final
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_prem_in_money,PROHIBIDO,prima final
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_final_target_return,PROHIBIDO,retorno final
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_paid_fees,PROHIBIDO,honorarios pagados
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_premium_in_money,PROHIBIDO,prima de GQM
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_change_orders,PROHIBIDO,total de change orders
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Gqm_total_materials_fees,PROHIBIDO,total de materiales
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Ptl_gc_fee,PROHIBIDO,fee del general contractor
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].podio_item_id,PROHIBIDO,id interno de Podio
+tech_independiente,GET /technician/,todos,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+tech_independiente,GET /technician/,todos,results[].subcontractor.jobs[].Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+tech_independiente,GET /attachments/,todos,[].job.Acc_receivable,PROHIBIDO,cuentas por cobrar
+tech_independiente,GET /attachments/,todos,[].job.Bldg_dept_fees,PROHIBIDO,tasas del building dept
+tech_independiente,GET /attachments/,todos,[].job.Estimated_material,PROHIBIDO,material estimado
+tech_independiente,GET /attachments/,todos,[].job.Estimated_rent,PROHIBIDO,renta estimada
+tech_independiente,GET /attachments/,todos,[].job.Gqm_adj_formula_pricing,PROHIBIDO,margen ajustado de GQM
+tech_independiente,GET /attachments/,todos,[].job.Gqm_final_percentage,PROHIBIDO,porcentaje final
+tech_independiente,GET /attachments/,todos,[].job.Gqm_final_prem_in_money,PROHIBIDO,prima final
+tech_independiente,GET /attachments/,todos,[].job.Gqm_final_sold_pricing,PROHIBIDO,precio final de venta
+tech_independiente,GET /attachments/,todos,[].job.Gqm_final_target_return,PROHIBIDO,retorno final
+tech_independiente,GET /attachments/,todos,[].job.Gqm_formula_pricing,PROHIBIDO,margen: fórmula de precio de GQM
+tech_independiente,GET /attachments/,todos,[].job.Gqm_paid_fees,PROHIBIDO,honorarios pagados
+tech_independiente,GET /attachments/,todos,[].job.Gqm_premium_in_money,PROHIBIDO,prima de GQM
+tech_independiente,GET /attachments/,todos,[].job.Gqm_target_return,PROHIBIDO,retorno objetivo de GQM
+tech_independiente,GET /attachments/,todos,[].job.Gqm_target_sold_pricing,PROHIBIDO,precio objetivo de venta
+tech_independiente,GET /attachments/,todos,[].job.Gqm_total_change_orders,PROHIBIDO,total de change orders
+tech_independiente,GET /attachments/,todos,[].job.Gqm_total_materials_fees,PROHIBIDO,total de materiales
+tech_independiente,GET /attachments/,todos,[].job.Ptl_gc_fee,PROHIBIDO,fee del general contractor
+tech_independiente,GET /attachments/,todos,[].job.Tech_formula_pricing,PROHIBIDO,fórmula de precio del técnico
+tech_independiente,GET /attachments/,todos,[].job.podio_item_id,PROHIBIDO,id interno de Podio
+tech_independiente,GET /attachments/,todos,[].job.Additional_detail,CENTINELA AJENO,dato del mundo B: 'B-NOTA-INTERNA-GQM'
+tech_independiente,GET /attachments/,todos,[].job.Po_wtn_wo,CENTINELA AJENO,dato del mundo B: 'B-PO-0001'
+tech_independiente,GET /attachments/,todos,[].job.Project_location,CENTINELA AJENO,dato del mundo B: 'B-DIRECCION-CALLE-FALSA-123'
+tech_independiente,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Gqm_compliance,PROHIBIDO,estado de cumplimiento
+tech_independiente,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Notes,PROHIBIDO,notas internas
+tech_independiente,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.Score,PROHIBIDO,puntuación interna del subcontratista
+tech_independiente,GET /tlactivity/job/<ajeno>,ajeno,results[].subcontractor.podio_item_id,PROHIBIDO,id interno de Podio

@@ -24,6 +24,7 @@ PUBLIC_PREFIXES = [
     "/auth/login", "/auth/refresh", "/auth/forgot-password", "/auth/reset-password",
     "/webhook/podio/jobs", "/webhook/podio/others", "/webhook/qbo", "/callback",
     "/admin/podio/reconciliar_cron", "/qbo/refresh_tokens_cron",
+    "/webhook/podio/dead_letter_cron",
 ]
 
 VERB_ACTION = {"GET": "read", "HEAD": "read", "DELETE": "delete", "POST": "create"}

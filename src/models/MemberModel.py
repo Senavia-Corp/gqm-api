@@ -1,6 +1,9 @@
 
 # ==================================== Modelos para PostgreSQL ====================================#
 
+from pydantic import field_validator
+
+from src.utils.validacion_correo import validar_formato_correo
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List
 from .link_models.JobMember import JobMemberLink
@@ -23,6 +26,13 @@ class MemberBase(SQLModel):
     podio_item_id: Optional[str] = Field(
         default=None, index=True)
 
+
+    # El formato del correo, que es el nombre de usuario de acceso.
+    # Va en la Base para que lo hereden los esquemas Create/Update, que
+    # es por donde entran las escrituras HTTP. El modelo de tabla
+    # (`table=True`) NO ejecuta validadores, asi que los datos que ya
+    # estan en la BD se siguen leyendo sin problema.
+    _validar_correo = field_validator('Email_Address')(validar_formato_correo)
 
 class Member(MemberBase, table=True):
     __tablename__ = "member"
