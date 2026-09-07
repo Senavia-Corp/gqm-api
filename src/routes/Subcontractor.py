@@ -171,7 +171,25 @@ def list_subcontractors_table():
             stmt = stmt.where(Subcontractor.ID_Subcontractor.not_in(linked_subquery))
 
         # ── Total ──────────────────────────────────────────────────────────
-        count_stmt = select(func.count(Subcontractor.ID_Subcontractor.distinct())).select_from(stmt.subquery())
+        # El COUNT se hace SOBRE LA SUBCONSULTA, no sobre la tabla base.
+        #
+        # Estaba escrito como
+        #     select(func.count(Subcontractor.ID_Subcontractor.distinct()))
+        #         .select_from(stmt.subquery())
+        # y eso genera `count(DISTINCT subcontractor."ID_Subcontractor")
+        # FROM (subconsulta) , subcontractor` — un producto cartesiano con la
+        # tabla base. El resultado: el `total` ignoraba TODOS los filtros.
+        #
+        # Con el recorte de portal recien puesto quedaba a la vista: un
+        # subcontratista recibia sus propias filas (ids=['SUBC60001']) y
+        # `total: 2`, es decir el CENSO GLOBAL de subcontratistas de GQM. Un
+        # numero es poca cosa hasta que es el numero de contratistas de tu
+        # competencia. Tambien falseaba la paginacion para el staff con
+        # cualquier filtro (`?status=`, `?q=`).
+        subconsulta = stmt.subquery()
+        count_stmt = select(
+            func.count(func.distinct(subconsulta.c.ID_Subcontractor))
+        ).select_from(subconsulta)
         total = session.exec(count_stmt).one()
 
         # ── Paginación SQL ─────────────────────────────────────────────────

@@ -119,6 +119,20 @@ def acotar_job_para_portal(job_dict: dict) -> dict:
 
     rol, uid = usuario.get("role"), usuario.get("id")
 
+    # Los campos financieros del PROPIO diccionario del job.
+    #
+    # `add_relationships` los redacta cuando el job viaja como relacion
+    # ANIDADA, pero varias rutas serializan el job de primer nivel por otro
+    # camino: `/jobs/jobs_table` usa `load_only(... Gqm_formula_pricing ...)` y
+    # pasa por `serialize_job`, que para un sub con `job:read` devolvia el dict
+    # intacto. Medido: el sub recibia Gqm_formula_pricing y Gqm_target_return
+    # en jobs_table con la redaccion central ya puesta.
+    #
+    # Aqui es donde tiene que estar, porque `serialize_job` es el punto por el
+    # que pasan las once rutas de /jobs, anidadas o no.
+    for campo in CAMPOS_FINANCIEROS_JOB | CAMPOS_PODIO:
+        job_dict.pop(campo, None)
+
     for relacion in RELACIONES_VETADAS_A_PORTAL:
         job_dict.pop(relacion, None)
 

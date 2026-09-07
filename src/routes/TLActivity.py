@@ -383,9 +383,33 @@ def get_tlactivities_by_subcontractor(id_subcontractor):
                 .order_by(TLActivity.Action_datetime.desc())
             )
 
+            # La rama del TECNICO estaba solo en el comentario: el codigo caia
+            # aqui sin acotar y devolvia el timeline de CUALQUIER subcontratista.
+            # Medido por la matriz: `technical` y `tech_de_sub_B` recibian 200
+            # con las filas del sub del otro mundo.
+            #
+            # Se aplica de verdad lo que el comentario prometia: solo filas de
+            # jobs que el tecnico ya alcanza. Las filas SIN job quedan fuera,
+            # porque serian del sub y no suyas.
+            # Un tecnico solo pregunta por el timeline de SU PROPIO
+            # subcontratista.
+            #
+            # Acotar por «jobs que alcanza» no basta: en una obra COMPARTIDA el
+            # tecnico llega al job, y con el llegaban las filas de auditoria del
+            # OTRO contratista. Medido: `technical` recibia 6 filas de SUBC60002
+            # y `tech_de_sub_B` 10 de SUBC60001. La FK sale del volcado porque
+            # `add_relationships` la quita al expandir la relacion, asi que en
+            # la respuesta parecian filas «sin job» y costaba verlas.
+            #
+            # Ambiguedad 5 ratificada: nada de otros subs. Y un tecnico
+            # independiente, que no cuelga de ninguno, no pregunta por ninguno.
             if rol_portal == "technician":
-                statement = statement.where(
-                    TLActivity.ID_Jobs.in_(_mis_jobs()))
+                from src.models.TechnicianModel import Technician
+                mi_sub = session.exec(
+                    select(Technician.ID_Subcontractor).where(
+                        Technician.ID_Technician == portal_scope()[1])).first()
+                if not mi_sub or mi_sub != id_subcontractor:
+                    return jsonify({"error": "TLActivity not found"}), 404
 
             results = session.exec(statement).unique().all()
 

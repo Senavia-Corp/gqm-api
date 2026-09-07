@@ -123,6 +123,7 @@ def centinelas(nodo, dueno_ajeno):
 def main():
     T = tokens()
     filas = []
+    analizadas, saltadas = [], []
     SONDAS = [
         ("GET /jobs/<propio>",             "/jobs/{job}",                      "propio"),
         ("GET /jobs/",                     "/jobs/?limit=100",                 "propio"),
@@ -147,7 +148,14 @@ def main():
             mundo = ajeno if quien == "ajeno" else propio
             st, pl = call(T[suj], "GET", plantilla.format(**mundo))
             if st != 200:
+                # Un 404 sobre lo ajeno es el arreglo funcionando: no hay cuerpo
+                # que analizar. Pero se CUENTA y se informa: decir «0 fugas» sin
+                # decir cuantas sondas se examinaron hace que el 0 parezca mas
+                # fuerte de lo que es, y ese es justo el tope silencioso que
+                # esta auditoria se prohibio a si misma.
+                saltadas.append(f"{suj}·{etiqueta}·{quien}={st}")
                 continue
+            analizadas.append(f"{suj}·{etiqueta}")
             claves = set(rutas(pl))
             prohib = sorted({c for c in claves
                              if c.split(".")[-1].replace("[]", "") in PROHIBIDOS})
@@ -169,6 +177,11 @@ def main():
                                                "veredicto", "detalle"])
             w.writeheader(); w.writerows(filas)
     from collections import Counter
+    print(f"COBERTURA: {len(analizadas)} sondas analizadas · {len(saltadas)} saltadas "
+          f"(no devolvieron 200, casi siempre porque el scoping las corta)")
+    if saltadas:
+        print("  saltadas: " + ", ".join(saltadas[:8])
+              + (f" … y {len(saltadas)-8} mas" if len(saltadas) > 8 else ""))
     print(f"filas de fuga: {len(filas)}")
     print("\nPor endpoint y veredicto:")
     for (ep, v), n in Counter((f["endpoint"], f["veredicto"]) for f in filas).most_common():
@@ -178,7 +191,8 @@ def main():
         print(f"  {n:3d}× {c}")
     if destino:
         print(f"\nCSV → {destino}")
+    return 1 if filas else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

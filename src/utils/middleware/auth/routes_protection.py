@@ -371,13 +371,24 @@ def scope_tasks_statement(statement):
     from src.models.TasksModel import Tasks
     from src.models.link_models.JobSubcontractor import JobSubcontractorLink
 
+    from sqlalchemy import and_ as sa_and
+
     if role == "technician":
         return statement.where(Tasks.ID_Technician == uid)
+
+    # El listado dice EXACTAMENTE lo mismo que `task_belongs_to_portal_user`:
+    # las tuyas por dueno explicito, mas las de tus jobs QUE NO TENGAN DUENO.
+    # Sin la segunda condicion, en una obra compartida el listado del sub A
+    # incluia las tareas del sub B — y una divergencia entre el listado y la
+    # comprobacion por id es justo el hueco por el que se cuelan los IDOR.
     return statement.where(sa_or(
         Tasks.ID_Subcontractor == uid,
-        Tasks.ID_Jobs.in_(
-            sq_select(JobSubcontractorLink.job_id).where(
-                JobSubcontractorLink.subcontr_id == uid)),
+        sa_and(
+            Tasks.ID_Subcontractor.is_(None),
+            Tasks.ID_Jobs.in_(
+                sq_select(JobSubcontractorLink.job_id).where(
+                    JobSubcontractorLink.subcontr_id == uid)),
+        ),
     ))
 
 
@@ -410,8 +421,26 @@ def task_belongs_to_portal_user(session, task) -> bool:
 
     if role == "technician":
         return task.ID_Technician == uid
-    if getattr(task, "ID_Subcontractor", None) == uid:
+
+    dueno = getattr(task, "ID_Subcontractor", None)
+    if dueno == uid:
         return True
+
+    # Una tarea con dueno EXPLICITO que no eres tu no es tuya, aunque cuelgue de
+    # un job que compartis.
+    #
+    # Antes bastaba con que la tarea estuviera en uno de tus jobs. En una obra
+    # COMPARTIDA entre dos subcontratistas eso significaba que el sub A leia la
+    # tarea del sub B —con el correo de su tecnico dentro— y ademas la
+    # REESCRIBIA: medido, `PATCH /tasks/<tarea de B>` devolvia 200 y la fila
+    # quedaba con el estado que puso A. Decision ratificada (ambiguedad 5): un
+    # sub no ve NADA de otro sub.
+    #
+    # Las tareas SIN dueno de tus jobs siguen siendo tuyas: es el caso legitimo
+    # de la tarea que el admin deja sin asignar para que la recoja quien pueda.
+    if dueno is not None:
+        return False
+
     if not task.ID_Jobs:
         return False
     return session.exec(sq_select(JobSubcontractorLink).where(

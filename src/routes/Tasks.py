@@ -10,6 +10,7 @@ from ..models.SubcontractorModel import Subcontractor
 from ..utils.id_generator import generate_custom_id
 from sqlalchemy.orm import joinedload
 from ..utils.relationships import add_relationships
+from ..utils.portal_redaction import acotar_job_para_portal, llamante_es_portal
 from ..utils.pagination import paginate
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
@@ -145,8 +146,22 @@ def get_weekly_tasks():
                 # T-06: sin esto el panel no puede mostrar de quién es la tarea
                 # aunque ya sepa filtrarla por técnico.
                 "ID_Technician":     t.ID_Technician,
-                "job":               t.job.model_dump() if t.job else None,
-                "member":            t.member.model_dump() if t.member else None,
+                # Este handler arma el diccionario A MANO, asi que NO pasa por
+                # `add_relationships` y la redaccion central no lo alcanzaba:
+                # medido, /tasks/weekly entregaba al subcontratista el bloque
+                # financiero entero del job (Gqm_formula_pricing,
+                # Gqm_target_return, Acc_receivable, Gqm_final_sold_pricing).
+                # `acotar_job_para_portal` es no-op para el staff.
+                "job":               acotar_job_para_portal(
+                                        t.job.model_dump(mode="json")) if t.job else None,
+                # El `member` es personal interno de GQM, con su correo. Un rol
+                # de portal no tiene por que recibir su ficha: solo su nombre.
+                "member":            (
+                    {"ID_Member": t.member.ID_Member,
+                     "Member_Name": t.member.Member_Name}
+                    if llamante_es_portal()
+                    else t.member.model_dump()
+                ) if t.member else None,
                 "subcontractor":     {
                     "ID_Subcontractor": t.subcontractor.ID_Subcontractor,
                     "Name":             t.subcontractor.Name,
@@ -207,6 +222,12 @@ def create_tasks():
         **create_tasks.model_dump(exclude_unset=False, exclude_none=False))
 
     with get_session() as session:
+        # Un rol de portal no cuelga tareas del tablero de un empleado de GQM.
+        # `task_belongs_to_portal_user` mira job y subcontratista, no ID_Member.
+        if llamante_es_portal() and obj.ID_Member:
+            raise AppException(
+                "Forbidden: no puedes asignar la tarea a un miembro de GQM.",
+                "forbidden", 403)
         # Portal: un sub solo crea tareas dentro de lo suyo (IDOR de cobertura B7)
         if not task_belongs_to_portal_user(session, obj):
             raise AppException(
@@ -260,6 +281,31 @@ def update_tasks(task_id):
 
         update_data = TasksUpdate.model_validate(
             data).model_dump(exclude_unset=True)
+
+        # Campos de VINCULO que un rol de portal no puede tocar. Se rechaza
+        # ANTES de mutar el objeto, no despues: las guardas de abajo miran el
+        # estado ya mutado y dos de ellas no ven este caso.
+        #
+        #  · ID_Jobs = None  es un BORRADO LOGICO. Medido: un tecnico anulaba
+        #    el job de su tarea, devolvia 200, y la tarea desaparecia del portal
+        #    de su subcontratista y del listado de todos — sin borrar la fila y
+        #    sin pasar por DELETE, que R5 le prohibe. La guarda existente
+        #    (`job_belongs_to_portal_user`) lo dejaba pasar porque devuelve True
+        #    para un job_id vacio.
+        #  · ID_Subcontractor  reasigna la PROPIEDAD de la tarea a otro
+        #    contratista. Medido: A podia inyectar filas en el ambito de B.
+        #  · ID_Member  cuelga la tarea del tablero de un empleado de GQM.
+        if llamante_es_portal():
+            if "ID_Jobs" in update_data and not update_data["ID_Jobs"]:
+                raise AppException(
+                    "Forbidden: no puedes desvincular la tarea de su job.",
+                    "forbidden", 403)
+            for campo in ("ID_Subcontractor", "ID_Member"):
+                if campo in update_data and update_data[campo] != getattr(obj, campo):
+                    raise AppException(
+                        f"Forbidden: no puedes modificar {campo}.",
+                        "forbidden", 403)
+
         for key, value in update_data.items():
             setattr(obj, key, value)
         # Re-chequeo POST-update: sin esto un rol de portal podía REASIGNAR

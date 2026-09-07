@@ -89,6 +89,7 @@ def get_tech_by_id(id_technician):
                     Subcontractor.jobs),
                 joinedload(Technician.tasks),
                 joinedload(Technician.attachments),
+                joinedload(Technician.permissions),
             )
             .where(Technician.ID_Technician == id_technician)
         )
@@ -105,12 +106,21 @@ def get_tech_by_id(id_technician):
         if not obj or not portal_owns_technician(session, id_technician):
             raise AppException("Technician not found", "not_found", 404)
 
-        # Construir JSON limpio con la info del cliente
-        # F-01: `permissions` sale de la expansión. El documento de política IAM
-        # es el mapa de lo que un usuario puede hacer; nadie de portal necesita
-        # el de otro y en esta ruta tampoco le aporta nada al staff.
+        # `permissions` SE MANTIENE en la expansión.
+        #
+        # Se quitó en el primer arreglo de F-01 y fue un error: es la fuente de
+        # la pestaña Permissions del detalle de técnico del panel de
+        # administración. Sin el campo, el contador queda a 0, la lista de chips
+        # no se pinta, y con ella desaparece el ÚNICO botón del panel que revoca
+        # un permiso a un técnico (DELETE /technician/<id>/permissions/<permId>).
+        # Se rompió una pantalla del admin para cerrar algo que ya estaba
+        # cerrado: la redacción central de portal_redaction.py borra `Document`
+        # —la política en sí— para los roles de portal y se la deja entera al
+        # staff. Verificado: el sub recibe {ID_Permission, Name, Description,
+        # Active} sin `Document`; el full_admin lo recibe completo.
         technician_data = add_relationships(
-            obj, ["subcontractor", "subcontractor.jobs", "tasks", "attachments"])
+            obj, ["subcontractor", "subcontractor.jobs", "tasks", "attachments",
+                  "permissions"])
 
         return jsonify(technician_data), 200
 

@@ -25,11 +25,15 @@ if $PY scripts/audit_portal_matrix.py --csv /tmp/verif_matriz.csv >/dev/null 2>&
 else mal "quedan filas no conformes (ver /tmp/verif_matriz.csv)"; fi
 
 titulo "3 · Fuga de datos a nivel de campo"
-$PY scripts/audit_field_leaks.py --csv /tmp/verif_fugas.csv >/dev/null 2>&1
-N=$(tail -n +2 /tmp/verif_fugas.csv 2>/dev/null | wc -l)
-echo "  filas de fuga: $N"
-if [ "$N" -eq 0 ]; then ok "ningun campo vetado alcanza a un rol de portal"
-else mal "$N filas de fuga (ver /tmp/verif_fugas.csv)"; fi
+# Se mira el CODIGO DE SALIDA, no solo el CSV: si el escaner se cae a mitad, el
+# CSV queda corto o vacio y contar sus lineas daria un verde falso. Y se imprime
+# su linea de COBERTURA, para que «0 fugas» venga siempre con cuantas sondas se
+# examinaron de verdad.
+SAL3=$($PY scripts/audit_field_leaks.py --csv /tmp/verif_fugas.csv 2>&1)
+RC3=$?
+echo "$SAL3" | grep -E '^(COBERTURA|  saltadas|filas de fuga)' | sed 's/^/  /'
+if [ "$RC3" -eq 0 ]; then ok "ningun campo vetado alcanza a un rol de portal"
+else mal "el escaner de fugas termino en $RC3 (ver /tmp/verif_fugas.csv)"; fi
 
 titulo "4 · Tests RBAC (no debe haber regresion)"
 if $PY -m pytest -q tests/integration/test_rbac_matrix.py \

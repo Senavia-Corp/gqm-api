@@ -244,6 +244,64 @@ def main():
         r = s.get(Subcontractor, A["sub"]); r.Gqm_compliance = None; r.Score = None
         s.add(r); s.commit()
 
+    # ── Bloque 4: las sondas que a esta matriz se le escapaban ──────────────
+    #
+    # La revision adversarial encontro siete fugas reales que la matriz daba por
+    # buenas, todas por la misma razon: solo miraba rutas «objeto por id» y no
+    # los listados agregados, ni el contenido financiero, ni las escrituras de
+    # campos de vinculo. Cada una de estas sondas nacio de un fallo REAL medido.
+    import json as _json
+    FINANCIEROS = ("Gqm_formula_pricing", "Gqm_target_return", "Acc_receivable",
+                   "Gqm_final_sold_pricing", "Gqm_target_sold_pricing")
+
+    for suj in PORTAL:
+        for etiqueta, ruta in (("GET /jobs/jobs_table", "/jobs/jobs_table?limit=100"),
+                               ("GET /tasks/weekly", "/tasks/weekly"),
+                               ("GET /jobs/", "/jobs/?limit=100")):
+            st, pl = call(T[suj], "GET", ruta)
+            filtrados = [f for f in FINANCIEROS if f in _json.dumps(pl)] if st == 200 else []
+            FILAS.append({"sujeto": suj, "endpoint": etiqueta, "objeto": "bloque financiero",
+                          "real": st, "esperado": "sin campos financieros",
+                          "conforme": "NO" if filtrados else "SÍ",
+                          "nota": f"filtra {filtrados}" if filtrados else "sin margen de GQM"})
+
+    # El `total` de un listado no debe delatar el censo global.
+    for suj in ("subcontractor", "sub_B"):
+        st, pl = call(T[suj], "GET", "/subcontractors/subcontractors_table?limit=10")
+        total = pl.get("total") if isinstance(pl, dict) else None
+        FILAS.append({"sujeto": suj, "endpoint": "GET /subcontractors_table (total)",
+                      "objeto": "censo", "real": total, "esperado": "1",
+                      "conforme": "SÍ" if total == 1 else "NO",
+                      "nota": f"total={total}; hay 2 subs en el sistema"})
+
+    # Obra COMPARTIDA: la tarea del otro contratista no es tuya, ni para leer
+    # ni para escribir, aunque el job si lo sea.
+    TAREA_DE_B = "TSK60032"
+    st, _ = call(T["subcontractor"], "GET", f"/tasks/{TAREA_DE_B}")
+    registra("subcontractor", "GET /tasks/<tarea de otro sub, obra compartida>",
+             "ajeno", st, "404")
+    st, _ = call(T["subcontractor"], "PATCH", f"/tasks/{TAREA_DE_B}",
+                 {"Task_status": "Completed"})
+    fila = fila_bd(Tasks, TAREA_DE_B)
+    registra("subcontractor", "PATCH /tasks/<tarea de otro sub>", "ajeno", st, "403|404",
+             f"BD Task_status={getattr(fila, 'Task_status', None)!r}")
+
+    # Borrado LOGICO: desvincular una tarea la hace desaparecer del portal de
+    # todos sin pasar por DELETE, que R5 prohibe al portal.
+    for suj, tarea in (("technical", "TSK60001"), ("subcontractor", "TSK60002")):
+        st, _ = call(T[suj], "PATCH", f"/tasks/{tarea}", {"ID_Jobs": None})
+        fila = fila_bd(Tasks, tarea)
+        registra(suj, "PATCH /tasks/ ID_Jobs=None (borrado logico, R5)", "propio",
+                 st, "403", f"BD ID_Jobs={getattr(fila, 'ID_Jobs', None)!r}")
+
+    # Reasignar la PROPIEDAD de una tarea a otro contratista, o colgarla del
+    # tablero de un empleado de GQM.
+    for campo, valor in (("ID_Subcontractor", "SUBC60002"), ("ID_Member", "MEM60001")):
+        st, _ = call(T["subcontractor"], "PATCH", "/tasks/TSK60002", {campo: valor})
+        fila = fila_bd(Tasks, "TSK60002")
+        registra("subcontractor", f"PATCH /tasks/ {campo}", "ajeno", st, "403",
+                 f"BD {campo}={getattr(fila, campo, None)!r}")
+
     # ── Limpieza: no dejar atrás lo que creó la propia matriz ───────────────
     from sqlmodel import select
     with get_session() as ses:
