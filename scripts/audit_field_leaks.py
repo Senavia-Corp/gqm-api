@@ -170,6 +170,35 @@ def main():
                               "clave": c.split(" = ")[0], "veredicto": "CENTINELA AJENO",
                               "detalle": f"dato del mundo {letra_ajena}: {c.split(' = ',1)[1]}"})
 
+    # ── El contacto del cliente ─────────────────────────────────────────────
+    #
+    # El docstring de este escaner prometia vigilar «contacto del cliente» y la
+    # lista PROHIBIDOS no tenia NI UN campo de contacto: anunciaba una vigilancia
+    # que no hacia. La proteccion existe —la lista blanca CLIENTE_VISIBLE_A_PORTAL
+    # de portal_redaction— pero nadie la comprobaba, asi que quitarla no habria
+    # puesto rojo nada.
+    #
+    # No se hace por nombre de campo, porque el correo del PROPIO subcontratista
+    # en su ficha es legitimo. Se hace comparando las claves del objeto `client`
+    # contra la lista blanca: cualquier clave de mas es una fuga.
+    from src.utils.portal_redaction import CLIENTE_VISIBLE_A_PORTAL
+    for suj in ("subcontractor", "technical", "sub_B"):
+        propio = MUNDO[suj]
+        st, pl = call(T[suj], "GET", f"/jobs/{propio['job']}")
+        if st != 200 or not isinstance(pl, dict):
+            continue
+        cliente = pl.get("client")
+        if not isinstance(cliente, dict):
+            analizadas.append(f"{suj}·client(ausente)")
+            continue
+        de_mas = sorted(set(cliente) - set(CLIENTE_VISIBLE_A_PORTAL))
+        analizadas.append(f"{suj}·client")
+        for clave in de_mas:
+            filas.append({"sujeto": suj, "endpoint": "GET /jobs/<propio> · client",
+                          "objeto": "propio", "clave": f"client.{clave}",
+                          "veredicto": "PROHIBIDO",
+                          "detalle": "clave del cliente fuera de la lista blanca"})
+
     destino = sys.argv[sys.argv.index("--csv") + 1] if "--csv" in sys.argv else None
     if destino:
         with open(destino, "w", newline="") as fh:
