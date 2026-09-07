@@ -27,6 +27,18 @@ hallazgos de la auditoría eran *críticos latentes*: se arman el día del alta.
 07:00/07:20/07:40 UTC, refresco de tokens QBO los lunes a las 06:00, y la dead-letter a las
 08:00. La ventana de despliegue debe evitarlos.
 
+**Comprobar las variables de entorno del despliegue ANTES del paso 2.** La ronda 2 encontró
+que `jwt_handler` congelaba `LOGIN_SECRET_KEY` y `REFRESH_SECRET_KEY` en el import (O-07).
+Ya está arreglado, y ahora la ausencia de cualquiera de las dos **lanza un error que las
+nombra** en lugar de un `TypeError` opaco de PyJWT o —peor— un 401 silencioso para todo el
+mundo. Antes de desplegar, verificar que ambas existen en el proyecto de Vercel del API:
+
+```bash
+vercel env ls production | grep -E 'LOGIN_SECRET_KEY|REFRESH_SECRET_KEY'
+```
+
+Si faltara alguna, el síntoma tras el despliegue sería que **nadie puede iniciar sesión**.
+
 ---
 
 ## 1. Orden de despliegue
@@ -131,6 +143,17 @@ DELETE con un rol que pudiera borrar de verdad.
 3. Puede crear una tarea y asignarla a un técnico suyo.
 4. Su técnico inicia sesión y **ve sus tareas**, no una pantalla de «Access Denied».
 5. Pedir por URL la ficha de otro subcontratista devuelve 404.
+6. Cambia su propia contraseña desde `/profile`: la pantalla enseña los cuatro requisitos
+   reales (10 caracteres, 3 de 4 clases, no común, no repetida) y una contraseña que no los
+   cumple **no llega a salir a la red** (O-06).
+7. Su técnico cambia el estado de una tarea desde el diálogo del tablero y el cambio se ve
+   al recargar (R4).
+8. Ninguna pantalla del portal ofrece un botón que acabe en 403 o en un rebote: ni «View
+   Job», ni «view»/«Delete» en la tarjeta de técnico, ni las pestañas Opportunities,
+   Certificates y Performance del panel del técnico (U-06 a U-09).
+9. Una acción que falle debe **mostrar un aviso en pantalla**. Hasta la ronda 2 los avisos
+   se escribían en una cola que nadie renderizaba (U-07): si algo falla en silencio, el
+   `<Toaster/>` de sonner no está montado.
 
 ---
 
@@ -143,7 +166,7 @@ convierten la aplicación en un producto de portal terminado.
 |---|---|
 | **Alta masiva** | No hay importación, ni invitación por correo, ni generación de credenciales. Armar 432 subcontratistas hoy es teclear 432 contraseñas a mano |
 | **Cambio obligatorio en el primer acceso (O-03)** | La contraseña que escribe el administrador es la definitiva hasta que el usuario decida cambiarla |
-| **Los dos vocabularios de rol (D6)** | El servidor usa la cookie `gqm_role`; casi todo el gating de UI lee `localStorage.user_data.role`, editable desde devtools, con un `LEAD_TECHNICIAN` que no existe en el backend. Mientras coexistan, cualquier guarda de UI escrita contra el vocabulario cliente es decorativa |
+| **Los dos vocabularios de rol (D6)** | El servidor usa la cookie `gqm_role`; parte del gating de UI aún lee `localStorage.user_data.role`, editable desde devtools, con un `LEAD_TECHNICIAN` que no existe en el backend. En la ronda 2 se pasaron a la cookie las guardas de `/profile`, `LeadTechnicianDashboard`, `CreateTaskDialog`, `TaskDetailsDialog` y `TechnicianCard`; el resto sigue pendiente. Mientras coexistan, cualquier guarda de UI escrita contra el vocabulario cliente es decorativa — aunque **ninguna de ellas es la que autoriza**: eso lo hace el API |
 | **`Resource` por objeto en `PolicyEvaluator`** | Está implementado y ningún sitio de llamada lo usa: todos pasan `"*"`. Por eso la autorización a nivel de objeto se hace a mano en cada handler y la cobertura es desigual. Es la causa raíz de la familia P-nn |
 | **`GET /podio/items/<app_type>`** | Ruta solo-JWT, sin comprobación de permiso, **no auditada**: devuelve 500 sin credenciales de Podio. Revisar con Podio configurado |
 | **Deuda de datos de producción** | No se pudo medir desde la sesión de auditoría. El SQL enumerativo está en `HANDOFF-ARREGLOS.md` |
