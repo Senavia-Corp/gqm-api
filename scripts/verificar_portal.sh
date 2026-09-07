@@ -83,7 +83,12 @@ else
   # /tmp/gqm-rbac-state y el teardown de una borra el estado de la otra, lo que
   # produce fallos de milisegundos que no son reales.
   ESTADO_RBAC=$(mktemp -d /tmp/gqm-rbac-state-XXXXXX)
-  if (cd "$PANEL_DIR" && RBAC_STATE_DIR="$ESTADO_RBAC" corepack pnpm test:rbac) \
+  # Las credenciales de los 7 roles salen de `scripts/entorno-rbac.sh` del
+  # panel, que las deriva de SEED_DEV_PASSWORD. Antes no estaban en ningun
+  # fichero —vivian en la sesion de quien lanzaba la suite a mano—, asi que
+  # este bloque no habria podido correr aunque existiera.
+  if (cd "$PANEL_DIR" && . scripts/entorno-rbac.sh \
+        && RBAC_STATE_DIR="$ESTADO_RBAC" corepack pnpm test:rbac) \
         >/tmp/verif_panel.log 2>&1; then
     ok "$(grep -E '[0-9]+ passed' /tmp/verif_panel.log | tail -1 | tr -d '\n')"
   else

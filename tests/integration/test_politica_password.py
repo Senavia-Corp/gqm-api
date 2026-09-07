@@ -195,14 +195,26 @@ def test_alta_de_subcontratista_rechaza_password_debil(client, admin_headers, pa
     resp = client.post("/subcontractors/", headers=admin_headers, json={
         "ID_Subcontractor": sid, "Name": "Política", "Email_Address": email,
         "Password": password})
-    assert resp.status_code == 400, (
-        f"«{password}» ({motivo}) entró con {resp.status_code}: "
-        f"{resp.get_data(as_text=True)[:200]}")
-    # Por correo: el servidor reescribe el id enviado (mismo motivo que arriba).
-    with get_session() as s:
-        fila = s.exec(select(Subcontractor).where(
-            Subcontractor.Email_Address == email)).first()
-    assert fila is None, f"400 devuelto pero la fila de {email} se escribió igual"
+    # Con limpieza en `finally`: si la validación se rompe, esta prueba ESCRIBE
+    # la fila, y como el índice único de `e9c1correo` no deja repetir el correo,
+    # la corrida siguiente fallaría con un 409 en vez de con el 400 que se está
+    # midiendo. Pasó al sabotear las dos puertas de Subcontractor.py: quedaron
+    # nueve subcontratistas basura en la base.
+    try:
+        assert resp.status_code == 400, (
+            f"«{password}» ({motivo}) entró con {resp.status_code}: "
+            f"{resp.get_data(as_text=True)[:200]}")
+        # Por correo: el servidor reescribe el id enviado (mismo motivo que arriba).
+        with get_session() as s:
+            fila = s.exec(select(Subcontractor).where(
+                Subcontractor.Email_Address == email)).first()
+        assert fila is None, f"400 devuelto pero la fila de {email} se escribió igual"
+    finally:
+        with get_session() as s:
+            for fila in s.exec(select(Subcontractor).where(
+                    Subcontractor.Email_Address == email)).all():
+                s.delete(fila)
+            s.commit()
 
 
 @pytest.fixture()

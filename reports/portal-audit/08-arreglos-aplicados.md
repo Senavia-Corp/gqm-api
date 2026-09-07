@@ -199,6 +199,109 @@ Ninguno se veía porque el primero impedía que el resto llegara a ejecutarse.
 Es el mismo patrón que U-01: quitas un callejón sin salida y aparece el
 siguiente.
 
+## Tercera revisión: las dos dimensiones que faltaban (15 hallazgos)
+
+`calidad-del-arnes` y `regresiones-y-huecos` no llegaron a reportar antes del
+reinicio del contenedor. Relanzadas, devolvieron **15 hallazgos, todos
+ejecutados**. Los verifiqué uno a uno antes de tocar nada; los 15 eran reales.
+
+### Cuatro sondas que no podían fallar
+
+| Sonda | Por qué estaba ciega |
+|---|---|
+| `test_reset_rejects_garbage_token` | Mandaba `"loquesea123"` —dos clases de carácter— y `validar_password` corría ANTES de comprobar la firma: el 400 lo devolvía la política. Con la verificación de firma saboteada, el fichero seguía dando `6 passed` |
+| `test_politica_password.py` | Cubría 4 de las **7** llamadas a `validar_password`. Faltaban las dos del subcontratista y el `PATCH` del member. Con las del sub a `pass`, `POST /subcontractors/` aceptaba `"1"` y `verificar_portal.sh` imprimía **VERDE** |
+| `verificar_portal.sh` | No ejecutaba `test_espejo_password.py` —la única prueba que ve el sabotaje de la lista de prohibidas— ni **una sola** prueba del panel: `grep -cE "playwright\|pnpm\|npx"` daba 0, con la mitad de los 24 hallazgos viviendo ahí |
+| `password_policy.spec.ts` | La política se cableó en 10 pantallas y sólo probaba `/profile`. Devolviendo el alta de técnicos a los 8 caracteres, los 63 tests seguían pasando |
+
+El arreglo del segundo no es añadir tres pruebas: es
+`test_toda_puerta_de_password_tiene_prueba`, que **enumera por AST** las
+llamadas a `validar_password` en `src/routes` y compara conjuntos. Falla si
+aparece una puerta sin prueba y también si **desaparece** una declarada — o
+sea, si alguien quita la validación. Encontró de entrada que la función se
+llama `create_techician`, sin la «n»: mi registro tenía el nombre bien escrito
+y el código no.
+
+Y el tercero destapó algo que lo explicaba: las credenciales de la suite del
+panel **no estaban en ningún fichero de ninguno de los dos repositorios**.
+Vivían en la sesión de quien lanzaba las pruebas a mano, así que el «único
+veredicto» del portal no habría podido ejecutarlas ni queriendo. Ahora hay
+`scripts/entorno-rbac.sh` (sin contraseñas: deriva de `SEED_DEV_PASSWORD`) y un
+bloque 6 en el que **no poder ejecutar la suite cuenta como ROJO**.
+
+### El arreglo de U-07 convirtió un no-op mudo en una mentira
+
+«Assign New Job» en la ficha de técnico era un simulacro —`// In a real app,
+this would make an API call`— que mutaba estado local y pintaba un aviso de
+ÉXITO. Medido: al pulsar no salía ni una petición que no fuera GET,
+`job_technician` no cambiaba, y la pantalla decía «Done — Job undefined
+assigned to DEV Technician».
+
+Mientras los avisos se escribían en una cola que nadie renderizaba, el fallo
+era **mudo**. Al arreglar esa cola, el no-op silencioso pasó a ser una
+**confirmación falsa**. Arreglar la voz hizo audible una mentira que ya estaba
+ahí.
+
+### Ir a arreglar el panel destapó el fallo en el API
+
+La misma pantalla decía «No jobs found» con dos filas en `job_technician`: se
+cruzaban ids del SUBCONTRATISTA contra `job.id`, y `fetchJobs` devuelve
+`ID_Jobs`, así que `includes(undefined)` era siempre false —tapado por tres
+`as any`—.
+
+Iba a apoyarme en `?technicianId=`… y lo medí antes: **el API lo ignoraba en
+silencio**. Devolvía los mismos 4 jobs con cualquier valor, incluido uno
+inexistente. El filtro por técnico existía, pero en otro blueprint
+(`/job_metrics/*`), que no es el que consulta el panel.
+
+De no haberlo medido, la pantalla habría pasado de «No jobs found» a presentar
+**todos** los jobs como asignados a ese técnico. El primero se ve; el segundo
+no. Un parámetro que no se entiende y se ignora es peor que uno que se rechaza.
+
+### El fail-open que yo mismo había documentado, en tres sitios más
+
+`hooks/useEsPortal.ts` existe porque `isPortalRole(null)` es `false`, es decir
+«rol interno»: cualquier guarda escrita sobre un `useState(null)` enseña de más
+en el primer render. Lo escribí en la ronda anterior… y lo apliqué en seis
+componentes y en **ninguna** de las tres páginas que lo necesitaban:
+
+- la ficha del subcontratista pedía `GET /api/roles` y se comía un 403 en la
+  pantalla de aterrizaje del portal — el hallazgo que U-17 daba por cerrado;
+- `/dashboard` montaba el panel de ADMINISTRACIÓN, con sus cargas, antes de
+  cambiarlo por el del portal;
+- el `Sidebar` pintaba el menú entero de GQM Member a un subcontratista, con
+  `/reports` y `/settings` habilitados.
+
+### Lo demás
+
+- **No había forma de reponerle la contraseña a un subcontratista.** La ficha
+  del técnico y la del member tienen «Change Password»; la del sub no
+  mencionaba la palabra «password» ni una vez. Con 432 cuentas a punto de
+  encenderse, esa es la llamada que va a llegar.
+- **`Email_Address` no validaba formato en ninguno de los tres principales.**
+  `PATCH` con `"esto-no-es-un-correo"` → 200. Es el nombre de usuario de
+  acceso: con un teléfono ahí la cuenta no puede entrar ni recuperarse. La
+  unicidad sí estaba atajada; el formato no.
+- **Las tres pantallas de `orders`** leían `params.id` de forma síncrona (en
+  Next 16 es una promesa), pedían `subcontractorId=undefined` y presentaban el
+  403 como «No orders found» — también para el administrador.
+- **La pestaña Purchase Orders** le decía «0» a un sub que tiene una orden. No
+  es «no tienes», es «no puedes verlas»: se retira para roles de portal.
+- **El perfil del subcontratista** se identificaba como «MEMBER ID» y «ROL:
+  Miembro», con el título en inglés sin traducir.
+- **U-13 estaba arreglado a medias** en su propio fichero: los dos filtros con
+  `?.` y los dos renders sin él.
+
+### Y volví a ensuciar la base midiendo mis propias mutaciones
+
+Dos veces. Al desactivar el validador de correo, la prueba del alta escribió 7
+filas con correos malformados; el índice único las rechazaba en la corrida
+siguiente y 7 pruebas quedaban en rojo por un motivo que no era el suyo. Al
+desactivar las puertas del subcontratista, 9 filas más.
+
+Una prueba que afirma «esto NO debe escribirse» tiene que limpiar igualmente en
+`finally`: cuando falla, es exactamente cuando ha escrito.
+
 ## La compuerta antes de mezclar: medida, no razonada
 
 El plan de producción decía «comprobar en Vercel que existen `LOGIN_SECRET_KEY`
