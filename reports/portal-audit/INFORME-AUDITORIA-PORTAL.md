@@ -1,17 +1,44 @@
 # Auditoría del portal de Subcontractors y Technicians — informe
 
-**Fecha**: 6 de septiembre de 2026 · **Rama**: `claude/gqm-portal-rbac-audit-2yckin`
+**Fecha**: 6-7 de septiembre de 2026 · **Rama**: `claude/gqm-portal-rbac-audit-2yckin`
 **Partida**: `gqm-api` `6e7a67e` · `gqm-panel-admin` `199b15b`
+**Cierre**: `gqm-api` `bd4f261` · `gqm-panel-admin` `d1e6f23`
 
 ---
 
-## 1. Veredicto
+## 0. Qué cambió después de la auditoría
+
+Este informe se escribió **midiendo**, antes de tocar nada. Su veredicto original —el de
+la §1— era «no se puede entregar hoy». Después el encargo cambió: arreglarlo todo,
+verificarlo y dejarlo listo para producción.
+
+Se hicieron **dos rondas de arreglo**, cada una seguida de una revisión adversarial. El
+estado de cierre está en **`08-arreglos-aplicados.md`** y el plan de despliegue en
+**`PLAN-PRODUCCION.md`**. En resumen:
+
+| | Auditoría | Cierre |
+|---|---|---|
+| Matriz de permisos | 50 no conformes | **0 de 337** |
+| Fuga de campo | 690 filas | **0** |
+| Bloque de pruebas del verificador | 102 | **162** |
+| Playwright | 30 | **58** |
+| Suite completa | 753 passed | **806 passed** |
+
+Lo que sigue conserva el texto de la auditoría, porque es el registro de lo que se midió.
+Donde un hallazgo esté cerrado, lo dice `08-arreglos-aplicados.md`.
+
+---
+
+## 1. Veredicto (en el momento de la auditoría, antes de arreglar)
 
 > **No se puede entregar hoy con los roles de portal activados.** Se puede entregar con
 > **5 condiciones**: cerrar los cuatro grupos de fuga entre pares (P-01 a P-05), cerrar la
 > autoaprobación de cumplimiento (P-08), dar al técnico una pantalla donde aterrizar (U-01),
 > dar al subcontratista una forma de crear tareas (U-02), y poner un índice único en los
 > correos antes del alta masiva (O-02).
+>
+> **Las cinco condiciones están cumplidas** — y otras diez más que aparecieron al
+> arreglar. Ver `08-arreglos-aplicados.md`.
 
 Con matices que importan:
 
@@ -169,5 +196,19 @@ comprobó `APP_ENV` y **sigue sin hacerlo**.
 | Tests RBAC | **102 passed, 0 failed** |
 | Suite completa | 753 passed · 27 failed · 7 errors (los 34 fallos, todos por credenciales de Podio ausentes) |
 
+### Y tras las dos rondas de arreglo
+
+| Fase | Resultado |
+|---|---|
+| Matriz | 337 filas · **337 conformes · 0 no conformes** |
+| Fugas de campo | **0 filas** · 37 sondas analizadas, 21 saltadas (declaradas) |
+| Flujo e2e | 8 pasos + 3 negativas: en verde |
+| Bloque de pruebas del verificador | **162 passed** |
+| Playwright | **58 passed** |
+| Suite completa | **806 passed** · 27 failed · 7 errors — **idénticos, uno a uno, a los de `main`**, comparados enumerando identificadores de prueba y no contándolos |
+
+Un solo comando reproduce el veredicto: **`bash scripts/verificar_portal.sh`**.
+
 El paquete completo está en `reports/portal-audit/`. La entrada de la sesión de arreglos es
-**`reports/portal-audit/HANDOFF-ARREGLOS.md`**.
+**`reports/portal-audit/HANDOFF-ARREGLOS.md`**; el cierre, `08-arreglos-aplicados.md`; el
+despliegue, `PLAN-PRODUCCION.md`.

@@ -1,18 +1,24 @@
 # Arreglos aplicados — de 50 filas no conformes a 0
 
 Sesión posterior a la auditoría, sobre las mismas ramas.
-`gqm-api` `78c5b36` · `gqm-panel-admin` `15a942d`.
+`gqm-api` `bd4f261` · `gqm-panel-admin` `d1e6f23`.
 
 ## Antes y después
 
-| Medida | Auditoría | Tras los arreglos |
-|---|---|---|
-| Matriz de permisos (309 filas) | **50 no conformes** | **0** |
-| Fuga de campo | **690 filas** | **0** |
-| Tests RBAC | 102 | **106** |
-| Playwright | 30 (portal solo navegación) | **47**, con 16 de regresión de portal |
-| Suite completa | 753 passed · 27 failed · 7 errors | **765 passed** · 27 failed · 7 errors *(idénticos: todos exigen Podio)* |
-| Flujo e2e | 8 pasos + 3 negativas | igual, en verde |
+| Medida | Auditoría | Ronda 1 | Ronda 2 (esta) |
+|---|---|---|---|
+| Matriz de permisos (337 filas) | **50 no conformes** | 0 | **0** |
+| Fuga de campo | **690 filas** | 0 | **0** |
+| Bloque 4 del verificador | 102 | 106 | **162** |
+| Playwright | 30 (portal solo navegación) | 47 | **58** |
+| Suite completa | 753 passed | 765 passed | **806 passed** |
+| Fallos restantes de la suite | 27 failed · 7 errors | igual | **idénticos, uno a uno, a los de `main`** |
+| Flujo e2e | 8 pasos + 3 negativas | igual | igual, en verde |
+
+Los 27 fallos y 7 errores restantes se compararon con `main` **enumerando los
+identificadores de prueba, no contándolos**: los dos conjuntos son idénticos.
+33 de ellos exigen credenciales de Podio, ausentes a propósito en este entorno;
+el otro depende de la forma de los datos de una BD recién sembrada.
 
 Un solo comando reproduce el veredicto: **`bash scripts/verificar_portal.sh`**.
 
@@ -62,6 +68,36 @@ de portal, un recurso ajeno **no confirma su existencia**.
 | **O-02** | Índice único parcial e insensible a mayúsculas, con saneador previo | migración `e9c1correo` |
 | **O-03** | **No arreglado** — ver «lo que queda» |
 
+## Ronda 2 — lo que quedaba de la lista, con la misma disciplina
+
+Cada uno se verificó a mano antes de tocar nada, y cada uno lleva una sonda
+nueva en el arnés probada por mutación.
+
+| ID | Qué se midió | Qué se hizo |
+|---|---|---|
+| **O-05** | Sembrado un member y un technician con el MISMO correo: los dos logins dan 200 con su `user_type`, y `forgot-password` resolvía siempre al member. El técnico no podía recuperar su contraseña **jamás**, y con el 200 constante nadie podía notarlo | Un enlace por principal, con el tipo de cuenta en el asunto. `Login_auth.py`, `email_service.py` |
+| **O-06** | HTTP crudo contra `POST /technician/`: `'Abcdefg1'` (8) → panel ACEPTA · servidor **400**; `'Abcdefghi1'` (10) → 201. Siete pantallas pedían 8 caracteres y `/profile` **seis** | `lib/password-policy.ts`, espejo del servidor, cableado en las 8 pantallas |
+| **O-07** | `jwt_handler` leía las claves con `os.getenv` en el **import**, antes de que `load_dotenv()` las pusiera en el entorno. Reproducido en tres líneas | Lectura en cada uso, y la ausencia de clave pasa a decir **qué** variable falta |
+| **U-06** | Abriendo una tarea como sub: `GET /api/members` → **403** tragado por un `.catch()`, y las pestañas «Unassigned» y «GQM Member», que el API rechaza con 403 | Al portal sólo la rama que puede guardar. `TaskDetailsDialog.tsx` |
+| **U-07** | El sub pulsa «Delete» y **no ocurre nada**: ni aviso, ni diálogo, ni petición. Había **dos** copias del `use-toast` de shadcn y ninguna se pintaba — el `<Toaster/>` que las renderiza no existe en el repositorio | Las dos reenvían a sonner, que sí está montado |
+| **U-08** | «Delete» exige `subcontractor:update`, que el sub no tiene; «view» va a `/technicians/<id>`, que el middleware rebota. De los 4 endpoints de esa página, con el token del sub sólo responde uno | No se le ofrecen. El admin los conserva |
+| **U-09** | Dos botones «View Job» y un enlace «View job» a `/jobs/<id>`: el sub acaba en su propia ficha **perdiendo la pestaña**; el técnico, en `/dashboard` con el diálogo cerrado | No se le ofrecen; ampliar `PORTAL_PREFIXES` habría cambiado un rebote por una pantalla rota a medias |
+| **R4 (UI)** | El diálogo de tarea del técnico era de **solo lectura**: la única acción del rol no tenía camino en el producto | Tres botones de estado. Verificado hasta la BD |
+| **Arnés** | `validar_password` no tenía **ni una** prueba y la migración de correos únicos tampoco: borrar cualquiera de las dos dejaba toda la verificación en verde | `test_politica_password.py` (21), `test_correo_unico.py` (15), `test_jwt_secreto.py` (4), todas en `verificar_portal.sh` |
+
+### Dos lecciones de esta ronda
+
+**El mismo defecto vivía en dos sitios y arreglar uno dejó el otro mudo.** Había
+dos copias byte a byte del `use-toast`. Al arreglar la primera volvió el aviso de
+la ficha del subcontratista y el de `/profile` seguía sin salir. Lo cazó una sonda
+que ejercita una pantalla **distinta** de aquella donde se midió el fallo — si
+hubiera probado la misma, habría dado verde con la mitad del sistema rota.
+
+**El propio arnés destapó un fallo latente de producción.** Al añadir dos ficheros
+de prueba cambió el orden de imports y 94 pruebas que no tocan nada de esto
+empezaron a fallar con `TypeError: Expected a string value` desde dentro de PyJWT.
+No era el arnés: era O-07. La aplicación funcionaba por suerte de orden de imports.
+
 ## Dos cosas que la auditoría no había visto
 
 Aparecieron al arreglar, y las dos importan para el alta de los 432:
@@ -102,6 +138,6 @@ Los dos detectores están vivos y son independientes.
 |---|---|
 | **O-03** cambio obligatorio de contraseña en el primer acceso | Requiere una columna nueva (`must_change_password`), una migración y una pantalla en el panel. Es una funcionalidad, no un arreglo, y no debe colarse en un cutover de seguridad |
 | **Un sub ve las tareas de otro sub en una obra compartida** | `scope_tasks_statement` concede, **por diseño y con tests**, todas las tareas de los jobs propios. En una obra compartida eso incluye las del otro contratista. Es coherente con `/tasks/`, no es una regresión, y cambiarlo altera una regla deliberada. **Decisión de negocio pendiente** — ver §final del informe |
-| **Los dos vocabularios de rol** | El servidor usa `gqm_role`; casi todo el gating de UI lee `localStorage.user_data.role`, editable. Unificarlos es un refactor grande. Las guardas **nuevas** se escribieron contra el vocabulario del servidor |
+| **Los dos vocabularios de rol** | El servidor usa `gqm_role`; parte del gating de UI aún lee `localStorage.user_data.role`, editable. Unificarlos del todo es un refactor grande. Las guardas **nuevas** se escribieron contra el vocabulario del servidor, y en la ronda 2 se pasaron a la cookie las de `/profile` (4 sitios), `LeadTechnicianDashboard` y `CreateTaskDialog` |
 | **`Resource` por objeto en `PolicyEvaluator`** | Implementado y sin usar: todos los sitios pasan `"*"`. Es la causa raíz de la familia `P-nn`. Decisión de arquitectura |
 | **`GET /podio/items/<app_type>`** | Ruta solo-JWT, **no auditada**: devuelve 500 sin credenciales de Podio |
