@@ -68,17 +68,30 @@ def _layout(title: str, body_html: str) -> str:
     </div>"""
 
 
-def send_password_reset(to: str, reset_url: str) -> bool:
+_NOMBRE_DE_CUENTA = {
+    "member": "GQM team member",
+    "technician": "technician",
+    "subcontractor": "subcontractor",
+}
+
+
+def send_password_reset(to: str, reset_url: str, tipo_de_cuenta: str | None = None) -> bool:
+    """O-05: `tipo_de_cuenta` distingue los enlaces cuando un mismo correo
+    tiene varias cuentas (p. ej. member y technician). Sin el, el destinatario
+    recibiria dos correos identicos y no sabria cual reinicia cual."""
+    cual = _NOMBRE_DE_CUENTA.get(tipo_de_cuenta or "", "")
+    sufijo = f" ({cual} account)" if cual else ""
     return send_email(
-        to, "Reset your GQM password",
+        to, f"Reset your GQM password{sufijo}",
         _layout("Password reset", f"""
-          <p>We received a request to reset your password.</p>
+          <p>We received a request to reset the password of your
+             <strong>{cual or "GQM"}</strong> account.</p>
           <p><a href="{reset_url}" style="background:#14532d;color:#fff;
              padding:10px 18px;border-radius:6px;text-decoration:none">
              Reset password</a></p>
           <p>The link expires in 30 minutes. If you didn't request this,
              you can ignore this email.</p>"""),
-        text=f"Reset your GQM password: {reset_url} (expires in 30 minutes)",
+        text=f"Reset your GQM password{sufijo}: {reset_url} (expires in 30 minutes)",
     )
 
 

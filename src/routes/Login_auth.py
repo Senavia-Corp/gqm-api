@@ -454,16 +454,39 @@ def _reset_serializer():
     return URLSafeTimedSerializer(env_config("SECRET_KEY"), salt="gqm-password-reset")
 
 
-def _find_user_by_email(session, email: str):
+def _find_users_by_email(session, email: str):
+    """TODOS los principales con ese correo, no el primero.
+
+    O-05 (auditoria de portal): esto devolvia el PRIMER acierto por orden de
+    tabla —member, technician, subcontractor— y con eso decidia a quien mandar
+    el enlace. Pero `/auth/login` NO funciona asi: prueba la contrasena en las
+    tres tablas y sigue buscando si no casa, de modo que un tecnico y un member
+    que comparten correo entran los dos. Medido: los dos logins dan 200 con su
+    user_type correcto, y forgot-password resolvia siempre al member.
+
+    Consecuencia: el tecnico no podia recuperar su contrasena JAMAS, y como la
+    respuesta es un 200 constante («if the email exists...») no habia forma de
+    notarlo ni desde fuera ni desde dentro.
+
+    El choque entre tablas es posible hoy: los indices unicos de la migracion
+    e9c1correo son por tabla, no entre tablas — y en produccion hay 432
+    subcontratistas importados de Podio junto a members y technicians, sin
+    nadie que garantice que un correo no aparece en dos sitios.
+
+    Se devuelven todos, en orden estable, para que la puerta de recuperacion
+    tenga el mismo alcance que la de entrada.
+    """
     from sqlalchemy import func as sa_func
     normalized = (email or "").strip().lower()
+    if not normalized:
+        return []
+    encontrados = []
     for user_type, (Model, _pk) in _USER_TABLES.items():
-        user = session.exec(
+        for user in session.exec(
             select(Model).where(sa_func.lower(Model.Email_Address) == normalized)
-        ).first()
-        if user:
-            return user_type, user
-    return None, None
+        ).all():
+            encontrados.append((user_type, user))
+    return encontrados
 
 
 @auth_bp.post("/forgot-password")
@@ -479,8 +502,13 @@ def forgot_password():
         return jsonify({"error": "Too many attempts, try again in a minute"}), 429
 
     with get_session() as session:
-        user_type, user = _find_user_by_email(session, email)
-        if user and user.Password:
+        # Un enlace por principal (O-05). Quien recibe los correos es el dueno
+        # de ese buzon, que por definicion es el dueno de las N cuentas
+        # abiertas sobre el: no se le revela nada que no fuera suyo, y la
+        # respuesta de abajo sigue siendo un 200 constante.
+        for user_type, user in _find_users_by_email(session, email):
+            if not user.Password:
+                continue
             _pk_field = _USER_TABLES[user_type][1]
             token = _reset_serializer().dumps({
                 "uid": getattr(user, _pk_field),
@@ -490,7 +518,12 @@ def forgot_password():
             from decouple import config as env_config
             panel = env_config("PANEL_BASE_URL", default="http://localhost:3100").rstrip("/")
             from src.services.email_service import send_password_reset
-            send_password_reset(user.Email_Address, f"{panel}/reset-password?token={token}")
+            # El tipo de principal va en el correo: con dos enlaces identicos
+            # en la bandeja, el destinatario no sabria cual es cual y la
+            # recuperacion seguiria rota en la practica.
+            send_password_reset(user.Email_Address,
+                                f"{panel}/reset-password?token={token}",
+                                tipo_de_cuenta=user_type)
 
     # Siempre 200: no filtrar si el email existe
     return jsonify({"message": "If the email exists, a reset link was sent"}), 200
