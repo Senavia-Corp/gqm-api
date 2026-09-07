@@ -87,12 +87,23 @@ else
   # panel, que las deriva de SEED_DEV_PASSWORD. Antes no estaban en ningun
   # fichero —vivian en la sesion de quien lanzaba la suite a mano—, asi que
   # este bloque no habria podido correr aunque existiera.
+  # `pnpm` a secas, NO `corepack pnpm`: sin version fijada, corepack se baja la
+  # ultima (12.3.4 en la primera corrida de este bloque), reinstala las 263
+  # dependencias desde cero y muere con ERR_PNPM_IGNORED_BUILDS. El repo no
+  # declara `packageManager`, asi que la version buena es la del PATH — la
+  # misma con la que la suite pasa 67/67 a mano.
   if (cd "$PANEL_DIR" && . scripts/entorno-rbac.sh \
-        && RBAC_STATE_DIR="$ESTADO_RBAC" corepack pnpm test:rbac) \
+        && RBAC_STATE_DIR="$ESTADO_RBAC" pnpm test:rbac) \
         >/tmp/verif_panel.log 2>&1; then
     ok "$(grep -E '[0-9]+ passed' /tmp/verif_panel.log | tail -1 | tr -d '\n')"
   else
-    mal "suite del panel en rojo: $(grep -E '^\s+[0-9]+\) |[0-9]+ failed' /tmp/verif_panel.log | head -3 | tr '\n' ' ')"
+    # Si no hay linea de fallo de Playwright, el problema es de ANTES de las
+    # pruebas (dependencias, entorno) y hay que ensenarlo: la primera version
+    # de este bloque imprimio «suite del panel en rojo:» y nada mas, que no
+    # dice si fallo una prueba o si ni siquiera llego a arrancar.
+    DETALLE=$(grep -E '^\s+[0-9]+\) |[0-9]+ failed' /tmp/verif_panel.log | head -3 | tr '\n' ' ')
+    [ -z "$DETALLE" ] && DETALLE="no llego a ejecutarse — $(tail -5 /tmp/verif_panel.log | tr '\n' ' ')"
+    mal "suite del panel: $DETALLE"
   fi
   rm -rf "$ESTADO_RBAC"
 fi
