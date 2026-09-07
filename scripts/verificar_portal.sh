@@ -36,10 +36,16 @@ if [ "$RC3" -eq 0 ]; then ok "ningun campo vetado alcanza a un rol de portal"
 else mal "el escaner de fugas termino en $RC3 (ver /tmp/verif_fugas.csv)"; fi
 
 titulo "4 · Tests RBAC (no debe haber regresion)"
+# test_politica_password (O-01) y test_correo_unico (O-02) entran aqui porque
+# eran huecos declarados del arnes: la politica de contrasenas no tenia NI UNA
+# prueba y la migracion de correos unicos tampoco, asi que borrar cualquiera de
+# las dos dejaba esta verificacion entera en verde.
 if $PY -m pytest -q tests/integration/test_rbac_matrix.py \
       tests/integration/test_portal_scoping.py tests/integration/test_tasks_scoping.py \
       tests/integration/test_security_gates.py tests/integration/test_tasks_auditoria_seguridad.py \
-      tests/integration/test_profile_self_service.py tests/unit/test_db_guard.py \
+      tests/integration/test_profile_self_service.py tests/unit/test_db_guard.py tests/unit/test_jwt_secreto.py \
+      tests/integration/test_portal_ownership.py tests/integration/test_politica_password.py \
+      tests/integration/test_correo_unico.py tests/integration/test_password_reset.py \
       >/tmp/verif_pytest.log 2>&1; then
   ok "$(tail -1 /tmp/verif_pytest.log | tr -d '\n')"
 else mal "$(tail -3 /tmp/verif_pytest.log | tr '\n' ' ')"; fi
