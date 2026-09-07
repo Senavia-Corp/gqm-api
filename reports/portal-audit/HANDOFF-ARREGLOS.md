@@ -1,5 +1,19 @@
 # Handoff de arreglos — portal Subcontractor / Technical
 
+> ## ⚠️ Este documento ya está EJECUTADO
+>
+> Se escribió como lista de trabajo pendiente, antes de arreglar nada. **Los bloques
+> A a F están hechos**, más otros nueve hallazgos que aparecieron al arreglarlos.
+> No lo sigas como una lista de tareas: léelo como el razonamiento de por qué cada
+> arreglo es el que es.
+>
+> - Qué se hizo y qué se midió: **`08-arreglos-aplicados.md`**
+> - Cómo desplegarlo: **`PLAN-PRODUCCION.md`**
+> - Comprobarlo en un comando: **`bash scripts/verificar_portal.sh`**
+>
+> Lo único de aquí que **sigue pendiente y es para ti** es el SQL del final: la deuda
+> de datos de producción, que no se pudo medir desde esta sesión.
+
 Escrito para alguien que **no vivió esta auditoría**. Ordenado por dependencias, no solo por
 severidad: los tres primeros bloques comparten causa raíz y arreglarlos en orden evita
 rehacer trabajo.
