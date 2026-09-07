@@ -199,6 +199,51 @@ Ninguno se veía porque el primero impedía que el resto llegara a ejecutarse.
 Es el mismo patrón que U-01: quitas un callejón sin salida y aparece el
 siguiente.
 
+## La compuerta antes de mezclar: medida, no razonada
+
+El plan de producción decía «comprobar en Vercel que existen `LOGIN_SECRET_KEY`
+y `REFRESH_SECRET_KEY`; si falta alguna, nadie podrá iniciar sesión». Escrito
+así daba a entender que el arreglo de O-07 podía **causar** esa caída, y eso era
+una hipótesis, no un hecho: nadie la había ejecutado.
+
+`scripts/comparar_jwt_entornos.py` carga las dos versiones del módulo —la de
+`origin/main` y la de esta rama— en intérpretes nuevos, con seis entornos
+construidos a mano, y distingue fallar **en el import** (la aplicación no
+levanta) de fallar **al usar** (levanta y el error sale en `/auth/login`).
+
+| entorno | `main` | esta rama |
+|---|---|---|
+| las dos claves presentes | firma y verifica | firma y verifica |
+| sin `LOGIN_SECRET_KEY` | `TypeError` de PyJWT | `ClaveJWTAusente`, que la nombra |
+| `ACCESS_TOKEN_EXPIRES_MIN=''` | **`ValueError` en el import** | defecto 60 |
+| `ACCESS_TOKEN_EXPIRES_MIN='abc'` | **`ValueError` en el import** | error que la nombra |
+| `ACCESS_TOKEN_EXPIRES_MIN='0'` | firma tokens ya caducados | rehúsa |
+| duración ausente | defecto 60 | defecto 60 |
+
+No hay ningún entorno en el que hoy se pueda entrar y con esta rama no. El único
+renglón donde la rama rehúsa y `main` no es una duración `0`, que firma sesiones
+muertas al instante — roto en los dos casos, sólo que ahora lo dice.
+
+**La primera versión de ese script estaba amañada a mi favor.** Copiaba a un
+directorio neutral sólo la versión de `main` y leía la de esta rama desde su
+sitio en el repositorio; como `decouple` busca el `.env` subiendo desde el
+fichero que lo llama, la rama encontraba el `.env` de desarrollo y el renglón
+«sin `LOGIN_SECRET_KEY`» salía **«firma y verifica»**. Con esa medición llegué a
+escribir en el plan de producción una tabla que decía lo contrario de lo que el
+script imprimía. Copiando **las dos** versiones fuera del repositorio, el
+renglón pasó a `ClaveJWTAusente`, que es la verdad y además lo que el plan ya
+afirmaba.
+
+Es el mismo error de la sección anterior, cometido otra vez y en la herramienta
+que existía para no cometerlo: **un banco de pruebas que no puede dar un
+resultado desfavorable no está midiendo nada.**
+
+De paso queda descartada la alarma que lo destapó: el `.env` está en
+`.gitignore` y Vercel construye desde el repositorio, así que **nunca viaja al
+despliegue**; y `decouple` da precedencia a `os.environ` sobre el fichero. En
+producción ese respaldo no existe y no puede sustituir en silencio una clave
+ausente por una de desarrollo.
+
 ## Lo que esto dice del método
 
 Las dos revisiones encontraron cosas que yo no vi **en mi propio trabajo**, y en

@@ -27,17 +27,51 @@ hallazgos de la auditoría eran *críticos latentes*: se arman el día del alta.
 07:00/07:20/07:40 UTC, refresco de tokens QBO los lunes a las 06:00, y la dead-letter a las
 08:00. La ventana de despliegue debe evitarlos.
 
-**Comprobar las variables de entorno del despliegue ANTES del paso 2.** La ronda 2 encontró
-que `jwt_handler` congelaba `LOGIN_SECRET_KEY` y `REFRESH_SECRET_KEY` en el import (O-07).
-Ya está arreglado, y ahora la ausencia de cualquiera de las dos **lanza un error que las
-nombra** en lugar de un `TypeError` opaco de PyJWT o —peor— un 401 silencioso para todo el
-mundo. Antes de desplegar, verificar que ambas existen en el proyecto de Vercel del API:
+**Las variables de sesión: qué cambia y qué no.** La ronda 2 encontró que `jwt_handler`
+congelaba `LOGIN_SECRET_KEY` y `REFRESH_SECRET_KEY` en el import (O-07). El plan decía
+«comprobar en Vercel que existen, o nadie podrá iniciar sesión». Esa frase daba a entender
+que el arreglo podía *causar* la caída. **Se midió, y no es así.** Se ejecutaron las dos
+versiones del módulo —la de `main` y la nueva— contra los mismos seis entornos:
+
+| entorno del despliegue | `main` (hoy en producción) | versión nueva |
+|---|---|---|
+| las dos claves presentes | firma y verifica | firma y verifica |
+| `LOGIN_SECRET_KEY` ausente | `TypeError` de PyJWT → 500 en login, y **401 mudo** en toda petición autenticada | error que **nombra la variable** |
+| `ACCESS_TOKEN_EXPIRES_MIN=''` | `ValueError` **en el import: la app no arranca** | usa el defecto (60) |
+| `ACCESS_TOKEN_EXPIRES_MIN='abc'` | `ValueError` **en el import: la app no arranca** | error que nombra la variable |
+| `ACCESS_TOKEN_EXPIRES_MIN='0'` | **firma tokens ya caducados** (sesión muerta al instante, sin pista) | rehúsa firmar |
+| duración ausente | defecto 60 | defecto 60 |
+
+Reproducible con `.venv/bin/python scripts/comparar_jwt_entornos.py`.
+
+Lectura: **no hay ningún entorno en el que hoy se pueda iniciar sesión y tras el despliegue
+no se pueda.** El único renglón donde la versión nueva rehúsa y `main` no es una duración
+`0` o negativa, que firma sesiones ya caducadas — roto en ambos casos, solo que ahora lo
+dice. Y en dos renglones la versión nueva arranca donde `main` ni siquiera levantaba.
+
+Esto **no exime de mirar las variables** antes del paso 2 — sigue siendo lo primero que hay
+que descartar si algo va mal —, pero deja de ser una compuerta que bloquea el despliegue:
 
 ```bash
-vercel env ls production | grep -E 'LOGIN_SECRET_KEY|REFRESH_SECRET_KEY'
+vercel env ls production | grep -E 'LOGIN_SECRET_KEY|REFRESH_SECRET_KEY|EXPIRES'
 ```
 
-Si faltara alguna, el síntoma tras el despliegue sería que **nadie puede iniciar sesión**.
+*(Esta sesión no pudo ejecutarlo: el proxy de salida devuelve `403` en el `CONNECT` a
+`gqm-api.vercel.app` y no hay `vercel` CLI autenticado. Queda documentado, no verificado —
+la tabla de arriba sí está medida, en local, con las dos versiones reales del módulo.)*
+
+**Cada repositorio construye DOS proyectos de Vercel.** Al mezclar a `main` se despliegan a
+la vez:
+
+| repositorio | proyectos que construyen |
+|---|---|
+| `gqm-api` | `gqm-api` (`gqm-api.vercel.app`) y `gqm-api-dev` (`gqm-api-dev.vercel.app`) |
+| `gqm-panel-admin` | `gqm-panel-admin` y `gqm-panel-admin-8sfd` |
+
+El panel llega al API por el proxy `/api` usando `PYTHON_API_BASE_URL`, una variable de
+**servidor** del proyecto de Vercel del panel. Conviene saber a cuál de los dos API apunta
+cada uno de los dos paneles antes de dar el cutover por bueno: es lo que decide si el panel
+de producción está hablando con el API endurecido o con el otro.
 
 ---
 
