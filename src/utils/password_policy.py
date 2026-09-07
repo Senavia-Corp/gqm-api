@@ -40,11 +40,22 @@ def validar_password(password: str, *, campo: str = "Password") -> None:
             f"(tiene {len(password)}).")
     if password.lower() in CONTRASENAS_PROHIBIDAS:
         raise PasswordDebil(f"{campo}: es una contrasena demasiado comun.")
+    # El caracter repetido se mira ANTES que las clases, y no despues.
+    #
+    # Detras iba era codigo muerto: una cadena de un solo caracter repetido
+    # tiene por definicion UNA sola clase de caracter, asi que la regla de las
+    # 3 de 4 saltaba siempre primero y esta no llegaba a evaluarse nunca. Lo
+    # destapo la prueba de cobertura del contrato del espejo, que exige que
+    # cada regla sea alcanzable como PRIMER motivo de rechazo.
+    #
+    # Delante, ademas de estar viva, da el mensaje util: a quien teclea
+    # "aaaaaaaaaa" le sirve mas «no puede ser un unico caracter repetido» que
+    # «combina 3 de estos 4 tipos». El veredicto no cambia: las dos rechazan.
+    if re.fullmatch(r"(.)\1+", password):
+        raise PasswordDebil(f"{campo}: no puede ser un unico caracter repetido.")
     clases = sum(bool(re.search(patron, password))
                  for patron in (r"[a-z]", r"[A-Z]", r"[0-9]", r"[^A-Za-z0-9]"))
     if clases < 3:
         raise PasswordDebil(
             f"{campo}: debe combinar al menos 3 de estos 4 tipos de caracter: "
             f"minuscula, mayuscula, digito y simbolo.")
-    if re.fullmatch(r"(.)\1+", password):
-        raise PasswordDebil(f"{campo}: no puede ser un unico caracter repetido.")

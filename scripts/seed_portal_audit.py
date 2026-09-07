@@ -169,7 +169,15 @@ def _job(session, dueno: str, cliente: Client, nombre: str, tipo: str = "QID") -
         Acc_receivable=1414.14,
         Gqm_final_target_return=1515.15,
         Gqm_paid_fees=1616.16,
-        Bldg_dept_fees=1717.17,
+        # Lista, no escalar: `JobModel.Bldg_dept_fees` es
+        # `Optional[List[Optional[float]]]` sobre una columna JSON. Con un float
+        # suelto, CADA volcado de este job emitía
+        # `PydanticSerializationUnexpectedValue(Expected list[nullable] ...)`.
+        # No era un fallo de la aplicación —la siembra escribe por SQLModel, sin
+        # pasar por la validación de la ruta— sino de mi fixture; pero un fixture
+        # con la forma equivocada puede tapar o fabricar comportamiento, y este
+        # campo es uno de los 21 financieros que vigila el escáner de fugas.
+        Bldg_dept_fees=[1717.17],
         Ptl_gc_fee=1818.18,
         ID_Client=cliente.ID_Client,
         podio_item_id=None,
