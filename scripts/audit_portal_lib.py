@@ -190,6 +190,11 @@ def mundos_sembrados():
                            f"adjunto {letra}").ID_Attachment,
                 "att_internal": uno(s, Attachments, "Document_name", f"{m}-adjunto-job",
                                     f"adjunto interno {letra}").ID_Attachment,
+                # La tarea del job propio SIN tecnico asignado: la usan las
+                # sondas de escritura (R5) sobre un objeto propio.
+                "task_sin_asignar": uno(
+                    s, Tasks, "Name", f"{MARCA_SIEMBRA}-A-tarea-sin-asignar",
+                    "tarea sin asignar de A").ID_Tasks if letra == "A" else None,
                 "cert": uno(s, Certificate, "Name", f"{m}-certificado",
                             f"certificado {letra}").ID_Certificate,
                 "cli": cli.ID_Client,

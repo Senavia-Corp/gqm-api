@@ -20,6 +20,7 @@ if $PY -m pytest -q tests/unit/test_db_guard.py >/dev/null 2>&1; then
   ok "21 casos del contrato de aceptacion/rechazo"
 else mal "el contrato de la compuerta falla"; fi
 
+$PY scripts/limpiar_ventana_login.py 2>/dev/null || true
 titulo "2 · Matriz de permisos — 8 sujetos x superficie x objetos"
 SAL=$($PY scripts/audit_portal_matrix.py --csv /tmp/verif_matriz.csv 2>/dev/null | grep '^filas=')
 echo "  $SAL"
@@ -27,6 +28,7 @@ if $PY scripts/audit_portal_matrix.py --csv /tmp/verif_matriz.csv >/dev/null 2>&
   ok "0 filas no conformes"
 else mal "quedan filas no conformes (ver /tmp/verif_matriz.csv)"; fi
 
+$PY scripts/limpiar_ventana_login.py 2>/dev/null || true
 titulo "3 · Fuga de datos a nivel de campo"
 # Se mira el CODIGO DE SALIDA, no solo el CSV: si el escaner se cae a mitad, el
 # CSV queda corto o vacio y contar sus lineas daria un verde falso. Y se imprime
@@ -38,6 +40,7 @@ echo "$SAL3" | grep -E '^(COBERTURA|  saltadas|filas de fuga)' | sed 's/^/  /'
 if [ "$RC3" -eq 0 ]; then ok "ningun campo vetado alcanza a un rol de portal"
 else mal "el escaner de fugas termino en $RC3 (ver /tmp/verif_fugas.csv)"; fi
 
+$PY scripts/limpiar_ventana_login.py 2>/dev/null || true
 titulo "4 · Tests RBAC (no debe haber regresion)"
 # test_politica_password (O-01) y test_correo_unico (O-02) entran aqui porque
 # eran huecos declarados del arnes: la politica de contrasenas no tenia NI UNA
@@ -50,7 +53,10 @@ titulo "4 · Tests RBAC (no debe haber regresion)"
 # UNICO fichero que se ponia rojo era ese, y este guion seguia imprimiendo
 # «VERDE — los 5 bloques pasan». Un veredicto que no ejecuta la unica prueba
 # que ve el fallo no es un veredicto.
-if $PY -m pytest -q tests/integration/test_rbac_matrix.py \
+# `--timeout`: una prueba que cuelga deja este guion sin veredicto, que es
+# peor que un rojo. `test_password_reset` abre SMTP real y en un entorno sin
+# salida al 25 espera indefinidamente — medido en esta sesion.
+if $PY -m pytest -q --timeout=120 tests/integration/test_rbac_matrix.py \
       tests/integration/test_portal_scoping.py tests/integration/test_tasks_scoping.py \
       tests/integration/test_security_gates.py tests/integration/test_tasks_auditoria_seguridad.py \
       tests/integration/test_profile_self_service.py tests/unit/test_db_guard.py tests/unit/test_jwt_secreto.py \
@@ -61,6 +67,7 @@ if $PY -m pytest -q tests/integration/test_rbac_matrix.py \
   ok "$(tail -1 /tmp/verif_pytest.log | tr -d '\n')"
 else mal "$(tail -3 /tmp/verif_pytest.log | tr '\n' ' ')"; fi
 
+$PY scripts/limpiar_ventana_login.py 2>/dev/null || true
 titulo "5 · Flujo end-to-end con sus pruebas negativas"
 if $PY scripts/audit_e2e_portal.py >/tmp/verif_e2e.log 2>&1; then
   ok "8 pasos y 3 pruebas negativas"

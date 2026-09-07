@@ -209,10 +209,17 @@ def main():
             # `propio is A` falso: se le media contra el mundo A como «ajeno» y
             # el mundo B no contaba como intruso ni se sondaba. Para el, TODO lo
             # de A y lo de B es ajeno.
+            #
+            # El job COMPARTIDO se excluye del conjunto de «ajenos»: los dos
+            # subcontratistas lo ven por DISEÑO (es la obra que comparten, el
+            # fixture que la auditoria anterior anadio a proposito). Contarlo
+            # como intruso daba cuatro filas rojas describiendo la regla de
+            # negocio como si fuera una fuga.
+            compartidos = {A.get("compartido"), B.get("compartido")} - {None}
             if suj == "tech_independiente":
-                ajenos = set(A.values()) | set(B.values())
+                ajenos = (set(A.values()) | set(B.values())) - compartidos
             else:
-                ajenos = set((B if propio is A else A).values())
+                ajenos = set((B if propio is A else A).values()) - compartidos
             ajeno = B if propio is A else A
             vistos = paginar(T[suj], ruta, pk)
             intrusos = sorted(v for v in vistos if v in ajenos)
@@ -365,7 +372,13 @@ def main():
 
     # Borrado LOGICO: desvincular una tarea la hace desaparecer del portal de
     # todos sin pasar por DELETE, que R5 prohibe al portal.
-    for suj, tarea in (("technical", "TSK60001"), ("subcontractor", "TSK60002")):
+    # Ids resueltos, no escritos a mano: con `TSK60001`/`TSK60002` inexistentes
+    # el API devolvia 404 y la sonda lo apuntaba como «no conforme» (esperaba
+    # 403) sobre una tarea que no existia — cuatro filas rojas que no eran
+    # ningun fallo. Ademas `fila_bd` devolvia None y el detalle decia
+    # «BD ID_Jobs=None», que se lee como si la escritura hubiera pasado.
+    for suj, tarea in (("technical", A["task"]),
+                       ("subcontractor", A["task_sin_asignar"])):
         st, _ = call(T[suj], "PATCH", f"/tasks/{tarea}", {"ID_Jobs": None})
         fila = fila_bd(Tasks, tarea)
         registra(suj, "PATCH /tasks/ ID_Jobs=None (borrado logico, R5)", "propio",
@@ -374,8 +387,9 @@ def main():
     # Reasignar la PROPIEDAD de una tarea a otro contratista, o colgarla del
     # tablero de un empleado de GQM.
     for campo, valor in (("ID_Subcontractor", B["sub"]), ("ID_Member", MEM_PM)):
-        st, _ = call(T["subcontractor"], "PATCH", "/tasks/TSK60002", {campo: valor})
-        fila = fila_bd(Tasks, "TSK60002")
+        st, _ = call(T["subcontractor"], "PATCH",
+                     f"/tasks/{A['task_sin_asignar']}", {campo: valor})
+        fila = fila_bd(Tasks, A["task_sin_asignar"])
         registra("subcontractor", f"PATCH /tasks/ {campo}", "ajeno", st, "403",
                  f"BD {campo}={getattr(fila, campo, None)!r}")
 

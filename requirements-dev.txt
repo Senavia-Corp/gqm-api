@@ -1,1 +1,6 @@
 pytest==8.3.4
+# Tope POR PRUEBA. Sin el, este arnes puede colgarse indefinidamente:
+# `test_password_reset` abre SMTP de verdad y en un entorno sin salida
+# al puerto 25 se queda esperando para siempre, con lo que
+# `scripts/verificar_portal.sh` nunca llega a dar veredicto — medido.
+pytest-timeout==2.3.1
