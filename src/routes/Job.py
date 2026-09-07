@@ -17,6 +17,7 @@ from ..models.link_models.JobMember import JobMemberLink
 from ..models.link_models.JobMultiplierR import JobMultiplierRLink
 from ..models.link_models.JobSubcontractor import JobSubcontractorLink
 from ..models.link_models.JobTechnician import JobTechnicianLink
+from ..models.TechnicianModel import Technician
 from ..models.link_models.JobPaymentU import JobPaymentULink
 from ..models.link_models.ClientLinks import ClientManagerLink
 from ..utils.pagination import paginate
@@ -89,7 +90,8 @@ MONTH_NUMBER = {
 # --------------------RUTAS GET-------------------#
 def _aplicar_filtros(stmt, *, job_type=None, status=None, year_int=None, search=None,
                      client_id=None, member_id=None, parent_mgmt_co_id=None,
-                     subcontractor_id=None, date_from=None, date_to=None):
+                     subcontractor_id=None, technician_id=None,
+                     date_from=None, date_to=None):
     """Los MISMOS WHERE para la consulta de filas y para la de conteo.
 
     Antes estaban escritos dos veces, y no eran iguales: las filas resolvían
@@ -148,6 +150,21 @@ def _aplicar_filtros(stmt, *, job_type=None, status=None, year_int=None, search=
         stmt = stmt.where(
             Job.subcontractors.any(
                 Subcontractor.ID_Subcontractor == subcontractor_id))
+
+    # El filtro por TÉCNICO no existía aquí: `?technicianId=…` se ignoraba en
+    # silencio y la respuesta traía TODOS los jobs. La ficha de técnico del
+    # panel lo pedía y, al no filtrar nada, acababa cruzando el resultado con
+    # una lista de ids que tampoco casaba — «No jobs found» con filas en
+    # `job_technician`. Un parámetro que no se entiende y se ignora es peor que
+    # uno que no se acepta: la respuesta parece correcta.
+    #
+    # `technician_id` sí estaba implementado, pero en OTRO blueprint
+    # (`/job_metrics/*`, src/routes/Dashboard/JobsM.py), que no es el que
+    # consulta el panel.
+    if technician_id:
+        stmt = stmt.where(
+            Job.technicians.any(
+                Technician.ID_Technician == technician_id))
 
     # El rango de fechas sí depende del tipo: para PTL la fecha que importa es
     # la de inicio estimado, y para el resto la de asignación.
@@ -213,6 +230,8 @@ def _filtros_de_la_peticion() -> tuple[dict, object]:
         "parent_mgmt_co_id": request.args.get("parent_mgmt_co_id"),
         "subcontractor_id": (request.args.get("subcontractorId")
                              or request.args.get("subcontractor_id")),
+        "technician_id": (request.args.get("technicianId")
+                          or request.args.get("technician_id")),
         "date_from": date_from,
         "date_to": date_to,
     }, None

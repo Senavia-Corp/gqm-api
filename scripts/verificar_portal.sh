@@ -56,7 +56,7 @@ if $PY -m pytest -q tests/integration/test_rbac_matrix.py \
       tests/integration/test_profile_self_service.py tests/unit/test_db_guard.py tests/unit/test_jwt_secreto.py \
       tests/integration/test_portal_ownership.py tests/integration/test_politica_password.py \
       tests/integration/test_correo_unico.py tests/integration/test_password_reset.py \
-      tests/unit/test_espejo_password.py \
+      tests/unit/test_espejo_password.py tests/integration/test_filtro_jobs_por_tecnico.py \
       >/tmp/verif_pytest.log 2>&1; then
   ok "$(tail -1 /tmp/verif_pytest.log | tr -d '\n')"
 else mal "$(tail -3 /tmp/verif_pytest.log | tr '\n' ' ')"; fi
