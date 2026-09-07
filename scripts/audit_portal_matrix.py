@@ -274,13 +274,23 @@ def main():
     # los listados agregados, ni el contenido financiero, ni las escrituras de
     # campos de vinculo. Cada una de estas sondas nacio de un fallo REAL medido.
     import json as _json
-    FINANCIEROS = ("Gqm_formula_pricing", "Gqm_target_return", "Acc_receivable",
-                   "Gqm_final_sold_pricing", "Gqm_target_sold_pricing")
+    # La lista se IMPORTA, no se reescribe: la copia a mano tenia 5 de los 21
+    # nombres y le faltaba justo `Gqm_premium_in_money`, uno de los dos que
+    # fugaba `/jobs/by-member-role`. Una sonda que solo busca lo que ya sabes
+    # que se escapa no encuentra nada nuevo.
+    from src.utils.portal_redaction import CAMPOS_FINANCIEROS_JOB
+    FINANCIEROS = tuple(sorted(CAMPOS_FINANCIEROS_JOB))
 
     for suj in PORTAL:
         for etiqueta, ruta in (("GET /jobs/jobs_table", "/jobs/jobs_table?limit=100"),
                                ("GET /tasks/weekly", "/tasks/weekly"),
-                               ("GET /jobs/", "/jobs/?limit=100")):
+                               ("GET /jobs/", "/jobs/?limit=100"),
+                               # Las dos que NO pasan por `serialize_job` y por
+                               # eso no estaban aqui. `by-member-role` fugaba de
+                               # verdad; `oldest` no, y esta para que se sepa.
+                               ("GET /jobs/by-member-role",
+                                "/jobs/by-member-role?member_id=MEM60001&rol=PM&limit=100"),
+                               ("GET /jobs/oldest", "/jobs/oldest?parent_mgmt_co_id=PMC60001")):
             st, pl = call(T[suj], "GET", ruta)
             filtrados = [f for f in FINANCIEROS if f in _json.dumps(pl)] if st == 200 else []
             FILAS.append({"sujeto": suj, "endpoint": etiqueta, "objeto": "bloque financiero",

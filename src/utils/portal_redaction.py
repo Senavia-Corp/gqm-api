@@ -149,6 +149,29 @@ def acotar_job_para_portal(job_dict: dict) -> dict:
         job_dict["client"] = {k: v for k, v in job_dict["client"].items()
                               if k in CLIENTE_VISIBLE_A_PORTAL}
 
+    # Los adjuntos del job: solo la carpeta «technicians».
+    #
+    # `attachments` NO estaba en RELACIONES_VETADAS_A_PORTAL, y
+    # `add_relationships` solo redacta por NOMBRE DE CAMPO, nunca poda
+    # colecciones. Resultado medido en `GET /jobs/<id>` (Job.py:557-563, que
+    # expande "attachments"): al subcontratista le llegaban TODOS los adjuntos
+    # de su job —el `logbook` interno y los sincronizados desde Podio, que
+    # nacen con access_level NULL (podio_webhook_core.py:740-750)— y cada uno
+    # con su `Link`, que es la URL de Cloudinary directamente descargable
+    # (por eso AttachmentCard hace window.open sobre ella).
+    #
+    # Va aqui y no en cada ruta porque `serialize_job` es el punto por el que
+    # pasan las once rutas de /jobs; nueve de ellas expanden esta coleccion.
+    # Es la simetrica de la regla de subida (Attachments.py): lo unico que un
+    # rol de portal puede escribir en un job es `technicians`, y lo unico que
+    # puede leer es `technicians`.
+    adjuntos = job_dict.get("attachments")
+    if isinstance(adjuntos, list):
+        job_dict["attachments"] = [
+            a for a in adjuntos
+            if isinstance(a, dict)
+            and (a.get("access_level") or "").strip().lower() == "technicians"]
+
     # Un subcontratista solo se ve a si mismo en la lista de contratistas del
     # job; un tecnico no ve esa lista en absoluto.
     subs = job_dict.get("subcontractors")

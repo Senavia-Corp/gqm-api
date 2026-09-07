@@ -33,6 +33,30 @@ B = {"sub": "SUBC60002", "tec": "TEC60002", "job": "PTL-I60001", "task": "TSK600
 MUNDO = {"subcontractor": A, "technical": A, "sub_B": B, "tech_de_sub_B": B,
          "tech_independiente": A}
 
+
+def _id_del_miembro_pm() -> str:
+    """El GQM Member enlazado como PM al job de A (seed_portal_audit.py).
+
+    Se resuelve por CORREO y no por un `MEM600xx` escrito a mano: los ids se
+    generan con un contador y cambian en cuanto la base no es virgen. Una sonda
+    apuntando a un id inexistente devuelve lista vacia, que es exactamente lo
+    mismo que devuelve una sonda que no encuentra ninguna fuga.
+    """
+    from src.database.db_sqlmodel import get_session
+    from sqlmodel import select as _sel
+    from src.models.MemberModel import Member
+    with get_session() as ses:
+        m = ses.exec(_sel(Member).where(
+            Member.Email_Address == "member-dev@senavia-test.com")).first()
+        if not m:
+            raise SystemExit(
+                "audit_field_leaks: no encuentro member-dev@senavia-test.com. "
+                "Corre scripts/seed_rbac.py y scripts/seed_portal_audit.py.")
+        return m.ID_Member
+
+
+A["mem"] = B["mem"] = _id_del_miembro_pm()
+
 # Campos que un rol de portal NO debe recibir jamás, sea de quien sea.
 PROHIBIDOS = {
     "Gqm_formula_pricing": "margen: fórmula de precio de GQM",
@@ -127,6 +151,13 @@ def main():
     SONDAS = [
         ("GET /jobs/<propio>",             "/jobs/{job}",                      "propio"),
         ("GET /jobs/",                     "/jobs/?limit=100",                 "propio"),
+        # Las dos rutas de /jobs que arman el diccionario A MANO y por eso no
+        # pasan por `serialize_job`. `by-member-role` fugaba el margen de GQM;
+        # `oldest` no fugaba, y esta aqui para que si alguien amplia su
+        # `load_only` se entere la sonda y no el subcontratista.
+        ("GET /jobs/by-member-role",
+         "/jobs/by-member-role?member_id={mem}&rol=PM&limit=100",              "propio"),
+        ("GET /jobs/oldest",               "/jobs/oldest?parent_mgmt_co_id={pmc}", "propio"),
         ("GET /tasks/<propia>",            "/tasks/{task}",                    "propio"),
         ("GET /technician/<ajeno>",        "/technician/{tec}",                "ajeno"),
         ("GET /technician/",               "/technician/?limit=100",           "todos"),

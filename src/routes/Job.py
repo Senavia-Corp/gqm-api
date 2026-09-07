@@ -480,7 +480,14 @@ def get_oldest_job():
         if not job:
             return jsonify({"detail": "No jobs found for this parent company"}), 404
 
-        return jsonify({
+        # Esta ruta tampoco pasa por `serialize_job`. Hoy no fuga —comprobado
+        # campo a campo: cero claves de CAMPOS_FINANCIEROS_JOB, y las dos del
+        # cliente estan dentro de CLIENTE_VISIBLE_A_PORTAL—, pero lo es por su
+        # lista de columnas, no por construccion: el dia que alguien amplie el
+        # `load_only` de arriba, el campo nuevo saldria sin redactar. Se pasa
+        # por la misma poda que el resto para que la seguridad no dependa de
+        # que nadie toque esa lista. No-op para el staff.
+        return jsonify(acotar_job_para_portal({
             "ID_Jobs":               job.ID_Jobs,
             "Job_type":              job.Job_type,
             "Project_name":          job.Project_name,
@@ -493,7 +500,7 @@ def get_oldest_job():
                 "ID_Client":         job.client.ID_Client,
                 "Client_Community":  getattr(job.client, "Client_Community", None),
             } if job.client else None,
-        }), 200
+        })), 200
 
 
 @job_bp.get("/<id_job>")
@@ -837,6 +844,16 @@ def get_jobs_by_member_and_role():
             }
             for j in results
         ]
+        # Este handler arma el diccionario A MANO, asi que NO pasa por
+        # `serialize_job` y la redaccion central nunca lo alcanzaba. La rama de
+        # abajo tampoco: poda por PERMISO (`job:read`) y la politica del
+        # subcontratista SI lo concede (seed_rbac.py:85), asi que la rama es
+        # para el tecnico, que solo tiene `job:read_basics`. Medido: el sub
+        # recibia aqui Gqm_premium_in_money y Gqm_target_return, ambos en
+        # CAMPOS_FINANCIEROS_JOB. Lo que faltaba es podar por ROL de portal, y
+        # es la misma primitiva que ya usa /tasks/weekly (Tasks.py:155).
+        # `acotar_job_para_portal` es no-op para el staff.
+        jobs_data = [acotar_job_para_portal(d) for d in jobs_data]
         if not PolicyEvaluator.evaluate(getattr(g, "user_policies", []), "job:read"):
             for d in jobs_data:  # job:read_basics: sin claves financieras
                 d.pop("Gqm_premium_in_money", None); d.pop("Gqm_target_return", None)
