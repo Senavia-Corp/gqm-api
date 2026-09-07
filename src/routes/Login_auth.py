@@ -594,6 +594,22 @@ def reset_password():
     new_password = data.get("Password")
     if not token or not new_password:
         return jsonify({"error": "token and Password are required"}), 400
+    # PRIMERO se comprueba que el token es autentico, y solo despues se valida
+    # la contrasena. Al reves —que es como estaba— un token FALSIFICADO con una
+    # contrasena debil moria en la politica y nunca llegaba a la verificacion de
+    # firma, asi que `test_reset_rejects_garbage_token` daba su 400 por el
+    # motivo equivocado: con la comprobacion de firma saboteada
+    # (`except BadSignature: return 200`) el fichero entero seguia en verde.
+    # Autenticar antes de procesar la entrada es ademas el orden correcto: no
+    # se trabaja con el cuerpo de una peticion que aun no se ha probado que
+    # venga de un enlace emitido por nosotros.
+    try:
+        payload = _reset_serializer().loads(token, max_age=1800)
+    except SignatureExpired:
+        return jsonify({"error": "Reset link expired"}), 400
+    except BadSignature:
+        return jsonify({"error": "Invalid reset link"}), 400
+
     # O-01: aqui solo se miraba `len < 8`, asi que "12345678" —que ESTA en la
     # lista de prohibidas— entraba y se escribia tal cual. Era la tercera puerta
     # para fijar una contrasena, y la unica que no exige estar autenticado: la
@@ -602,13 +618,6 @@ def reset_password():
         validar_password(new_password)
     except PasswordDebil as debil:
         return jsonify({"error": str(debil)}), 400
-
-    try:
-        payload = _reset_serializer().loads(token, max_age=1800)
-    except SignatureExpired:
-        return jsonify({"error": "Reset link expired"}), 400
-    except BadSignature:
-        return jsonify({"error": "Invalid reset link"}), 400
 
     entry = _USER_TABLES.get(payload.get("ut"))
     if not entry:

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Verificacion completa del portal. Un solo comando, un solo veredicto.
 #
+# Cubre API (bloques 1-5) Y panel (bloque 6). Si el bloque 6 no puede correr,
+# el veredicto es ROJO: no ejecutar algo nunca cuenta como que ha pasado.
+#
 # Es el criterio de «arreglado» de la auditoria de portal: si esto sale en verde,
 # los 24 hallazgos estan cerrados y no hay regresion en lo que ya funcionaba.
 # Cada bloque puede FALLAR de verdad: no hay ninguno que compruebe solo un 200.
@@ -40,12 +43,20 @@ titulo "4 · Tests RBAC (no debe haber regresion)"
 # eran huecos declarados del arnes: la politica de contrasenas no tenia NI UNA
 # prueba y la migracion de correos unicos tampoco, asi que borrar cualquiera de
 # las dos dejaba esta verificacion entera en verde.
+#
+# test_espejo_password (el contrato de 51 entradas entre servidor y panel) NO
+# estaba en esta lista, y la revision adversarial lo midio: quitando la
+# comprobacion de CONTRASENAS_PROHIBIDAS de src/utils/password_policy.py, el
+# UNICO fichero que se ponia rojo era ese, y este guion seguia imprimiendo
+# «VERDE — los 5 bloques pasan». Un veredicto que no ejecuta la unica prueba
+# que ve el fallo no es un veredicto.
 if $PY -m pytest -q tests/integration/test_rbac_matrix.py \
       tests/integration/test_portal_scoping.py tests/integration/test_tasks_scoping.py \
       tests/integration/test_security_gates.py tests/integration/test_tasks_auditoria_seguridad.py \
       tests/integration/test_profile_self_service.py tests/unit/test_db_guard.py tests/unit/test_jwt_secreto.py \
       tests/integration/test_portal_ownership.py tests/integration/test_politica_password.py \
       tests/integration/test_correo_unico.py tests/integration/test_password_reset.py \
+      tests/unit/test_espejo_password.py \
       >/tmp/verif_pytest.log 2>&1; then
   ok "$(tail -1 /tmp/verif_pytest.log | tr -d '\n')"
 else mal "$(tail -3 /tmp/verif_pytest.log | tr '\n' ' ')"; fi
@@ -55,7 +66,33 @@ if $PY scripts/audit_e2e_portal.py >/tmp/verif_e2e.log 2>&1; then
   ok "8 pasos y 3 pruebas negativas"
 else mal "$(grep -E '❌|Error' /tmp/verif_e2e.log | head -3 | tr '\n' ' ')"; fi
 
+titulo "6 · Suite RBAC del panel (Playwright)"
+# Este guion decia ser «un solo comando, un solo veredicto» para los 24
+# hallazgos y no ejecutaba NI UNA prueba del panel: `grep -cE
+# "playwright|pnpm|npx"` daba 0. La mitad de los hallazgos (U-01, U-05..U-09,
+# U-18) viven ahi, asi que el verde solo cubria la mitad del trabajo.
+#
+# No poder ejecutarla cuenta como ROJO, no como silencio: un veredicto que se
+# salta un bloque cuando no encuentra el panel volveria a decir «verde» sobre
+# lo que no ha mirado.
+PANEL_DIR="${PANEL_DIR:-$(cd .. && pwd)/gqm-panel-admin}"
+if [ ! -d "$PANEL_DIR" ]; then
+  mal "no encuentro el panel en $PANEL_DIR (exporta PANEL_DIR=/ruta/al/panel)"
+else
+  # Directorio de estado PROPIO por corrida: dos suites a la vez comparten
+  # /tmp/gqm-rbac-state y el teardown de una borra el estado de la otra, lo que
+  # produce fallos de milisegundos que no son reales.
+  ESTADO_RBAC=$(mktemp -d /tmp/gqm-rbac-state-XXXXXX)
+  if (cd "$PANEL_DIR" && RBAC_STATE_DIR="$ESTADO_RBAC" corepack pnpm test:rbac) \
+        >/tmp/verif_panel.log 2>&1; then
+    ok "$(grep -E '[0-9]+ passed' /tmp/verif_panel.log | tail -1 | tr -d '\n')"
+  else
+    mal "suite del panel en rojo: $(grep -E '^\s+[0-9]+\) |[0-9]+ failed' /tmp/verif_panel.log | head -3 | tr '\n' ' ')"
+  fi
+  rm -rf "$ESTADO_RBAC"
+fi
+
 printf "\n\033[1m"
-if [ "$FALLOS" -eq 0 ]; then printf "\033[32m✅ VERDE — los 5 bloques pasan\033[0m\n"
+if [ "$FALLOS" -eq 0 ]; then printf "\033[32m✅ VERDE — los 6 bloques pasan\033[0m\n"
 else printf "\033[31m❌ %s bloque(s) en rojo\033[0m\n" "$FALLOS"; fi
 exit "$FALLOS"

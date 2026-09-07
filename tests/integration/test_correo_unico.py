@@ -148,3 +148,102 @@ def test_el_indice_es_PARCIAL_y_deja_pasar_los_vacios(Model, campo_id, prefijo, 
         assert quedan == sorted([a, b]), "el índice bloqueó filas sin correo"
     finally:
         _limpiar(Model, campo_id, [a, b])
+
+
+# ── El FORMATO, no sólo la unicidad ────────────────────────────────────────
+#
+# Todo lo de arriba asegura que el correo sea ÚNICO. La revisión adversarial
+# midió que nadie comprobaba que fuera un CORREO:
+#
+#     PATCH /technician/TEC60187 {"Email_Address": "esto-no-es-un-correo"}
+#     → 200, y el cuerpo lo devuelve tal cual.
+#
+# Y `Email_Address` es el nombre de usuario de acceso: con un teléfono ahí, la
+# cuenta no puede entrar ni recuperar la contraseña. Ver
+# `src/utils/validacion_correo.py`.
+
+MALFORMADOS = ["esto-no-es-un-correo", "555-9999", "sin-arroba.com",
+               "con espacio@x.com", "arroba@sin-punto", "@sin-local.com",
+               "dos@@arrobas.com"]
+
+
+@pytest.mark.parametrize("valor", MALFORMADOS)
+def test_el_alta_rechaza_un_correo_con_forma_invalida(client, admin_headers, valor):
+    tid = f"TECF{uuid.uuid4().int % 90000 + 10000}"
+    resp = client.post("/technician/", headers=admin_headers, json={
+        "ID_Technician": tid, "Name": "Formato", "Email_Address": valor,
+        "Password": "Cl4ve-Buena!2026"})
+    # La respuesta HTTP no es la verdad: se relee la BD. Y se BORRA lo que
+    # hubiera, en un `finally`: si el validador se rompe, esta prueba escribe
+    # una fila con un correo malformado, y como el índice único de
+    # `e9c1correo` no deja repetirlo, la siguiente corrida daría 409 en vez de
+    # 400 y el fallo parecería otro. Pasó midiendo la mutación de este mismo
+    # arreglo: 7 filas basura dejaron 7 pruebas en rojo por el motivo
+    # equivocado.
+    try:
+        assert resp.status_code == 400, (
+            f"«{valor}» entró con {resp.status_code}: "
+            f"{resp.get_data(as_text=True)[:200]}")
+        with get_session() as s:
+            fila = s.exec(select(Technician).where(
+                Technician.Email_Address == valor)).first()
+        assert fila is None, f"400 devuelto pero la fila con {valor!r} se escribió"
+    finally:
+        with get_session() as s:
+            for fila in s.exec(select(Technician).where(
+                    Technician.Email_Address == valor)).all():
+                s.delete(fila)
+            s.commit()
+
+
+@pytest.mark.parametrize("valor", MALFORMADOS)
+def test_el_update_rechaza_un_correo_con_forma_invalida(client, admin_headers, valor):
+    """Es la puerta que la revisión midió abierta, y la alcanzable desde la UI:
+    el formulario de edición del técnico expone `Email_Address`."""
+    tid = f"TECG{uuid.uuid4().int % 90000 + 10000}"
+    bueno = f"{tid.lower()}@senavia-test.com"
+    alta = client.post("/technician/", headers=admin_headers, json={
+        "ID_Technician": tid, "Name": "Formato Update",
+        "Email_Address": bueno, "Password": "Cl4ve-Buena!2026"})
+    assert alta.status_code == 201, alta.get_data(as_text=True)[:300]
+    tid = (alta.get_json() or {}).get("ID_Technician") or tid
+    try:
+        resp = client.patch(f"/technician/{tid}", headers=admin_headers,
+                            json={"Email_Address": valor})
+        assert resp.status_code == 400, (
+            f"«{valor}» entró con {resp.status_code}: "
+            f"{resp.get_data(as_text=True)[:200]}")
+        with get_session() as s:
+            fila = s.exec(select(Technician).where(
+                Technician.ID_Technician == tid)).first()
+        assert fila.Email_Address == bueno, (
+            f"400 devuelto pero el correo se cambió a {fila.Email_Address!r}")
+    finally:
+        with get_session() as s:
+            fila = s.exec(select(Technician).where(
+                Technician.ID_Technician == tid)).first()
+            if fila:
+                s.delete(fila)
+                s.commit()
+
+
+def test_un_correo_raro_pero_legitimo_si_entra():
+    """El control. Sin esto, un validador que rechace TODO dejaría las dos
+    pruebas de arriba en verde por el motivo equivocado.
+
+    Es a propósito permisivo: rechazar de más rompería altas válidas, que es
+    peor que el agujero que se está cerrando.
+    """
+    from src.models.TechnicianModel import TechnicianUpdate
+    for bueno in ["a@b.co", "raro+etiqueta@sub.dominio.org",
+                  "nombre.apellido@empresa.co.uk", "x1@y2.zz"]:
+        v = TechnicianUpdate.model_validate({"Email_Address": bueno})
+        assert v.Email_Address == bueno, bueno
+
+
+def test_los_espacios_de_los_extremos_se_quitan_al_guardar():
+    """Mismo motivo que O-05: `" sub@x.com "` guardado con espacios es una
+    cuenta muda, porque el login busca normalizado y la fila no aparece."""
+    from src.models.TechnicianModel import TechnicianUpdate
+    v = TechnicianUpdate.model_validate({"Email_Address": "  sub@x.com \t"})
+    assert v.Email_Address == "sub@x.com"

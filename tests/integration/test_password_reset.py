@@ -3,6 +3,10 @@ import uuid
 
 import pytest
 from decouple import config as _env
+
+# Cumple la politica (10+, 3 de 4 clases, sin repeticiones): asi un 400 solo
+# puede venir del token.
+FUERTE_VALIDA = "Cl4ve-Buena!2026"
 from sqlmodel import select
 
 from src.database.db_sqlmodel import get_session
@@ -67,9 +71,40 @@ def test_full_reset_flow_single_use(client, disposable_member, monkeypatch):
 
 
 def test_reset_rejects_garbage_token(client):
+    """Un token falsificado se rechaza POR EL TOKEN, no de rebote.
+
+    Antes mandaba `Password="loquesea123"` —minusculas y digitos, dos de las
+    cuatro clases— asi que el 400 lo devolvia la POLITICA DE CONTRASENAS y la
+    firma no llegaba a comprobarse nunca. Medido: con
+    `except BadSignature: return jsonify({"message": "Password updated"}), 200`
+    puesto a proposito, este fichero seguia dando `6 passed`. La sonda existia
+    para cazar exactamente eso y no podia verlo.
+
+    Ahora la contrasena CUMPLE la politica, asi que lo unico que puede producir
+    el 400 es el token, y ademas se afirma el mensaje: un 400 con el cuerpo
+    equivocado es tan fallo como un 200.
+    """
+    resp = client.post("/auth/reset-password",
+                       json={"token": "basura", "Password": FUERTE_VALIDA})
+    assert resp.status_code == 400, resp.get_data(as_text=True)[:200]
+    assert "Invalid reset link" in resp.get_json()["error"], (
+        "el 400 no viene del token: " + resp.get_data(as_text=True)[:200])
+
+
+def test_una_password_debil_no_tapa_un_token_falsificado(client):
+    """El control del anterior: con una contrasena que NO cumple la politica y
+    un token falsificado, el motivo que se reporta sigue siendo el token.
+
+    Es lo que fija el orden de las dos comprobaciones en la ruta. Si alguien
+    vuelve a poner la politica delante, esto se pone rojo y el de arriba no.
+    """
     resp = client.post("/auth/reset-password",
                        json={"token": "basura", "Password": "loquesea123"})
     assert resp.status_code == 400
+    assert "Invalid reset link" in resp.get_json()["error"], (
+        "la politica se evalua ANTES que la firma: un token falsificado se "
+        "reporta como contrasena debil y la firma no se comprueba. "
+        + resp.get_data(as_text=True)[:200])
 
 
 def test_login_rate_limit_429(client):
