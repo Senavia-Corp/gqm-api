@@ -24,12 +24,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scripts.audit_portal_lib import call, tokens  # noqa: E402
+from scripts.audit_portal_lib import call, mundos_sembrados, tokens  # noqa: E402
 
-A = {"sub": "SUBC60001", "tec": "TEC60001", "job": "QID-I60001", "task": "TSK60001",
-     "att": "ATT60001", "cli": "CLI60001", "pmc": "PMC60001"}
-B = {"sub": "SUBC60002", "tec": "TEC60002", "job": "PTL-I60001", "task": "TSK60003",
-     "att": "ATT60003", "cli": "CLI60002", "pmc": "PMC60002"}
+# Ids por NOMBRE, no a mano: ver `mundos_sembrados` en audit_portal_lib.py.
+A, B = mundos_sembrados()
 MUNDO = {"subcontractor": A, "technical": A, "sub_B": B, "tech_de_sub_B": B,
          "tech_independiente": A}
 
@@ -169,7 +167,7 @@ def main():
         # El job COMPARTIDO entre sub A y sub B: aqui la fuga no es por id sino
         # por la COLECCION ANIDADA — `subcontractors[]` traia al otro sub con
         # sus ordenes dentro. Es el caso que los mundos disjuntos no pueden ver.
-        ("GET /jobs/<compartido>",         "/jobs/QID-I60029",                 "compartido"),
+        ("GET /jobs/<compartido>",         "/jobs/{compartido}",               "compartido"),
     ]
     for suj in ("subcontractor", "technical", "sub_B", "tech_de_sub_B", "tech_independiente"):
         propio = MUNDO[suj]

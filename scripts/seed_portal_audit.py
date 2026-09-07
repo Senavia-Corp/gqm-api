@@ -416,20 +416,6 @@ def main() -> None:
         t_a2 = _tarea(session, f"{MARCA}-A-tarea-sin-asignar", job_a, sub=sub_a)
         _adjunto(session, f"{MARCA}-A-adjunto-job", job=job_a, nivel="internal")
         _adjunto(session, f"{MARCA}-A-adjunto-tecnico", tech=tech_a, nivel="technicians")
-        # La baraja completa de `access_level` sobre UN MISMO job propio. Sin
-        # ella la regla de carpetas no se puede medir: antes solo habia
-        # "internal" (job) y "technicians" (tecnico, que ni siquiera cuelga de
-        # un job). El caso NULL es el que mas importa —es lo que produce la
-        # sincronizacion desde Podio, que nunca escribe el campo— y "logbook"
-        # es el que escribe el chat del job.
-        _adjunto(session, f"{MARCA}-A-adjunto-job-technicians", job=job_a, nivel="technicians")
-        _adjunto(session, f"{MARCA}-A-adjunto-job-members", job=job_a, nivel="members")
-        _adjunto(session, f"{MARCA}-A-adjunto-job-logbook", job=job_a, nivel="logbook")
-        _adjunto(session, f"{MARCA}-A-adjunto-job-sin-nivel", job=job_a, nivel=None)
-        # Tarea del tecnico A SIN subcontratista: el tablero del tecnico la
-        # filtraba por subcontratista y la hacia desaparecer de su propia
-        # pantalla. El API si la devuelve (acota por ID_Technician).
-        _tarea(session, f"{MARCA}-A-tarea-de-tech-A-sin-sub", job_a, tech=tech_a)
         _certificado(session, f"{MARCA}-A-certificado", sub_a)
         _tlactivity(session, f"{MARCA}-A-evento-timeline", job=job_a, sub=sub_a)
         _orden(session, f"{MARCA}-A-orden", sub_a)
@@ -465,6 +451,28 @@ def main() -> None:
         job_c = _job(session, "C", cli_c, f"{MARCA}-C-job-sin-asignar", tipo="PAR")
         t_c1 = _tarea(session, f"{MARCA}-C-tarea-huerfana", job_c)
         t_i1 = _tarea(session, f"{MARCA}-I-tarea-de-tech-independiente", job_c, tech=tech_i)
+
+        # ── Fixtures AÑADIDOS AL FINAL, y esto no es cosmético ────────────────
+        #
+        # `audit_portal_matrix.py` y `audit_field_leaks.py` codifican a mano
+        # ATT60001/ATT60003 y TSK60001/TSK60003 como «el objeto de A» y «el de
+        # B». Esos ids salen de un CONTADOR, así que sembrar en medio los
+        # desplaza: metidos en el mundo A, estas cinco filas se quedaron con
+        # ATT60003 y TSK60003 y las dos sondas empezaron a comparar objetos de A
+        # contra las expectativas de B — 14 filas «no conformes» que no eran
+        # ningún fallo de permisos. Van al final para que los ids históricos no
+        # se muevan.
+        #
+        # La baraja completa de `access_level` sobre UN MISMO job propio: sin
+        # ella la regla de carpetas no se puede medir. El caso NULL es el que
+        # más importa —es lo que produce la sincronización desde Podio, que
+        # nunca escribe el campo— y "logbook" es el que escribe el chat del job.
+        _adjunto(session, f"{MARCA}-A-adjunto-job-technicians", job=job_a, nivel="technicians")
+        _adjunto(session, f"{MARCA}-A-adjunto-job-members", job=job_a, nivel="members")
+        _adjunto(session, f"{MARCA}-A-adjunto-job-logbook", job=job_a, nivel="logbook")
+        _adjunto(session, f"{MARCA}-A-adjunto-job-sin-nivel", job=job_a, nivel=None)
+        # Tarea del técnico A SIN subcontratista.
+        _tarea(session, f"{MARCA}-A-tarea-de-tech-A-sin-sub", job_a, tech=tech_a)
         _enlazar(session, job_c, tech=tech_i)
 
         # ── Inventario para 00-entorno.md ─────────────────────────────────────

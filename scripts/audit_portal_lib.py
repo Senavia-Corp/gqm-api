@@ -122,3 +122,92 @@ def fila_bd(modelo, pk):
     from src.database.db_sqlmodel import get_session
     with get_session() as s:
         return s.get(modelo, pk)
+
+
+# ── Los mundos sembrados, resueltos POR NOMBRE ───────────────────────────────
+#
+# `audit_portal_matrix.py` y `audit_field_leaks.py` traían los ids escritos a
+# mano (ATT60001, TSK60003, QID-I60001…). Esos ids los da un CONTADOR, y ni
+# `--limpiar` lo reinicia: en cuanto la base no es virgen, o alguien siembra una
+# fila más, apuntan a otra cosa. Medido: al añadir cuatro adjuntos al mundo A,
+# ATT60003 pasó de ser «el adjunto de B» a ser uno de A, y la matriz reportó 14
+# filas NO CONFORMES que no eran ningún fallo de permisos — comparaba objetos de
+# A contra las expectativas de B. Después de un `--limpiar` + resiembra, los ids
+# viejos directamente no existen y las sondas se saltan solas.
+#
+# Una sonda que se salta sola, o que compara el objeto equivocado, es peor que
+# no tenerla: da un veredicto con la misma cara que el bueno.
+MARCA_SIEMBRA = "AUDIT-PORTAL"
+
+
+def mundos_sembrados():
+    """(A, B): los dos mundos de `seed_portal_audit.py`, leídos de la BD.
+
+    Las variables de entorno siguen mandando si están puestas, para poder
+    apuntar la auditoría a un mundo distinto sin tocar el código.
+    """
+    from sqlmodel import select
+
+    from src.database.db_sqlmodel import get_session
+    from src.models.AttachmentsModel import Attachments
+    from src.models.CertificateModel import Certificate
+    from src.models.ClientModel import Client
+    from src.models.JobModel import Job
+    from src.models.SubcontractorModel import Subcontractor
+    from src.models.TasksModel import Tasks
+    from src.models.TechnicianModel import Technician
+
+    def uno(s, modelo, campo, valor, que):
+        fila = s.exec(select(modelo).where(getattr(modelo, campo) == valor)).first()
+        if fila is None:
+            sys.exit(f"⛔ no encuentro {que} («{valor}»). Corre "
+                     f"scripts/seed_rbac.py y scripts/seed_portal_audit.py.")
+        return fila
+
+    with get_session() as s:
+        mundos = {}
+        for letra, correo_sub, correo_tec in (
+                ("A", "sub-dev@senavia-test.com", "tech-dev@senavia-test.com"),
+                ("B", "sub-b-dev@senavia-test.com", "tech-b-dev@senavia-test.com")):
+            m = f"{MARCA_SIEMBRA}-{letra}"
+            cli = uno(s, Client, "Client_Community", f"{m}-cliente", f"cliente {letra}")
+            mundos[letra] = {
+                "sub": uno(s, Subcontractor, "Email_Address", correo_sub,
+                           f"subcontratista {letra}").ID_Subcontractor,
+                "tec": uno(s, Technician, "Email_Address", correo_tec,
+                           f"técnico {letra}").ID_Technician,
+                "job": uno(s, Job, "Project_name", f"{m}-job-de-sub-{letra}",
+                           f"job {letra}").ID_Jobs,
+                "task": uno(s, Tasks, "Name", f"{m}-tarea-de-tech-{letra}",
+                            f"tarea {letra}").ID_Tasks,
+                # El adjunto «propio y legible». Ojo: NO es `-adjunto-job`, que
+                # es `access_level="internal"`; de un job, un rol de portal solo
+                # ve la carpeta «technicians». Apuntar aqui al `internal` hacia
+                # que la matriz esperase 200 sobre algo que ahora es 403 — y esa
+                # expectativa es el contrato viejo, no un fallo.
+                "att": uno(s, Attachments, "Document_name",
+                           f"{m}-adjunto-tecnico" if letra == "A" else f"{m}-adjunto-tecnico",
+                           f"adjunto {letra}").ID_Attachment,
+                "att_internal": uno(s, Attachments, "Document_name", f"{m}-adjunto-job",
+                                    f"adjunto interno {letra}").ID_Attachment,
+                "cert": uno(s, Certificate, "Name", f"{m}-certificado",
+                            f"certificado {letra}").ID_Certificate,
+                "cli": cli.ID_Client,
+                "pmc": cli.ID_Community_Tracking,
+            }
+        for nivel in ("technicians", "members", "logbook", "sin-nivel"):
+            mundos["A"][f"att_{nivel}"] = uno(
+                s, Attachments, "Document_name",
+                f"{MARCA_SIEMBRA}-A-adjunto-job-{nivel}",
+                f"adjunto de job A nivel {nivel}").ID_Attachment
+
+        compartido = uno(s, Job, "Project_name",
+                         f"{MARCA_SIEMBRA}-D-job-compartido-A-y-B", "job compartido")
+        mundos["A"]["compartido"] = mundos["B"]["compartido"] = compartido.ID_Jobs
+
+    for letra in ("A", "B"):
+        for clave in list(mundos[letra]):
+            var = f"AUDIT_{letra}_{clave.upper()}"
+            if os.environ.get(var):
+                mundos[letra][clave] = os.environ[var]
+    return mundos["A"], mundos["B"]
