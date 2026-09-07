@@ -75,23 +75,56 @@ _NOMBRE_DE_CUENTA = {
 }
 
 
-def send_password_reset(to: str, reset_url: str, tipo_de_cuenta: str | None = None) -> bool:
-    """O-05: `tipo_de_cuenta` distingue los enlaces cuando un mismo correo
-    tiene varias cuentas (p. ej. member y technician). Sin el, el destinatario
-    recibiria dos correos identicos y no sabria cual reinicia cual."""
-    cual = _NOMBRE_DE_CUENTA.get(tipo_de_cuenta or "", "")
-    sufijo = f" ({cual} account)" if cual else ""
+def send_password_reset(to: str, enlaces) -> bool:
+    """UN correo con todos los enlaces de reinicio de ese buzon.
+
+    `enlaces` es una lista de `(tipo_de_cuenta, url)`. Se acepta tambien una
+    URL suelta por compatibilidad con los llamadores antiguos.
+
+    Un correo y no uno por cuenta (O-05 bis): mandar N costaba N conexiones
+    SMTP sincronas y hacia que el tiempo de respuesta delatara CUANTAS cuentas
+    tiene esa direccion — el «siempre 200» no oculta nada al reloj.
+
+    El tipo de cuenta va junto a cada enlace porque, con dos enlaces iguales,
+    el destinatario no sabria cual reinicia cual.
+
+    Nota honesta: quien controle el buzon puede reiniciar TODAS las cuentas
+    abiertas sobre el. Eso es inherente a recuperar la contrasena por correo;
+    que antes solo alcanzara a la primera por orden de tabla era un accidente,
+    no un control de seguridad.
+    """
+    if isinstance(enlaces, str):
+        enlaces = [(None, enlaces)]
+    enlaces = list(enlaces)
+    if not enlaces:
+        return False
+
+    varias = len(enlaces) > 1
+    asunto = ("Reset your GQM passwords" if varias else "Reset your GQM password")
+
+    filas_html, filas_texto = [], []
+    for tipo, url in enlaces:
+        nombre = _NOMBRE_DE_CUENTA.get(tipo or "", "")
+        etiqueta = f"Reset {nombre} password" if nombre else "Reset password"
+        filas_html.append(f"""
+          <p style="margin:14px 0">
+            <a href="{url}" style="background:#14532d;color:#fff;
+               padding:10px 18px;border-radius:6px;text-decoration:none">
+               {etiqueta}</a></p>""")
+        filas_texto.append(f"{etiqueta}: {url}")
+
+    encabezado = (
+        "<p>This email address has more than one GQM account. "
+        "Use the link for the one you want to reset.</p>"
+        if varias else
+        "<p>We received a request to reset your password.</p>")
+
     return send_email(
-        to, f"Reset your GQM password{sufijo}",
-        _layout("Password reset", f"""
-          <p>We received a request to reset the password of your
-             <strong>{cual or "GQM"}</strong> account.</p>
-          <p><a href="{reset_url}" style="background:#14532d;color:#fff;
-             padding:10px 18px;border-radius:6px;text-decoration:none">
-             Reset password</a></p>
+        to, asunto,
+        _layout("Password reset", encabezado + "".join(filas_html) + """
           <p>The link expires in 30 minutes. If you didn't request this,
              you can ignore this email.</p>"""),
-        text=f"Reset your GQM password{sufijo}: {reset_url} (expires in 30 minutes)",
+        text="\n".join(filas_texto) + "\n(expires in 30 minutes)",
     )
 
 

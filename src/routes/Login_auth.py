@@ -94,13 +94,43 @@ def _rate_limited(key: str) -> bool:
         return _rate_limited_memoria(key)
 
 
-def _client_key(email: str) -> str:
+# Los espacios que quita `str.strip()` de Python. Se nombran porque `btrim()`
+# de Postgres, SIN segundo argumento, quita SOLO el espacio: medido en este
+# mismo Postgres, `btrim(E'ana@x.com\t')` devuelve `'ana@x.com\t'`. Sin esto la
+# aplicacion y el indice unico de la migracion e9c1correo normalizan DISTINTO, y
+# un correo con un tabulador final es el mismo usuario para una y otra clave
+# para el otro: el duplicado se cuela. Es la clase de fallo de O-04 otra vez.
+ESPACIOS = " \t\n\r\v\f"
+
+
+def correo_normalizado(valor) -> str:
+    """El correo tal y como se compara en TODAS partes."""
+    return (valor or "").strip(ESPACIOS).lower()
+
+
+def columna_correo_normalizada(columna):
+    """La misma normalizacion, en SQL. Igual que el indice de e9c1correo."""
+    from sqlalchemy import func as sa_func
+    return sa_func.lower(sa_func.btrim(columna, ESPACIOS))
+
+
+def _client_key(email: str, *, ambito: str = "") -> str:
+    """Clave del limitador. `ambito` va DESPUES de normalizar, nunca antes.
+
+    O-05 bis: la llamada de forgot-password era `_client_key(f"forgot|{email}")`,
+    asi que el `.strip()` de aqui recortaba los extremos de
+    `"forgot| ana@x.com"` —que no tiene ninguno— y el espacio interior
+    sobrevivia. Medido:
+
+        _client_key("forgot|ana@x.com")  -> 1.2.3.4|forgot|ana@x.com
+        _client_key("forgot| ana@x.com") -> 1.2.3.4|forgot| ana@x.com
+
+    Dos cupos distintos para el mismo usuario: bastaba anadir un espacio para
+    reiniciar el limitador. El login, que pasaba el correo suelto, si estaba
+    bien. Con el ambito como parametro el correo se normaliza SIEMPRE.
+    """
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
-    # `.strip()` ademas de `.lower()`: la BUSQUEDA del usuario normaliza con
-    # `.strip().lower()`, asi que sin el strip " a@b.com" y "a@b.com" son el
-    # MISMO usuario con DOS claves de limitacion distintas — y el limitador se
-    # reinicia anadiendo un espacio.
-    return f"{ip}|{(email or '').strip().lower()}"
+    return f"{ip}|{ambito}{correo_normalizado(email)}"
 
 
 def _json_object():
@@ -145,11 +175,11 @@ def login():
         # Se normaliza igual en los tres. Mismo criterio que ya afirmaba
         # tests/integration/test_sub_login_exact_match.py: igualdad exacta,
         # insensible a mayusculas, jamas substring.
-        correo_normalizado = (email or "").strip().lower()
+        correo = correo_normalizado(email)
 
         # Buscar en Member
         stmt = select(Member).where(
-            sa_func.lower(Member.Email_Address) == correo_normalizado)
+            columna_correo_normalizada(Member.Email_Address) == correo)
         member = session.exec(stmt).first()
 
         if member and verify_password(password, member.Password):
@@ -181,7 +211,7 @@ def login():
         else:
             # Buscar en Technician
             stmt = select(Technician).where(
-                sa_func.lower(Technician.Email_Address) == correo_normalizado)
+                columna_correo_normalizada(Technician.Email_Address) == correo)
             technician = session.exec(stmt).first()
 
             if technician and verify_password(password, technician.Password):
@@ -206,8 +236,8 @@ def login():
                 stmt = select(Subcontractor).options(
                     joinedload(Subcontractor.role).joinedload(Role.permissions),
                     joinedload(Subcontractor.permissions)
-                ).where(sa_func.lower(Subcontractor.Email_Address)
-                        == correo_normalizado)
+                ).where(columna_correo_normalizada(Subcontractor.Email_Address)
+                        == correo)
                 subcontractor = session.exec(stmt).unique().first()
                 
                 if subcontractor and subcontractor.Password and verify_password(password, subcontractor.Password):
@@ -476,14 +506,18 @@ def _find_users_by_email(session, email: str):
     Se devuelven todos, en orden estable, para que la puerta de recuperacion
     tenga el mismo alcance que la de entrada.
     """
-    from sqlalchemy import func as sa_func
-    normalized = (email or "").strip().lower()
-    if not normalized:
+    normalizado = correo_normalizado(email)
+    if not normalizado:
         return []
     encontrados = []
     for user_type, (Model, _pk) in _USER_TABLES.items():
+        # Se normaliza la COLUMNA, no solo la entrada. Sin esto, una fila
+        # guardada como 'ana@x.com ' —que la propia migracion e9c1correo
+        # advierte que aparece en una importacion de 432 filas de Podio— es una
+        # cuenta muda: existe, tiene contrasena, y ni entra ni se recupera.
         for user in session.exec(
-            select(Model).where(sa_func.lower(Model.Email_Address) == normalized)
+            select(Model).where(
+                columna_correo_normalizada(Model.Email_Address) == normalizado)
         ).all():
             encontrados.append((user_type, user))
     return encontrados
@@ -498,14 +532,18 @@ def forgot_password():
     if not email:
         return jsonify({"error": "Email_Address is required"}), 400
 
-    if _rate_limited(_client_key(f"forgot|{email}")):
+    # `ambito` como parametro, no concatenado: ver `_client_key`. Concatenarlo
+    # antes dejaba " ana@x.com" en un cupo propio y el limitador se reiniciaba
+    # con solo anadir un espacio.
+    if _rate_limited(_client_key(email, ambito="forgot|")):
         return jsonify({"error": "Too many attempts, try again in a minute"}), 429
 
+    from decouple import config as env_config
+    panel = env_config("PANEL_BASE_URL", default="http://localhost:3100").rstrip("/")
+
+    destino = None
+    enlaces = []
     with get_session() as session:
-        # Un enlace por principal (O-05). Quien recibe los correos es el dueno
-        # de ese buzon, que por definicion es el dueno de las N cuentas
-        # abiertas sobre el: no se le revela nada que no fuera suyo, y la
-        # respuesta de abajo sigue siendo un 200 constante.
         for user_type, user in _find_users_by_email(session, email):
             if not user.Password:
                 continue
@@ -515,15 +553,31 @@ def forgot_password():
                 "ut": user_type,
                 "ph": user.Password[-12:],  # fragmento → un solo uso
             })
-            from decouple import config as env_config
-            panel = env_config("PANEL_BASE_URL", default="http://localhost:3100").rstrip("/")
+            destino = destino or user.Email_Address
+            enlaces.append((user_type, f"{panel}/reset-password?token={token}"))
+
+    # UN SOLO correo con todos los enlaces, y FUERA de la sesion de BD.
+    #
+    # Mandar uno por principal costaba hasta tres conexiones SMTP sincronas
+    # dentro del `with get_session()`, con 15 s de timeout cada una, en una
+    # funcion serverless sin `maxDuration`: si se cortaba a la mitad, el member
+    # recibia su enlace y el tecnico y la subcontrata no — los dos roles que
+    # esta auditoria va a encender.
+    #
+    # Y el tiempo de respuesta separaba sin solape 0, 1 y 3 principales
+    # (~30 ms y ~110 ms), asi que el «siempre 200» no ocultaba nada al reloj:
+    # el endpoint enumeraba quien esta dado de alta. Con un solo envio, el
+    # tiempo deja de escalar con el numero de cuentas.
+    if enlaces:
+        try:
             from src.services.email_service import send_password_reset
-            # El tipo de principal va en el correo: con dos enlaces identicos
-            # en la bandeja, el destinatario no sabria cual es cual y la
-            # recuperacion seguiria rota en la practica.
-            send_password_reset(user.Email_Address,
-                                f"{panel}/reset-password?token={token}",
-                                tipo_de_cuenta=user_type)
+            send_password_reset(destino, enlaces)
+        except Exception:
+            # Nunca cambia la respuesta. Sin este try, un fallo de SMTP
+            # convertia el 200 constante en un 500 que solo aparecia cuando el
+            # correo EXISTE: enumeracion directa, sin cronometro y sin
+            # ambiguedad, justo lo contrario de lo que promete el 200 de abajo.
+            _logger.exception("forgot-password: fallo el envio del correo de reinicio")
 
     # Siempre 200: no filtrar si el email existe
     return jsonify({"message": "If the email exists, a reset link was sent"}), 200

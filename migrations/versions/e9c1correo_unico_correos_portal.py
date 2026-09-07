@@ -53,13 +53,26 @@ TABLAS = [
     ("technician", "ID_Technician", "ux_technician_email_lower"),
 ]
 
+# `btrim(x)` SIN segundo argumento quita solo el espacio. Medido en este mismo
+# Postgres: `btrim(E'ana@x.com\t')` devuelve `'ana@x.com\t'`. Y `str.strip()` de
+# Python quita ademas \t \n \r \v \f, que es lo que usa la aplicacion para
+# normalizar el correo antes de buscarlo.
+#
+# Sin nombrarlos, la APLICACION y este INDICE normalizan DISTINTO: 'ana@x.com\t'
+# es el mismo usuario para una y una clave distinta para el otro, y el duplicado
+# se cuela por debajo del indice unico. Es la clase de fallo de O-04 —tres formas
+# de comparar el mismo correo— reintroducida por la puerta de atras.
+#
+# Comprobado: btrim(E'\tana@x.com \x0B\f\r\n', ESPACIOS) = 'ana@x.com'.
+ESPACIOS = r"E' \t\n\r\x0B\f'"
+
 SQL_DUPLICADOS = """
-SELECT lower(btrim("Email_Address")) AS correo,
+SELECT lower(btrim("Email_Address", {espacios})) AS correo,
        count(*) AS n,
        string_agg("{id_col}", ', ' ORDER BY "{id_col}") AS filas
   FROM {tabla}
- WHERE "Email_Address" IS NOT NULL AND btrim("Email_Address") <> ''
- GROUP BY lower(btrim("Email_Address"))
+ WHERE "Email_Address" IS NOT NULL AND btrim("Email_Address", {espacios}) <> ''
+ GROUP BY lower(btrim("Email_Address", {espacios}))
 HAVING count(*) > 1
  ORDER BY n DESC
  LIMIT 20
@@ -75,7 +88,7 @@ def upgrade() -> None:
     problemas = []
     for tabla, id_col, _ in TABLAS:
         filas = conexion.exec_driver_sql(
-            SQL_DUPLICADOS.format(tabla=tabla, id_col=id_col)).fetchall()
+            SQL_DUPLICADOS.format(tabla=tabla, id_col=id_col, espacios=ESPACIOS)).fetchall()
         for correo, n, ids in filas:
             problemas.append(f"{tabla}: «{correo}» en {n} filas ({ids})")
 
@@ -107,8 +120,9 @@ def upgrade() -> None:
             #    excluye '' con btrim.
             op.execute(
                 f'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS {nombre} '
-                f'ON {tabla} (lower(btrim("Email_Address"))) '
-                f'WHERE "Email_Address" IS NOT NULL AND btrim("Email_Address") <> \'\''
+                f'ON {tabla} (lower(btrim("Email_Address", {ESPACIOS}))) '
+                f'WHERE "Email_Address" IS NOT NULL '
+                f'AND btrim("Email_Address", {ESPACIOS}) <> \'\''
             )
 
 

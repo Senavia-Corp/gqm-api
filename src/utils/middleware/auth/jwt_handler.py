@@ -43,15 +43,44 @@ class ClaveJWTAusente(RuntimeError):
     """Falta una clave de firma en el entorno. No es un token inválido."""
 
 
+class ConfiguracionJWTInvalida(RuntimeError):
+    """Una variable de duración existe pero no vale. No es un valor ausente."""
+
+
 def _entero_de_entorno(nombre: str, por_defecto: int) -> int:
+    """Ausente → el defecto. Presente pero inservible → error RUIDOSO.
+
+    La primera version se tragaba `'abc'`, `'60m'` y `'5.5'` y devolvia 60
+    minutos como si nada; el codigo anterior a O-07 (`int(os.getenv(...))`)
+    reventaba al arrancar. Es decir: arreglando un fallo de configuracion
+    silencioso introduje otro, que es exactamente la leccion que O-07 venia a
+    dejar escrita.
+
+    Y `'-5'` o `'0'` firmaban tokens ya caducados: todo el mundo dentro con la
+    sesion muerta al instante, sin ninguna pista de por que.
+    """
     crudo = os.environ.get(nombre)
     if crudo is None:
         from decouple import config as _config
         crudo = _config(nombre, default=None)
-    try:
-        return int(crudo) if crudo not in (None, "") else por_defecto
-    except (TypeError, ValueError):
+    # En blanco cuenta como AUSENTE: una variable puesta a "" o a un espacio
+    # es indistinguible de no ponerla, y ahi el defecto es lo correcto. Lo que
+    # no puede pasar en silencio es un valor que ALGUIEN QUISO poner y no vale.
+    crudo = "" if crudo is None else str(crudo).strip()
+    if not crudo:
         return por_defecto
+    try:
+        valor = int(crudo)
+    except (TypeError, ValueError):
+        raise ConfiguracionJWTInvalida(
+            f"{nombre}={crudo!r} no es un numero entero de minutos/dias. "
+            f"Corrigela en el .env o en las variables del despliegue, o "
+            f"quitala para usar el valor por defecto ({por_defecto}).")
+    if valor <= 0:
+        raise ConfiguracionJWTInvalida(
+            f"{nombre}={valor} firmaria tokens ya caducados. Tiene que ser "
+            f"mayor que cero.")
+    return valor
 
 
 def _clave(nombre: str) -> str:
@@ -73,16 +102,18 @@ def _clave(nombre: str) -> str:
     return valor
 
 
-# Compatibilidad: había código y pruebas leyendo estos nombres del módulo.
-# Ahora son propiedades del módulo, no fotos del arranque.
-def __getattr__(nombre):
-    if nombre in ("LOGIN_SECRET_KEY", "REFRESH_SECRET_KEY"):
-        return _clave(nombre)
-    if nombre == "ACCESS_EXPIRE_MIN":
-        return _entero_de_entorno("ACCESS_TOKEN_EXPIRES_MIN", 60)
-    if nombre == "REFRESH_EXPIRE_DAYS":
-        return _entero_de_entorno("REFRESH_TOKEN_EXPIRES_DAYS", 7)
-    raise AttributeError(nombre)
+# No hay puente de compatibilidad a proposito. Se comprobo con grep que NADIE
+# fuera de este modulo lee `LOGIN_SECRET_KEY`, `REFRESH_SECRET_KEY`,
+# `ACCESS_EXPIRE_MIN` ni `REFRESH_EXPIRE_DAYS` como atributo del modulo, y un
+# `__getattr__` que los sirviera traeria dos problemas por nada:
+#
+#  · lanzando `ClaveJWTAusente` rompe `hasattr()` y `getattr(mod, x, defecto)`,
+#    que solo tragan `AttributeError`;
+#  · seria de solo lectura: asignar `jwt_handler.LOGIN_SECRET_KEY = "otra"` no
+#    cambiaria con que se firma, asi que un monkeypatch dejaria de tener efecto
+#    EN SILENCIO.
+#
+# Quien necesite el valor llama a `_clave("LOGIN_SECRET_KEY")`.
 
 
 def create_access_token(data: dict):
