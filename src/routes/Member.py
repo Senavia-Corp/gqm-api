@@ -10,6 +10,7 @@ from ..utils.relationships import add_relationships
 from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy import func, or_
 from ..utils.middleware.auth.password_hashing import hash_password
+from ..utils.password_policy import validar_password, PasswordDebil
 from ..utils.middleware.retries.db_route_retries.add_session import save_with_retry
 from ..utils.middleware.retries.db_route_retries.delete_session import delete_with_retry
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
@@ -218,6 +219,13 @@ def create_member():
 
     with get_session() as session:
 
+        # O-01: la politica de contrasenas dejaba fuera al principal MAS
+        # privilegiado. Medido: POST /member/ con "12345678" devolvia 201.
+        try:
+            validar_password(obj.Password)
+        except PasswordDebil as debil:
+            raise AppException(str(debil), "weak_password", 400)
+
         obj.Password = hash_password(obj.Password)  # Hash al password
 
         # ----------- 🔵 CREAR EN DB
@@ -271,6 +279,10 @@ def update_member(id_member):
 
         # Hash al passsword si se actualiza
         if update_data_dict.get("Password"):
+            try:
+                validar_password(update_data_dict["Password"])
+            except PasswordDebil as debil:
+                raise AppException(str(debil), "weak_password", 400)
             update_data_dict["Password"] = hash_password(
                 update_data_dict["Password"]
             )
