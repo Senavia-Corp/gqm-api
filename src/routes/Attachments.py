@@ -52,6 +52,7 @@ def _alcance_portal(statement):
 
     from sqlalchemy import or_ as sa_or
 
+    from ..models.CertificateModel import Certificate
     from ..models.JobModel import Job
     from ..models.TechnicianModel import Technician
 
@@ -68,28 +69,71 @@ def _alcance_portal(statement):
         condiciones.append(Attachments.ID_Technician.in_(
             select(Technician.ID_Technician).where(
                 Technician.ID_Subcontractor == uid)))
+        # Faltaba la rama de certificados: `upload_attachment` le PERMITE al
+        # sub colgar un adjunto de su certificado (entity_type == "certificate",
+        # con `portal_owns_subcontractor` sobre el dueño), y este alcance no la
+        # contemplaba — asi que subia el fichero y luego no podia releerlo ni
+        # por lista ni por id. Se cierra el circulo con la misma regla de
+        # pertenencia que usa la subida.
+        condiciones.append(Attachments.ID_Certificate.in_(
+            select(Certificate.ID_Certificate).where(
+                Certificate.ID_Subcontractor == uid)))
 
     return statement.where(sa_or(*condiciones))
 
 
-def _portal_ve_carpeta(user_policies, access_level) -> bool:
-    """P-03: gate de carpeta para roles de portal, sin el atajo global.
+def _portal_posee_adjunto(session, att) -> bool:
+    """¿El adjunto esta dentro del alcance del portal actual? Staff siempre.
+
+    Reutiliza `_alcance_portal` para que la comprobacion POR ID diga
+    exactamente lo mismo que el listado. Una divergencia entre el listado y la
+    lectura o escritura por id es justo el hueco por el que se cuelan los IDOR
+    — es el mismo razonamiento que `scope_tasks_statement` y
+    `task_belongs_to_portal_user` (routes_protection.py:379-383).
+    """
+    rol, _ = portal_scope()
+    if rol is None:
+        return True
+    stmt = _alcance_portal(select(Attachments).where(
+        Attachments.ID_Attachment == att.ID_Attachment))
+    return session.exec(stmt).first() is not None
+
+
+def _portal_ve_adjunto(user_policies, att) -> bool:
+    """Gate de carpeta para roles de portal, sin el atajo global.
 
     `attachment:read` global cortocircuitaba el filtro por carpeta, y AMBAS
-    politicas de portal lo conceden (seed_rbac.py:90 y :103) — por eso el
+    politicas de portal lo conceden (seed_rbac.py:89 y :102) — por eso el
     bloque de filtrado no se ejecutaba nunca y el sub A recibia
     ATT60001..ATT60004, los adjuntos del job de sub_B incluidos.
 
-    Solo `members` y `technicians` tienen permiso de carpeta propio: son las
-    dos unicas que existen en el vocabulario de politica y las dos unicas que
-    la subida reconoce (`upload_attachment`). Para cualquier otro valor no hay
-    permiso que evaluar, asi que decide la pertenencia de `_alcance_portal`.
-    Mapear esos valores a `attachment:read_<lo_que_sea>` — lo que hacia la ruta
-    por id con `or "members"` — inventa un permiso que no tiene NADIE y negaria
-    al sub sus PROPIOS documentos de job (los sembrados por la auditoria son
-    `access_level="internal"`).
+    Toma la FILA y no solo el nivel, porque la regla depende de la entidad de
+    la que cuelga el adjunto:
+
+    * **Cuelga de un JOB** — decision del cliente: de un job, el portal solo ve
+      la carpeta «technicians». Antes, cualquier valor fuera de
+      {members, technicians} caia en el `return True` del final y decidia solo
+      la pertenencia; como la sincronizacion desde Podio NUNCA escribe
+      `access_level` (podio_webhook_core.py:740-750) y el logbook escribe
+      `access_level="logbook"` CON `ID_Jobs` (ChatMessage.py:212-221), eso
+      significaba que el sub recibia, de sus propios jobs, todo lo sincronizado
+      y todo el logbook. Es la simetrica de la regla de subida: lo unico que un
+      rol de portal puede escribir en un job es `technicians`, y lo unico que
+      puede leer es `technicians`.
+
+    * **No cuelga de un job** (su propia ficha, sus tecnicos, sus
+      certificados) — se conserva la regla anterior tal cual. `_alcance_portal`
+      ya probo que la fila es suya, y ahi no hay vocabulario de carpetas:
+      mapear un nivel desconocido a `attachment:read_<lo_que_sea>` inventaria
+      un permiso que no tiene NADIE y le negaria al sub sus propios
+      documentos.
     """
-    carpeta = (access_level or "").strip().lower()
+    carpeta = (getattr(att, "access_level", None) or "").strip().lower()
+
+    if getattr(att, "ID_Jobs", None) is not None:
+        return carpeta == "technicians" and PolicyEvaluator.evaluate(
+            user_policies, "attachment:read_technicians")
+
     if carpeta in ("members", "technicians"):
         return PolicyEvaluator.evaluate(
             user_policies, f"attachment:read_{carpeta}")
@@ -131,7 +175,7 @@ def list_attachments():
         if rol_portal is not None:
             # P-03: el atajo por `attachment:read` global NO aplica al portal.
             results = [att for att in results
-                       if _portal_ve_carpeta(user_policies, att.access_level)]
+                       if _portal_ve_adjunto(user_policies, att)]
         elif not PolicyEvaluator.evaluate(user_policies, "attachment:read"):
             can_read_members = PolicyEvaluator.evaluate(
                 user_policies, "attachment:read_members")
@@ -201,7 +245,7 @@ def get_attachment_by_id(id_attachment):
             # P-03: el atajo por `attachment:read` global NO aplica al portal.
             # Aqui el 403 ya no es enumerable: solo se alcanza sobre un adjunto
             # que YA se ha comprobado que es suyo.
-            if not _portal_ve_carpeta(user_policies, obj.access_level):
+            if not _portal_ve_adjunto(user_policies, obj):
                 return jsonify({"error": "Forbidden: You do not have permission to read this attachment"}), 403
         elif not PolicyEvaluator.evaluate(user_policies, "attachment:read"):
             folder = obj.access_level or "members"
@@ -322,6 +366,34 @@ def upload_attachment():
                 permitido = False
         if not permitido:
             raise AppException("Entity not found", "not_found", 404)
+
+        # ── 2ter. La carpeta, cuando el destino es un JOB ─────────
+        #
+        # El gate de carpeta de arriba (:262-269) se cortocircuita con
+        # `attachment:create` GLOBAL, y ambas politicas de portal lo conceden
+        # (seed_rbac.py:90) — esta ahi para que el sub suba sus PROPIOS
+        # certificados, asi que quitarselo le retiraria una capacidad que usa.
+        # La politica no se toca: la regla es de ruta y se deriva de la
+        # ENTIDAD destino. Decision del cliente: de un job, el portal solo
+        # trabaja la carpeta «technicians».
+        #
+        # 403 y no 404: la pertenencia ya quedo probada tres lineas arriba, asi
+        # que no hay existencia que ocultar, y responder «no existe» sobre un
+        # job que el usuario esta mirando seria mentirle. Tampoco 400: la
+        # peticion no es invalida —byte a byte, la misma que un admin envia con
+        # exito—, lo que cambia es QUIEN pregunta, y eso es un 403. Es ademas
+        # el codigo que ya usa el gate de carpeta vecino (:269).
+        #
+        # `access_level` viene ya normalizado (`.strip().lower()`, :249) y es
+        # "" cuando no se envia, asi que el caso sin etiqueta —el que produce
+        # la sincronizacion de Podio— cae por la misma comparacion. NO se
+        # traduce "" a "technicians": eso reescribiria la intencion en
+        # silencio y taparia un fallo del panel en vez de enseñarlo.
+        if entity_type == "job" and access_level != "technicians":
+            raise AppException(
+                "Forbidden: desde el portal solo se puede subir a la carpeta "
+                "«technicians» de un job.",
+                "forbidden_folder", 403)
 
     # ── 3. Leer archivo ──────────────────────────────────────────
     filename = file.filename
@@ -479,6 +551,15 @@ def update_attachment(id_attachment):
             raise AppException("Attachment no encontrado.",
                                "attachment_not_found", 404)
 
+        # P-03, segunda linea: estas dos rutas hacian `session.get` y decidian
+        # solo por permiso de carpeta. Hoy las frena unicamente el decorador
+        # —ninguna politica de portal concede attachment:update/delete—, o sea
+        # que estan a UN cambio de politica de ser un IDOR con efectos de
+        # escritura. La pertenencia no deberia depender de eso.
+        if not _portal_posee_adjunto(session, obj):
+            raise AppException("Attachment no encontrado.",
+                               "attachment_not_found", 404)
+
         # Check folder-specific update permission
         user_policies = getattr(g, "user_policies", [])
         if not PolicyEvaluator.evaluate(user_policies, "attachment:update"):
@@ -517,6 +598,15 @@ def delete_attachment(id_attachment):
     with get_session() as session:
         obj = session.get(Attachments, id_attachment)
         if not obj:
+            raise AppException("Attachment no encontrado.",
+                               "attachment_not_found", 404)
+
+        # P-03, segunda linea: estas dos rutas hacian `session.get` y decidian
+        # solo por permiso de carpeta. Hoy las frena unicamente el decorador
+        # —ninguna politica de portal concede attachment:update/delete—, o sea
+        # que estan a UN cambio de politica de ser un IDOR con efectos de
+        # escritura. La pertenencia no deberia depender de eso.
+        if not _portal_posee_adjunto(session, obj):
             raise AppException("Attachment no encontrado.",
                                "attachment_not_found", 404)
 

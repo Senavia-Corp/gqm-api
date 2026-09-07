@@ -21,13 +21,31 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scripts.audit_portal_lib import call, ids_de, paginar, tokens  # noqa: E402
+from scripts.audit_portal_lib import (call, ids_de, mundos_sembrados,  # noqa: E402
+                                      paginar, tokens)
 
 # ── Mundo sembrado (scripts/seed_portal_audit.py) ────────────────────────────
-A = {"sub": "SUBC60001", "tec": "TEC60001", "job": "QID-I60001", "task": "TSK60001",
-     "att": "ATT60001", "cert": "CERT60001", "cli": "CLI60001", "pmc": "PMC60001"}
-B = {"sub": "SUBC60002", "tec": "TEC60002", "job": "PTL-I60001", "task": "TSK60003",
-     "att": "ATT60003", "cert": "CERT60002", "cli": "CLI60002", "pmc": "PMC60002"}
+# Los ids se resuelven POR NOMBRE contra la BD, no se escriben a mano: salen de
+# un contador que ni `--limpiar` reinicia. Ver `mundos_sembrados` en
+# audit_portal_lib.py — y las 14 filas falsamente «no conformes» que costó.
+A, B = mundos_sembrados()
+
+
+def _mem_pm() -> str:
+    """El GQM Member sembrado; `MEM60001` también era un id de contador."""
+    from sqlmodel import select as _sel
+
+    from src.database.db_sqlmodel import get_session
+    from src.models.MemberModel import Member
+    with get_session() as _s:
+        m = _s.exec(_sel(Member).where(
+            Member.Email_Address == "member-dev@senavia-test.com")).first()
+        if not m:
+            sys.exit("⛔ falta member-dev@senavia-test.com; corre scripts/seed_rbac.py")
+        return m.ID_Member
+
+
+MEM_PM = _mem_pm()
 NO = {"sub": "SUBC-NO-EXISTE", "tec": "TEC-NO-EXISTE", "job": "QID-NO-EXISTE",
       "task": "TSK-NO-EXISTE", "att": "ATT-NO-EXISTE", "cert": "CERT-NO-EXISTE",
       "cli": "CLI-NO-EXISTE", "pmc": "PMC-NO-EXISTE"}
@@ -89,8 +107,8 @@ def main():
         #   /commission/member/<id>   Commission.py:213 exige role==member and id==target
         #   /member/<id>              self_profile_guard, routes_protection.py:305
         ("GET /jobs/subcontractor/<id>", "/jobs/subcontractor/{sub}",       "sub",  "deny_diseño", PORTAL),
-        ("GET /commission/member/<id>", "/commission/member/MEM60001",      None,   "deny_diseño", PORTAL),
-        ("GET /member/<id>",            "/member/MEM60001",                 None,   "deny_diseño", PORTAL),
+        ("GET /commission/member/<id>", f"/commission/member/{MEM_PM}",      None,   "deny_diseño", PORTAL),
+        ("GET /member/<id>",            f"/member/{MEM_PM}",                 None,   "deny_diseño", PORTAL),
         ("GET /podio/items/<app_type>", "/podio/items/QID",                 None,   "no_auditable", PORTAL),
     ]
     for etiqueta, plantilla, clave, forma, con_permiso in LECTURAS:
@@ -191,10 +209,17 @@ def main():
             # `propio is A` falso: se le media contra el mundo A como «ajeno» y
             # el mundo B no contaba como intruso ni se sondaba. Para el, TODO lo
             # de A y lo de B es ajeno.
+            #
+            # El job COMPARTIDO se excluye del conjunto de «ajenos»: los dos
+            # subcontratistas lo ven por DISEÑO (es la obra que comparten, el
+            # fixture que la auditoria anterior anadio a proposito). Contarlo
+            # como intruso daba cuatro filas rojas describiendo la regla de
+            # negocio como si fuera una fuga.
+            compartidos = {A.get("compartido"), B.get("compartido")} - {None}
             if suj == "tech_independiente":
-                ajenos = set(A.values()) | set(B.values())
+                ajenos = (set(A.values()) | set(B.values())) - compartidos
             else:
-                ajenos = set((B if propio is A else A).values())
+                ajenos = set((B if propio is A else A).values()) - compartidos
             ajeno = B if propio is A else A
             vistos = paginar(T[suj], ruta, pk)
             intrusos = sorted(v for v in vistos if v in ajenos)
@@ -274,19 +299,55 @@ def main():
     # los listados agregados, ni el contenido financiero, ni las escrituras de
     # campos de vinculo. Cada una de estas sondas nacio de un fallo REAL medido.
     import json as _json
-    FINANCIEROS = ("Gqm_formula_pricing", "Gqm_target_return", "Acc_receivable",
-                   "Gqm_final_sold_pricing", "Gqm_target_sold_pricing")
+    # La lista se IMPORTA, no se reescribe: la copia a mano tenia 5 de los 21
+    # nombres y le faltaba justo `Gqm_premium_in_money`, uno de los dos que
+    # fugaba `/jobs/by-member-role`. Una sonda que solo busca lo que ya sabes
+    # que se escapa no encuentra nada nuevo.
+    from src.utils.portal_redaction import CAMPOS_FINANCIEROS_JOB
+    FINANCIEROS = tuple(sorted(CAMPOS_FINANCIEROS_JOB))
 
     for suj in PORTAL:
         for etiqueta, ruta in (("GET /jobs/jobs_table", "/jobs/jobs_table?limit=100"),
                                ("GET /tasks/weekly", "/tasks/weekly"),
-                               ("GET /jobs/", "/jobs/?limit=100")):
+                               ("GET /jobs/", "/jobs/?limit=100"),
+                               # Las dos que NO pasan por `serialize_job` y por
+                               # eso no estaban aqui. `by-member-role` fugaba de
+                               # verdad; `oldest` no, y esta para que se sepa.
+                               ("GET /jobs/by-member-role",
+                                f"/jobs/by-member-role?member_id={MEM_PM}&rol=PM&limit=100"),
+                               ("GET /jobs/oldest", f"/jobs/oldest?parent_mgmt_co_id={A['pmc']}")):
             st, pl = call(T[suj], "GET", ruta)
             filtrados = [f for f in FINANCIEROS if f in _json.dumps(pl)] if st == 200 else []
             FILAS.append({"sujeto": suj, "endpoint": etiqueta, "objeto": "bloque financiero",
                           "real": st, "esperado": "sin campos financieros",
                           "conforme": "NO" if filtrados else "SÍ",
                           "nota": f"filtra {filtrados}" if filtrados else "sin margen de GQM"})
+
+    # ── La regla de carpetas de los adjuntos de un JOB ──────────────────────
+    #
+    # Decision del cliente: de un job, un rol de portal solo ve —y solo escribe—
+    # `access_level="technicians"`. Lo demas (members, logbook, «internal» y el
+    # NULL que produce la sincronizacion desde Podio, que nunca escribe el
+    # campo) queda fuera aunque el job sea suyo.
+    #
+    # Se enumeran los CUATRO niveles sobre el MISMO job propio: sin la baraja
+    # entera, un arreglo escrito como lista negra de «logbook» pasaria igual.
+    for nivel, esperado in (("technicians", "200"), ("members", "403"),
+                            ("logbook", "403"), ("sin-nivel", "403")):
+        att = A[f"att_{nivel}"]
+        for suj in ("subcontractor", "technical"):
+            st, _ = call(T[suj], "GET", f"/attachments/{att}")
+            FILAS.append({"sujeto": suj, "endpoint": "GET /attachments/<id> del job propio",
+                          "objeto": f"access_level={nivel}", "real": st, "esperado": esperado,
+                          "conforme": "SI" if _casa(st, esperado) else "NO",
+                          "nota": "solo la carpeta technicians sale a portal"})
+    # Y el staff no pierde nada de eso.
+    for nivel in ("technicians", "members", "logbook", "sin-nivel"):
+        st, _ = call(T["full_admin"], "GET", f"/attachments/{A[f'att_{nivel}']}")
+        FILAS.append({"sujeto": "full_admin", "endpoint": "GET /attachments/<id> del job",
+                      "objeto": f"access_level={nivel}", "real": st, "esperado": "200",
+                      "conforme": "SI" if _casa(st, "200") else "NO",
+                      "nota": "control: la regla es solo para el portal"})
 
     # El `total` de un listado no debe delatar el censo global.
     for suj in ("subcontractor", "sub_B"):
@@ -299,7 +360,7 @@ def main():
 
     # Obra COMPARTIDA: la tarea del otro contratista no es tuya, ni para leer
     # ni para escribir, aunque el job si lo sea.
-    TAREA_DE_B = "TSK60032"
+    TAREA_DE_B = B["task"]   # la tarea del OTRO sub, resuelta por nombre
     st, _ = call(T["subcontractor"], "GET", f"/tasks/{TAREA_DE_B}")
     registra("subcontractor", "GET /tasks/<tarea de otro sub, obra compartida>",
              "ajeno", st, "404")
@@ -311,7 +372,13 @@ def main():
 
     # Borrado LOGICO: desvincular una tarea la hace desaparecer del portal de
     # todos sin pasar por DELETE, que R5 prohibe al portal.
-    for suj, tarea in (("technical", "TSK60001"), ("subcontractor", "TSK60002")):
+    # Ids resueltos, no escritos a mano: con `TSK60001`/`TSK60002` inexistentes
+    # el API devolvia 404 y la sonda lo apuntaba como «no conforme» (esperaba
+    # 403) sobre una tarea que no existia — cuatro filas rojas que no eran
+    # ningun fallo. Ademas `fila_bd` devolvia None y el detalle decia
+    # «BD ID_Jobs=None», que se lee como si la escritura hubiera pasado.
+    for suj, tarea in (("technical", A["task"]),
+                       ("subcontractor", A["task_sin_asignar"])):
         st, _ = call(T[suj], "PATCH", f"/tasks/{tarea}", {"ID_Jobs": None})
         fila = fila_bd(Tasks, tarea)
         registra(suj, "PATCH /tasks/ ID_Jobs=None (borrado logico, R5)", "propio",
@@ -319,9 +386,10 @@ def main():
 
     # Reasignar la PROPIEDAD de una tarea a otro contratista, o colgarla del
     # tablero de un empleado de GQM.
-    for campo, valor in (("ID_Subcontractor", "SUBC60002"), ("ID_Member", "MEM60001")):
-        st, _ = call(T["subcontractor"], "PATCH", "/tasks/TSK60002", {campo: valor})
-        fila = fila_bd(Tasks, "TSK60002")
+    for campo, valor in (("ID_Subcontractor", B["sub"]), ("ID_Member", MEM_PM)):
+        st, _ = call(T["subcontractor"], "PATCH",
+                     f"/tasks/{A['task_sin_asignar']}", {campo: valor})
+        fila = fila_bd(Tasks, A["task_sin_asignar"])
         registra("subcontractor", f"PATCH /tasks/ {campo}", "ajeno", st, "403",
                  f"BD {campo}={getattr(fila, campo, None)!r}")
 

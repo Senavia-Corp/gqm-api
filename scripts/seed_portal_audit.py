@@ -55,6 +55,7 @@ from src.models.CertificateModel import Certificate  # noqa: E402
 from src.models.ClientModel import Client  # noqa: E402
 from src.models.ParentMgmtCoModel import ParentMgmtCo  # noqa: E402
 from src.models.JobModel import Job  # noqa: E402
+from src.models.MemberModel import Member  # noqa: E402
 from src.models.OrderModel import Order  # noqa: E402
 from src.models.PermissionModel import Permission  # noqa: E402
 from src.models.RoleModel import Role  # noqa: E402
@@ -62,6 +63,7 @@ from src.models.SubcontractorModel import Subcontractor  # noqa: E402
 from src.models.TasksModel import Tasks  # noqa: E402
 from src.models.TechnicianModel import Technician  # noqa: E402
 from src.models.TLActivityModel import TLActivity  # noqa: E402
+from src.models.link_models.JobMember import JobMemberLink  # noqa: E402
 from src.models.link_models.JobSubcontractor import JobSubcontractorLink  # noqa: E402
 from src.models.link_models.JobTechnician import JobTechnicianLink  # noqa: E402
 from src.utils.id_generator import generate_custom_id  # noqa: E402
@@ -222,6 +224,20 @@ def _enlazar(session, job, sub=None, tech=None):
     session.commit()
 
 
+def _enlazar_miembro(session, job, member, rol="PM"):
+    """Vincula un Member al job. Lo pide `/jobs/by-member-role`, que sin un solo
+    enlace devuelve lista vacia — y una sonda que no puede encontrar nada es
+    indistinguible de una sonda que no encuentra nada malo."""
+    if not member:
+        return None
+    if not session.get(JobMemberLink, (job.ID_Jobs, member.ID_Member, rol)):
+        session.add(JobMemberLink(job_id=job.ID_Jobs,
+                                  member_id=member.ID_Member, rol=rol))
+        session.commit()
+        print(f"  + miembro {member.ID_Member} enlazado a {job.ID_Jobs} como {rol}")
+    return member
+
+
 def _adjunto(session, nombre, job=None, sub=None, tech=None, nivel="internal"):
     a = session.exec(select(Attachments).where(Attachments.Document_name == nombre)).first()
     if a:
@@ -326,6 +342,9 @@ def limpiar(session) -> None:
         for enlace in session.exec(select(JobTechnicianLink).where(
                 JobTechnicianLink.job_id == job.ID_Jobs)).all():
             session.delete(enlace); borrados += 1
+        for enlace in session.exec(select(JobMemberLink).where(
+                JobMemberLink.job_id == job.ID_Jobs)).all():
+            session.delete(enlace); borrados += 1
         session.delete(job); borrados += 1
     session.commit()
     for cli in session.exec(select(Client).where(
@@ -391,6 +410,8 @@ def main() -> None:
         cli_a = _cliente(session, "A")
         job_a = _job(session, "A", cli_a, f"{MARCA}-A-job-de-sub-A")
         _enlazar(session, job_a, sub=sub_a, tech=tech_a)
+        _enlazar_miembro(session, job_a, session.exec(select(Member).where(
+            Member.Email_Address == "member-dev@senavia-test.com")).first())
         t_a1 = _tarea(session, f"{MARCA}-A-tarea-de-tech-A", job_a, tech=tech_a, sub=sub_a)
         t_a2 = _tarea(session, f"{MARCA}-A-tarea-sin-asignar", job_a, sub=sub_a)
         _adjunto(session, f"{MARCA}-A-adjunto-job", job=job_a, nivel="internal")
@@ -430,6 +451,28 @@ def main() -> None:
         job_c = _job(session, "C", cli_c, f"{MARCA}-C-job-sin-asignar", tipo="PAR")
         t_c1 = _tarea(session, f"{MARCA}-C-tarea-huerfana", job_c)
         t_i1 = _tarea(session, f"{MARCA}-I-tarea-de-tech-independiente", job_c, tech=tech_i)
+
+        # ── Fixtures AÑADIDOS AL FINAL, y esto no es cosmético ────────────────
+        #
+        # `audit_portal_matrix.py` y `audit_field_leaks.py` codifican a mano
+        # ATT60001/ATT60003 y TSK60001/TSK60003 como «el objeto de A» y «el de
+        # B». Esos ids salen de un CONTADOR, así que sembrar en medio los
+        # desplaza: metidos en el mundo A, estas cinco filas se quedaron con
+        # ATT60003 y TSK60003 y las dos sondas empezaron a comparar objetos de A
+        # contra las expectativas de B — 14 filas «no conformes» que no eran
+        # ningún fallo de permisos. Van al final para que los ids históricos no
+        # se muevan.
+        #
+        # La baraja completa de `access_level` sobre UN MISMO job propio: sin
+        # ella la regla de carpetas no se puede medir. El caso NULL es el que
+        # más importa —es lo que produce la sincronización desde Podio, que
+        # nunca escribe el campo— y "logbook" es el que escribe el chat del job.
+        _adjunto(session, f"{MARCA}-A-adjunto-job-technicians", job=job_a, nivel="technicians")
+        _adjunto(session, f"{MARCA}-A-adjunto-job-members", job=job_a, nivel="members")
+        _adjunto(session, f"{MARCA}-A-adjunto-job-logbook", job=job_a, nivel="logbook")
+        _adjunto(session, f"{MARCA}-A-adjunto-job-sin-nivel", job=job_a, nivel=None)
+        # Tarea del técnico A SIN subcontratista.
+        _tarea(session, f"{MARCA}-A-tarea-de-tech-A-sin-sub", job_a, tech=tech_a)
         _enlazar(session, job_c, tech=tech_i)
 
         # ── Inventario para 00-entorno.md ─────────────────────────────────────
