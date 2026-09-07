@@ -1,17 +1,17 @@
 # Arreglos aplicados — de 50 filas no conformes a 0
 
 Sesión posterior a la auditoría, sobre las mismas ramas.
-`gqm-api` `bd4f261` · `gqm-panel-admin` `d1e6f23`.
+`gqm-api` `a626f70` · `gqm-panel-admin` `7155887`.
 
 ## Antes y después
 
-| Medida | Auditoría | Ronda 1 | Ronda 2 (esta) |
-|---|---|---|---|
-| Matriz de permisos (337 filas) | **50 no conformes** | 0 | **0** |
-| Fuga de campo | **690 filas** | 0 | **0** |
-| Bloque 4 del verificador | 102 | 106 | **162** |
-| Playwright | 30 (portal solo navegación) | 47 | **58** |
-| Suite completa | 753 passed | 765 passed | **806 passed** |
+| Medida | Auditoría | Ronda 1 | Ronda 2 | Tras las 2 revisiones |
+|---|---|---|---|---|
+| Matriz de permisos (337 filas) | **50 no conformes** | 0 | 0 | **0** |
+| Fuga de campo | **690 filas** | 0 | 0 | **0** |
+| Bloque 4 del verificador | 102 | 106 | 162 | **176** |
+| Playwright | 30 (portal solo navegación) | 47 | 58 | **61** |
+| Suite completa | 753 passed | 765 passed | 806 passed | **840 passed** |
 | Fallos restantes de la suite | 27 failed · 7 errors | igual | **idénticos, uno a uno, a los de `main`** |
 | Flujo e2e | 8 pasos + 3 negativas | igual | igual, en verde |
 
@@ -141,3 +141,69 @@ Los dos detectores están vivos y son independientes.
 | **Los dos vocabularios de rol** | El servidor usa `gqm_role`; parte del gating de UI aún lee `localStorage.user_data.role`, editable. Unificarlos del todo es un refactor grande. Las guardas **nuevas** se escribieron contra el vocabulario del servidor, y en la ronda 2 se pasaron a la cookie las de `/profile` (4 sitios), `LeadTechnicianDashboard` y `CreateTaskDialog` |
 | **`Resource` por objeto en `PolicyEvaluator`** | Implementado y sin usar: todos los sitios pasan `"*"`. Es la causa raíz de la familia `P-nn`. Decisión de arquitectura |
 | **`GET /podio/items/<app_type>`** | Ruta solo-JWT, **no auditada**: devuelve 500 sin credenciales de Podio |
+
+
+---
+
+# Las dos revisiones adversariales
+
+Sobre el diff de cada ronda se lanzó una revisión adversarial: varios revisores
+independientes, una dimensión cada uno, con el encargo de **encontrar fallos
+reales y medirlos**, no de opinar sobre el código. Devolvieron **24 hallazgos en
+la segunda ronda, todos ejecutados**. Lo que sigue es lo que encontraron en MIS
+arreglos, que es la parte que importa.
+
+## Tres veces arreglé un fallo y metí otro
+
+- **O-05.** El arreglo de la recuperación de contraseña mandaba un correo por
+  principal. Eso **triplicó** un agujero que ya existía: la clave del limitador
+  se construía como `_client_key(f"forgot|{email}")`, y el `.strip()` de dentro
+  recorta los extremos de `"forgot| ana@x.com"`, que no tiene ninguno. Bastaba
+  un espacio para abrir un cupo nuevo — y ahora cada petición mandaba 3 correos
+  en vez de 1. Medido por el revisor: 27 correos SMTP reales.
+- **O-07.** Arreglando que las claves JWT se congelaran en el import, hice más
+  silencioso otro fallo: `ACCESS_TOKEN_EXPIRES_MIN='abc'` pasó a caer al
+  defecto de 60 minutos sin decir nada, cuando el código anterior reventaba al
+  arrancar. Es justo la lección que O-07 venía a dejar escrita.
+- **U-06.** Filtré las pestañas de asignación para dejarle al portal sólo la
+  suya… y el manejador seguía limpiando los tres ids, así que **el único botón
+  que le quedaba le borraba la asignación**.
+
+## Y una sonda mía no podía fallar
+
+`test_jwt_secreto.py` lanzaba el subproceso **sin `env=`**, así que heredaba el
+entorno del padre — y `verificar_portal.sh` corre antes un fichero que importa
+`main` → `load_dotenv()`. El hijo veía la clave, el `os.getenv` del import la
+encontraba, y **el código roto también pasaba**. Aislada daba `2 failed`; en el
+orden del arnés, `1 failed, 35 passed`. Ahora el hijo recibe un entorno saneado
+y hay una prueba que guarda a la prueba.
+
+La misma clase de fallo apareció dos veces más:
+
+- la sonda de U-07 afirmaba que existía un nodo visible, no lo que decía: con el
+  adaptador tirando **todo** el texto del aviso seguía verde;
+- la sonda de U-08 tenía congelado un fallo **como expectativa** — esperaba el
+  botón «view» en minúscula, que era el nombre de una clave de traducción sin
+  traducir. Al añadir la clave se puso roja, que es lo que tenía que hacer.
+
+## Cuatro fallos apilados en una sola pantalla
+
+La ficha de técnico bajo un subcontratista tenía cuatro, cada uno tapando al
+siguiente: `params` es una promesa en Next 16 y se declaraba como objeto plano
+(la ficha pedía `/api/technician/undefined`); al llegar los datos, un
+`.map((t) => …)` tapaba al traductor; detrás, un `Job_status` NULL tiraba la
+página; y al final el botón «Save Password» sólo dejaba el campo preparado —
+quien lo pulsaba se iba creyendo que la contraseña estaba cambiada.
+
+Ninguno se veía porque el primero impedía que el resto llegara a ejecutarse.
+Es el mismo patrón que U-01: quitas un callejón sin salida y aparece el
+siguiente.
+
+## Lo que esto dice del método
+
+Las dos revisiones encontraron cosas que yo no vi **en mi propio trabajo**, y en
+particular pruebas que daban verde sobre código roto. Sin ellas, la entrega
+habría salido con tres regresiones y con un arnés que las tapaba. La regla que
+más rindió no fue ninguna técnica: fue **verificar cada hallazgo a mano antes de
+tocar nada**, y **sabotear cada arreglo después** para comprobar que la sonda lo
+ve.

@@ -170,6 +170,53 @@ convierten la aplicación en un producto de portal terminado.
 | **`Resource` por objeto en `PolicyEvaluator`** | Está implementado y ningún sitio de llamada lo usa: todos pasan `"*"`. Por eso la autorización a nivel de objeto se hace a mano en cada handler y la cobertura es desigual. Es la causa raíz de la familia P-nn |
 | **`GET /podio/items/<app_type>`** | Ruta solo-JWT, sin comprobación de permiso, **no auditada**: devuelve 500 sin credenciales de Podio. Revisar con Podio configurado |
 | **Deuda de datos de producción** | No se pudo medir desde la sesión de auditoría. El SQL enumerativo está en `HANDOFF-ARREGLOS.md` |
+| **96 claves de traducción que no existen** | `t()` devuelve la propia clave cuando no la encuentra, así que la pantalla imprime el nombre interno: «techType *», «password *». **Ninguna es del portal** —su espacio está completo—; el resto vive en pantallas que esta auditoría no miró. Lista completa abajo |
+
+### Las 96 claves de traducción que faltan
+
+Detectadas con un barrido de todas las llamadas `t("…")` del panel contra
+`messages/{en,es}.json`. **No es un fallo del portal**: sus dos espacios de
+nombres (`subcontractors` y `dashboard`) quedaron completos — 36 claves
+añadidas. Lo que queda es deuda del panel entero, y se deja enumerada porque el síntoma es visible
+para el usuario: la etiqueta sale con el nombre de la clave.
+
+| Área | Claves |
+|---|---|
+| `jobEstimate` | 58 |
+| `jobPurchasesTab` | 15 |
+| `jobTimelineTab` | 13 |
+| `roles_permissions` | 6 |
+| `clients` | 3 |
+| `commissions` | 1 |
+
+No se redactan aquí a propósito: es texto de producto de pantallas que no
+audité (presupuestos de obra, comisiones, comunidades, proveedores), y
+escribirlo sin conocer esas pantallas produciría copia mala en dos idiomas. El
+listado completo, clave por clave y con el fichero donde se usa, está en
+`reports/portal-audit/i18n-faltantes.txt`.
+
+---
+
+## 3 bis. Una consecuencia del arreglo O-05 que conviene saber
+
+`forgot-password` devolvía el primer principal por orden de tabla, así que un
+técnico que compartiera correo con un member **no podía recuperar su contraseña
+jamás**. Ahora se manda un enlace por cada cuenta abierta sobre esa dirección.
+
+Eso tiene una consecuencia que hay que decir en voz alta: **quien controle el
+buzón puede reiniciar TODAS las cuentas abiertas sobre él.** Antes, con un buzón
+compartido de empresa (`office@…`), quien lo leyera sólo alcanzaba la cuenta de
+técnico; ahora alcanza también la de subcontratista, que en el portal ve más.
+
+No es una regresión evitable: recuperar la contraseña por correo **es** darle esa
+potestad a quien controla el correo, y que antes sólo llegara a la primera por
+orden de tabla era un accidente, no un control de seguridad. Pero cambia el
+consejo operativo para el alta de los 432:
+
+> **Una dirección de correo por persona.** Un buzón de empresa compartido entre
+> el subcontratista y sus técnicos convierte a cualquiera que lo lea en dueño de
+> todas esas cuentas. El índice único de `e9c1correo` impide el duplicado
+> *dentro* de cada tabla, no *entre* tablas.
 
 ---
 
