@@ -13,8 +13,10 @@ from ..utils.middleware.retries.db_route_retries.delete_session import delete_wi
 from ..utils.middleware.exceptions_handler import handle_exceptions, AppException
 from ..utils.middleware.logs.logs import logger
 from ..utils.middleware.auth.routes_protection import (
-    require_permission, portal_scope, scope_jobs_statement)
+    require_permission, portal_scope, scope_jobs_statement,
+    job_belongs_to_portal_user, portal_owns_subcontractor)
 from ..utils.policy_evaluator import PolicyEvaluator
+from ..utils.portal_redaction import llamante_es_portal
 from flask import g
 from src.podio.podio_auth import get_podio_headers
 from src.cloudinary.service import (
@@ -291,6 +293,35 @@ def upload_attachment():
             f"No se pudo determinar el tipo de entidad para: {entity_id}",
             "unknown_entity_type", 400
         )
+
+    # ── 2bis. Pertenencia del destino ────────────────────────────
+    #
+    # El `entity_id` viene del formulario y el tipo se deduce de su PREFIJO: no
+    # se comprobaba en ningun momento que el destino fuera del llamante. Un
+    # subcontratista podia colgar ficheros en el job de otro, o en su ficha.
+    #
+    # Va ANTES de leer el fichero y de subirlo a Cloudinary: si se comprobara
+    # despues, el fichero ya estaria en el almacenamiento externo aunque la fila
+    # no llegara a crearse.
+    #
+    # 404 y no 403, como el resto de rutas de portal: un 403 confirmaria que ese
+    # job o esa ficha existen.
+    if llamante_es_portal():
+        with get_session() as sesion_guarda:
+            if entity_type == "job":
+                permitido = job_belongs_to_portal_user(sesion_guarda, entity_id)
+            elif entity_type == "subcontractor":
+                permitido = portal_owns_subcontractor(entity_id)
+            elif entity_type == "certificate":
+                from ..models.CertificateModel import Certificate
+                cert = sesion_guarda.get(Certificate, entity_id)
+                permitido = bool(cert) and portal_owns_subcontractor(
+                    cert.ID_Subcontractor)
+            else:
+                # `client` y `building_dept` no son destinos de portal.
+                permitido = False
+        if not permitido:
+            raise AppException("Entity not found", "not_found", 404)
 
     # ── 3. Leer archivo ──────────────────────────────────────────
     filename = file.filename

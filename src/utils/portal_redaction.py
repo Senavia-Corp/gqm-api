@@ -26,7 +26,7 @@ subcontratistas. Esos dejan de ser alcanzables por el arreglo de scoping
 (P-05): tras él, un sub no puede leer la ficha de otro. Redactarlos también
 aquí escondería el dato propio, que el panel sí muestra en su ficha.
 """
-from flask import g
+from flask import g, has_app_context
 
 # Bloque financiero de `jobs`: el margen de GQM y todo lo que lo deja deducir.
 CAMPOS_FINANCIEROS_JOB = frozenset({
@@ -59,6 +59,13 @@ def llamante_es_portal() -> bool:
     nada, que es el comportamiento previo. La redacción solo se activa cuando
     hay un usuario de portal identificado.
     """
+    # `has_app_context()` ANTES de tocar `g`: fuera de una peticion Flask —un
+    # script, un test unitario, uno de los cinco crons de Vercel— acceder a `g`
+    # no devuelve None, LANZA RuntimeError. El docstring de arriba prometia
+    # «falla cerrado y devuelve False» y no era cierto: reventaba
+    # `add_relationships` entero, que es el punto por el que pasa todo volcado.
+    if not has_app_context():
+        return False
     usuario = getattr(g, "current_user", None)
     if not usuario:
         return False
@@ -111,6 +118,8 @@ def acotar_job_para_portal(job_dict: dict) -> dict:
 
     No toca nada si el llamante es staff.
     """
+    if not has_app_context():
+        return job_dict
     usuario = getattr(g, "current_user", None)
     if not usuario or usuario.get("role") not in ROLES_DE_PORTAL:
         return job_dict

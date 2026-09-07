@@ -54,12 +54,12 @@ TABLAS = [
 ]
 
 SQL_DUPLICADOS = """
-SELECT lower("Email_Address") AS correo,
+SELECT lower(btrim("Email_Address")) AS correo,
        count(*) AS n,
        string_agg("{id_col}", ', ' ORDER BY "{id_col}") AS filas
   FROM {tabla}
  WHERE "Email_Address" IS NOT NULL AND btrim("Email_Address") <> ''
- GROUP BY lower("Email_Address")
+ GROUP BY lower(btrim("Email_Address"))
 HAVING count(*) > 1
  ORDER BY n DESC
  LIMIT 20
@@ -90,10 +90,25 @@ def upgrade() -> None:
 
     with op.get_context().autocommit_block():
         for tabla, _, nombre in TABLAS:
+            # lower(btrim(...)) y NO solo lower(...).
+            #
+            # Dos agujeros que dejaba la primera version, los dos reabren
+            # exactamente la «cuenta muda» que esta migracion existe para cerrar:
+            #
+            #  · sin btrim, "ana@x.com " y "ana@x.com" son claves distintas para
+            #    el indice y el MISMO usuario para el login, que normaliza con
+            #    `.strip().lower()`. Basta un espacio final —que en una
+            #    importacion de 432 filas desde Podio no lo mira nadie— para
+            #    colar la segunda cuenta inalcanzable.
+            #  · el predicado `IS NOT NULL` deja pasar la cadena VACIA, que no es
+            #    un correo. Con el, a partir del segundo tecnico o miembro sin
+            #    correo el alta reventaria con 409. El predicado tiene que decir
+            #    lo mismo que la consulta de duplicados de arriba, que ya
+            #    excluye '' con btrim.
             op.execute(
                 f'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS {nombre} '
-                f'ON {tabla} (lower("Email_Address")) '
-                f'WHERE "Email_Address" IS NOT NULL'
+                f'ON {tabla} (lower(btrim("Email_Address"))) '
+                f'WHERE "Email_Address" IS NOT NULL AND btrim("Email_Address") <> \'\''
             )
 
 

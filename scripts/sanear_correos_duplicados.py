@@ -81,7 +81,19 @@ def main() -> None:
                           f"se vacia el correo de {[getattr(f, id_col) for f in sobran]}")
                     if APLICAR:
                         for f in sobran:
-                            f.Email_Address = None
+                            # Cadena VACIA, no None: `Email_Address` es NOT NULL
+                            # en `technician` y en `member` (comprobado contra
+                            # information_schema), asi que poner None reventaba
+                            # con NotNullViolation — el script no podia sanear
+                            # justo el caso que la migracion exige sanear.
+                            #
+                            # El indice excluye '' con su predicado btrim, asi
+                            # que la fila deja de bloquear el correo. Y se
+                            # IMPRIME el valor que se quita: la fila se conserva,
+                            # pero el dato hay que poder recuperarlo.
+                            print(f"      · {getattr(f, id_col)} tenia "
+                                  f"«{f.Email_Address}» → se vacia")
+                            f.Email_Address = ""
                             session.add(f)
                     arreglados += len(sobran)
                 else:

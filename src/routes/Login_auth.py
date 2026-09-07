@@ -15,6 +15,8 @@ from src.utils.middleware.auth.routes_protection import get_user_context
 from src.utils.policy_evaluator import PolicyEvaluator
 from sqlalchemy.orm import joinedload
 
+from ..utils.password_policy import validar_password, PasswordDebil  # noqa: E402
+
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
@@ -94,7 +96,11 @@ def _rate_limited(key: str) -> bool:
 
 def _client_key(email: str) -> str:
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
-    return f"{ip}|{(email or '').lower()}"
+    # `.strip()` ademas de `.lower()`: la BUSQUEDA del usuario normaliza con
+    # `.strip().lower()`, asi que sin el strip " a@b.com" y "a@b.com" son el
+    # MISMO usuario con DOS claves de limitacion distintas — y el limitador se
+    # reinicia anadiendo un espacio.
+    return f"{ip}|{(email or '').strip().lower()}"
 
 
 def _json_object():
@@ -501,8 +507,14 @@ def reset_password():
     new_password = data.get("Password")
     if not token or not new_password:
         return jsonify({"error": "token and Password are required"}), 400
-    if len(new_password) < 8:
-        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    # O-01: aqui solo se miraba `len < 8`, asi que "12345678" —que ESTA en la
+    # lista de prohibidas— entraba y se escribia tal cual. Era la tercera puerta
+    # para fijar una contrasena, y la unica que no exige estar autenticado: la
+    # mas facil de usar y la que menos se mira.
+    try:
+        validar_password(new_password)
+    except PasswordDebil as debil:
+        return jsonify({"error": str(debil)}), 400
 
     try:
         payload = _reset_serializer().loads(token, max_age=1800)

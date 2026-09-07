@@ -171,27 +171,50 @@ def main():
                     registra(suj, etiqueta, objeto, st, esp, nota)
 
     # ── Bloque 2: listados — se ENUMERAN, con paginación completa ────────────
+    # El cuarto elemento dice QUE ROLES tienen la accion. Un rol que no la tiene
+    # debe recibir 403 del decorador, y ese 403 es lo CORRECTO, no un fallo:
+    # sin esto la matriz exigia 200 a un tecnico sobre `/subcontractors/`, que su
+    # politica no concede.
+    SOLO_SUB = ("subcontractor", "sub_B")
     LISTADOS = [
-        ("GET /tasks/",        "/tasks/",        "ID_Tasks"),
-        ("GET /jobs/",         "/jobs/",         "ID_Jobs"),
-        ("GET /technician/",   "/technician/",   "ID_Technician"),
-        ("GET /attachments/",  "/attachments/",  "ID_Attachment"),
-        ("GET /subcontractors/", "/subcontractors/", "ID_Subcontractor"),
-        ("GET /certificate/",  "/certificate/",  "ID_Certificate"),
+        ("GET /tasks/",          "/tasks/",          "ID_Tasks",          PORTAL),
+        ("GET /jobs/",           "/jobs/",           "ID_Jobs",           PORTAL),
+        ("GET /technician/",     "/technician/",     "ID_Technician",     PORTAL),
+        ("GET /attachments/",    "/attachments/",    "ID_Attachment",     PORTAL),
+        ("GET /subcontractors/", "/subcontractors/", "ID_Subcontractor",  SOLO_SUB),
+        ("GET /certificate/",    "/certificate/",    "ID_Certificate",    SOLO_SUB),
     ]
-    for etiqueta, ruta, pk in LISTADOS:
+    for etiqueta, ruta, pk, con_permiso in LISTADOS:
         for suj in PORTAL:
             propio = MUNDO.get(suj, {})
+            # `tech_independiente` no esta en MUNDO, asi que `propio` era {} y
+            # `propio is A` falso: se le media contra el mundo A como «ajeno» y
+            # el mundo B no contaba como intruso ni se sondaba. Para el, TODO lo
+            # de A y lo de B es ajeno.
+            if suj == "tech_independiente":
+                ajenos = set(A.values()) | set(B.values())
+            else:
+                ajenos = set((B if propio is A else A).values())
             ajeno = B if propio is A else A
             vistos = paginar(T[suj], ruta, pk)
-            intrusos = sorted(v for v in vistos if v in ajeno.values())
+            intrusos = sorted(v for v in vistos if v in ajenos)
             st, _ = call(T[suj], "GET", ruta + "?limit=1")
-            esp = "200|404"     # /attachments/ devuelve 404 con lista vacía
+            # El veredicto mira DOS cosas, no una.
+            #
+            # Antes solo miraba `intrusos`, asi que un listado que devolviera
+            # 403 a TODO el portal —o 500— se registraba como CONFORME: sin
+            # filas no hay intrusos. Una fila que solo puede fallar de una manera
+            # no vigila la otra, y aqui la otra es que el endpoint se rompa y
+            # nadie se entere.
+            esp = "200|404" if suj in con_permiso else "403"
+            estado_ok = str(st) in esp.split("|")
             nota = (f"devuelve {sorted(vistos)}"
-                    + (f" — INTRUSOS del otro sub: {intrusos}" if intrusos else ""))
+                    + (f" — INTRUSOS del otro sub: {intrusos}" if intrusos else "")
+                    + ("" if estado_ok else f" — estado inesperado {st}"))
             FILAS.append({"sujeto": suj, "endpoint": etiqueta, "objeto": "enumeración",
                           "real": st, "esperado": esp,
-                          "conforme": "NO" if intrusos else "SÍ", "nota": nota})
+                          "conforme": "SÍ" if (estado_ok and not intrusos) else "NO",
+                          "nota": nota})
 
     # ── Bloque 3: escrituras — cada una releída en la BD ─────────────────────
     from src.models.TasksModel import Tasks
@@ -302,6 +325,48 @@ def main():
         registra("subcontractor", f"PATCH /tasks/ {campo}", "ajeno", st, "403",
                  f"BD {campo}={getattr(fila, campo, None)!r}")
 
+    # ── Bloque 5: las puertas de contrasena y la subida de adjuntos ─────────
+    #
+    # Nada del «unico comando» verificaba O-01 ni la pertenencia del destino al
+    # subir un fichero. Cada sonda nace de un fallo medido en la revision.
+    for etiqueta, ruta, cuerpo in (
+        ("POST /technician/ (contrasena debil)", "/technician/",
+         {"Name": "AUDIT-PW", "Email_Address": "audit-pw-t@senavia-test.com",
+          "Password": "12345678"}),
+        ("POST /member/ (contrasena debil)", "/member/",
+         {"Member_Name": "AUDIT-PW", "Email_Address": "audit-pw-m@senavia-test.com",
+          "Password": "12345678"}),
+    ):
+        st, _ = call(T["full_admin"], "POST", ruta, cuerpo)
+        registra("full_admin", etiqueta, "n/a", st, "400",
+                 "O-01: la politica se exige en SERVIDOR, no solo en el panel")
+
+    st, _ = call(None, "POST", "/auth/reset-password",
+                 {"token": "x", "Password": "12345678"})
+    registra("anonimo", "POST /auth/reset-password (contrasena debil)", "n/a", st, "400",
+             "la unica puerta de contrasena que no exige estar autenticado")
+
+    # Subida de adjuntos a un destino AJENO. Sin fichero adjunto la ruta corta
+    # antes con 400, asi que se manda un multipart de verdad.
+    import io as _io
+    import urllib.request as _ur
+    from scripts.audit_portal_lib import API as _API
+    for destino, desc in ((B["job"], "job de otro sub"), (B["sub"], "ficha de otro sub")):
+        cuerpo = (b'--X\r\nContent-Disposition: form-data; name="file"; '
+                  b'filename="a.txt"\r\nContent-Type: text/plain\r\n\r\nx\r\n'
+                  + f'--X\r\nContent-Disposition: form-data; name="entity_id"\r\n\r\n{destino}\r\n'.encode()
+                  + b'--X--\r\n')
+        req = _ur.Request(f"{_API}/attachments/upload", data=cuerpo, method="POST",
+                          headers={"Content-Type": "multipart/form-data; boundary=X",
+                                   "Authorization": f"Bearer {T['subcontractor']}"})
+        try:
+            with _ur.urlopen(req, timeout=40) as r:
+                st = r.status
+        except Exception as e:
+            st = getattr(e, "code", -1)
+        registra("subcontractor", "POST /attachments/upload (destino ajeno)", "ajeno",
+                 st, "404", desc)
+
     # ── Limpieza: no dejar atrás lo que creó la propia matriz ───────────────
     from sqlmodel import select
     with get_session() as ses:
@@ -309,8 +374,18 @@ def main():
             Tasks.Name.like("AUDIT-MATRIZ-%"))).all()
         for t in sobrantes:
             ses.delete(t)
+        # El arnes tiene que ser HERMETICO: cada corrida dejaba filas en las
+        # mismas tablas que luego juzga —tecnicos y miembros de las sondas de
+        # contrasena, y filas de `tlactivity` que genera el propio trafico—, y
+        # eso ya volteo un veredicto durante esta auditoria.
+        from src.models.TechnicianModel import Technician
+        from src.models.MemberModel import Member
+        for Modelo, campo in ((Technician, "Name"), (Member, "Member_Name")):
+            for fila in ses.exec(select(Modelo).where(
+                    getattr(Modelo, campo).like("AUDIT-PW%"))).all():
+                ses.delete(fila)
         ses.commit()
-        print(f"limpieza: {len(sobrantes)} tareas «AUDIT-MATRIZ-%» borradas")
+        print(f"limpieza: {len(sobrantes)} tareas y los sujetos de prueba borrados")
 
     # ── Salida ──────────────────────────────────────────────────────────────
     destino = sys.argv[sys.argv.index("--csv") + 1] if "--csv" in sys.argv else None
